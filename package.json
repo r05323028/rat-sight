@@ -1,0 +1,14 @@
+{
+  "name": "ratsight",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.11.2",
+  "scripts": {
+    "dev:web": "corepack pnpm --filter @ratsight/web dev",
+    "build:web": "corepack pnpm --filter @ratsight/web build",
+    "lint:web": "corepack pnpm --filter @ratsight/web lint",
+    "typecheck:web": "corepack pnpm --filter @ratsight/web typecheck",
+    "test:web": "corepack pnpm --filter @ratsight/web test",
+    "test:e2e": "corepack pnpm --filter @ratsight/web e2e"
+  }
+}

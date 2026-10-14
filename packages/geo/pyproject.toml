@@ -1,0 +1,19 @@
+[project]
+name = "ratsight-geo"
+version = "0.1.0"
+description = "CRS-aware geospatial utilities for RatSight"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "numpy>=1.26,<3",
+  "geopandas>=1.1,<2",
+  "pyogrio>=0.11,<1",
+  "pyproj>=3.7,<4",
+  "shapely>=2.1,<3",
+]
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ratsight_geo"]

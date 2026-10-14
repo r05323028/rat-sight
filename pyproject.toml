@@ -1,0 +1,42 @@
+[project]
+name = "ratsight-dev"
+version = "0.1.0"
+description = "Development workspace for the RatSight evidence-driven urban rodent movement platform"
+requires-python = ">=3.12,<3.14"
+dependencies = ["ratsight-api", "ratsight-geo", "ratsight-simulation"]
+
+[dependency-groups]
+dev = [
+  "basedpyright>=1.29,<2",
+  "httpx>=0.28,<1",
+  "pytest>=8.3,<10",
+  "pytest-asyncio>=1.0,<2",
+  "ruff>=0.12,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["services/api", "packages/geo", "packages/simulation"]
+
+[tool.uv.sources]
+ratsight-api = { workspace = true }
+ratsight-geo = { workspace = true }
+ratsight-simulation = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["services/api/tests", "packages/geo/tests", "packages/simulation/tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+include = ["services/api/src", "packages/geo/src", "packages/simulation/src"]

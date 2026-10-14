@@ -1,0 +1,31 @@
+# RatSight local/runtime state
+.pi/fabric/
+.openrig/state/
+.openrig/cache/
+.openrig/logs/
+.openrig/agent-data/
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+
+# JavaScript
+node_modules/
+.next/
+apps/web/public/maplibre/
+coverage/
+playwright-report/
+test-results/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.basedpyright/
+
+# Local data / database volumes
+.DS_Store
+*.log

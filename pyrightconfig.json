@@ -1,0 +1,8 @@
+{
+  "include": ["apps", "services", "packages"],
+  "exclude": ["**/node_modules", "**/.venv", "**/.next", "**/dist", "**/build"],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "standard",
+  "venvPath": ".",
+  "venv": ".venv"
+}

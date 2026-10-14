@@ -1,0 +1,17 @@
+[project]
+name = "ratsight-simulation"
+version = "0.1.0"
+description = "Framework-independent mathematical simulation foundation for RatSight"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "networkx>=3.4,<4",
+  "numpy>=2.2,<3",
+  "scipy>=1.15,<2",
+]
+
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ratsight_simulation"]

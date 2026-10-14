@@ -1,0 +1,281 @@
+"use client";
+
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+
+import { MapView } from "@/components/map-view";
+import { Button } from "@/components/ui/button";
+import { fetchLayers, requestPreview, type Layer, type SimulationPreview } from "@/lib/api";
+
+const DEFAULT_LAYERS: Layer[] = [
+  ["rodent_observations", "Rodent observations"],
+  ["sewer_networks", "Sewer networks"],
+  ["stormwater_networks", "Stormwater networks"],
+  ["surface_corridors", "Surface movement corridors"],
+  ["human_activity", "Human activity"],
+  ["environmental_conditions", "Environmental conditions"],
+  ["simulated_paths", "Simulated movement paths"],
+].map(([id, label]) => ({
+  id,
+  label,
+  available: false,
+  classification: id === "simulated_paths" ? "SIMULATED" : null,
+  message: id === "simulated_paths" ? "Available after a synthetic preview." : "No dataset loaded.",
+}));
+
+const LAYER_GLYPHS: Record<string, string> = {
+  rodent_observations: "●",
+  sewer_networks: "━",
+  stormwater_networks: "┄",
+  surface_corridors: "╱",
+  human_activity: "◌",
+  environmental_conditions: "◍",
+  simulated_paths: "⌁",
+};
+
+export function Dashboard() {
+  const layersQuery = useQuery({ queryKey: ["layers"], queryFn: fetchLayers });
+  const [preview, setPreview] = useState<SimulationPreview | null>(null);
+  const [showSimulatedPaths, setShowSimulatedPaths] = useState(false);
+  const [duration, setDuration] = useState(12);
+  const [seed, setSeed] = useState(42);
+  const [walkers, setWalkers] = useState(24);
+  const mutation = useMutation({ mutationFn: requestPreview, onSuccess: setPreview });
+  const layers = layersQuery.data ?? DEFAULT_LAYERS;
+
+  return (
+    <main className="dashboard-shell">
+      <header className="topbar">
+        <div className="brand-lockup">
+          <div className="brand-mark" aria-hidden="true">
+            見
+          </div>
+          <div>
+            <h1>見光鼠</h1>
+            <p>RatSight · Urban movement analysis</p>
+          </div>
+        </div>
+        <div className="header-status">
+          <span className="status-dot" /> Research workspace{" "}
+          <span className="status-divider">/</span> Taipei City
+        </div>
+      </header>
+
+      <div className="workspace-heading">
+        <div>
+          <p className="eyebrow">DECISION SUPPORT · INITIALIZATION BUILD</p>
+          <h2>Movement analysis workspace</h2>
+        </div>
+        <span className="notice-chip">No real observation data loaded</span>
+      </div>
+
+      <div className="workspace-grid">
+        <section className="map-column" aria-label="Spatial workspace">
+          <div className="map-toolbar">
+            <div>
+              <strong>Spatial context</strong>
+              <span>Basemap only · no rodent observations</span>
+            </div>
+            <span className="map-coordinate">25.033° N · 121.565° E</span>
+          </div>
+          <MapView preview={preview} showSimulatedPaths={showSimulatedPaths} />
+          <div className="map-legend">
+            <span className="legend-item">
+              <i className="legend-basemap" /> Basemap
+            </span>
+            <span className="legend-item">
+              <i className="legend-simulated" /> Simulated · synthetic fixture
+            </span>
+          </div>
+          <div className="data-boundary">
+            <strong>Data boundary</strong>
+            <span>
+              Map center is a navigational starting point. No city infrastructure or animal
+              observations are included in this build.
+            </span>
+          </div>
+        </section>
+
+        <aside className="control-rail" aria-label="Analysis controls">
+          <section className="panel layer-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">MAP CONTENT</p>
+                <h3>Layers</h3>
+              </div>
+              <span className="panel-count">{layers.length}</span>
+            </div>
+            {layersQuery.isError && (
+              <p className="inline-note">API unavailable; showing empty layer catalog.</p>
+            )}
+            <div className="layer-list">
+              {layers.map((layer) => {
+                const previewReady = layer.id === "simulated_paths" && preview !== null;
+                const available = layer.available || previewReady;
+                return (
+                  <label
+                    className={`layer-row ${available ? "" : "is-unavailable"}`}
+                    key={layer.id}
+                  >
+                    <span className={`layer-glyph glyph-${layer.id}`}>
+                      {LAYER_GLYPHS[layer.id] ?? "·"}
+                    </span>
+                    <span className="layer-name">
+                      {layer.label}
+                      <small>
+                        {available
+                          ? (layer.classification ?? "AVAILABLE")
+                          : layer.id === "simulated_paths"
+                            ? "Run preview to generate"
+                            : "No dataset loaded"}
+                      </small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label={layer.label}
+                      disabled={!available || layer.id !== "simulated_paths"}
+                      checked={layer.id === "simulated_paths" && showSimulatedPaths}
+                      onChange={(event) => setShowSimulatedPaths(event.target.checked)}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="panel simulation-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">SYNTHETIC DEMO</p>
+                <h3>Simulation preview</h3>
+              </div>
+              <span className="classification-badge">SIMULATED</span>
+            </div>
+            <div className="form-field">
+              <label htmlFor="study-area">Study area</label>
+              <select id="study-area" value="taipei_synthetic_demo" disabled>
+                <option value="taipei_synthetic_demo">Taipei · synthetic demonstration</option>
+              </select>
+              <small>Coordinates in fixture are schematic, not a real study area.</small>
+            </div>
+            <div className="form-field">
+              <label htmlFor="duration">Duration · steps</label>
+              <input
+                id="duration"
+                type="number"
+                min={1}
+                max={100}
+                value={duration}
+                onChange={(event) => setDuration(Number(event.target.value))}
+              />
+            </div>
+            <div className="field-pair">
+              <div className="form-field">
+                <label htmlFor="seed">Random seed</label>
+                <input
+                  id="seed"
+                  type="number"
+                  min={0}
+                  value={seed}
+                  onChange={(event) => setSeed(Number(event.target.value))}
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="walkers">Walkers</label>
+                <input
+                  id="walkers"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={walkers}
+                  onChange={(event) => setWalkers(Number(event.target.value))}
+                />
+              </div>
+            </div>
+            <div className="form-field">
+              <label htmlFor="model">Movement model</label>
+              <select id="model" value="weighted_random_walk" disabled>
+                <option value="weighted_random_walk">Weighted random walk · demo</option>
+              </select>
+            </div>
+            <div className="form-field">
+              <label htmlFor="scenario">Intervention scenario</label>
+              <select id="scenario" value="baseline" disabled>
+                <option value="baseline">Baseline · no intervention</option>
+              </select>
+            </div>
+            <Button
+              className="run-button"
+              disabled={mutation.isPending || duration < 1 || walkers < 1 || seed < 0}
+              onClick={() =>
+                mutation.mutate({
+                  study_area: "taipei_synthetic_demo",
+                  duration_steps: duration,
+                  walkers,
+                  random_seed: seed,
+                  movement_model: "weighted_random_walk",
+                  intervention_scenario: "baseline",
+                })
+              }
+            >
+              {mutation.isPending ? "Running preview…" : "Run synthetic preview"}
+            </Button>
+            {mutation.isError && (
+              <p className="error-note" role="alert">
+                Preview unavailable. Confirm API is running, then retry.
+              </p>
+            )}
+            {mutation.isSuccess && (
+              <p className="success-note" role="status">
+                Reproducible run complete · seed {preview?.parameters.random_seed}
+              </p>
+            )}
+          </section>
+
+          <section className="panel analysis-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">RESULTS & PROVENANCE</p>
+                <h3>Analysis</h3>
+              </div>
+            </div>
+            <div className="analysis-row">
+              <span>Observation summary</span>
+              <strong>Not available</strong>
+            </div>
+            <div className="analysis-row">
+              <span>Potential corridors</span>
+              <strong>{preview ? `${preview.edges.length} synthetic edges` : "Not modeled"}</strong>
+            </div>
+            <div className="analysis-row">
+              <span>Relative risk</span>
+              <strong>Not estimated</strong>
+            </div>
+            <div className="analysis-row">
+              <span>Model uncertainty</span>
+              <strong>Not quantified</strong>
+            </div>
+            <div className="provenance-block">
+              <span>Evidence provenance</span>
+              <strong>{preview ? preview.provenance.source_id : "No evidence dataset"}</strong>
+              <small>Simulated paths are not observed animal migration routes.</small>
+            </div>
+            {preview && (
+              <div className="result-summary" aria-label="Simulation summary">
+                <span>{preview.nodes.reduce((sum, node) => sum + node.visits, 0)} node visits</span>
+                <span>·</span>
+                <span>
+                  {preview.model_id} v{preview.model_version}
+                </span>
+              </div>
+            )}
+          </section>
+        </aside>
+      </div>
+      <footer className="footer-note">
+        RatSight initialization build <span>·</span> Observed data unavailable <span>·</span>{" "}
+        Simulation outputs are synthetic and explicitly labeled
+      </footer>
+    </main>
+  );
+}

@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ratsight/web lint
+      - run: pnpm --filter @ratsight/web typecheck
+      - run: pnpm --filter @ratsight/web test
+      - run: pnpm --filter @ratsight/web build
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked --all-packages --all-groups
+      - run: uv run --locked ruff check .
+      - run: uv run --locked basedpyright
+      - run: uv run --locked pytest services/api/tests
+      - run: uv run --locked pytest packages/geo/tests
+      - run: uv run --locked pytest packages/simulation/tests
