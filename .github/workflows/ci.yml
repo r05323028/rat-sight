@@ -34,9 +34,14 @@ jobs:
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+      - run: npm install --global @fission-ai/openspec@1.14.1
       - run: uv sync --locked --all-packages --all-groups
       - run: uv run --locked ruff check .
       - run: uv run --locked basedpyright
+      - run: uv run --locked pytest scripts/tests
       - run: uv run --locked pytest services/api/tests
       - run: uv run --locked pytest packages/geo/tests
       - run: uv run --locked pytest packages/simulation/tests

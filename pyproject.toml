@@ -26,7 +26,7 @@ ratsight-geo = { workspace = true }
 ratsight-simulation = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["services/api/tests", "packages/geo/tests", "packages/simulation/tests"]
+testpaths = ["services/api/tests", "packages/geo/tests", "packages/simulation/tests", "scripts/tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]

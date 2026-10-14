@@ -1,6 +1,10 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e lint typecheck format-check build validate
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e lint typecheck format-check build validate openspec-gate openspec-archive
 
 PNPM ?= corepack pnpm
+
+# CHANGE=<name> selects the OpenSpec change for the gate and archive targets.
+# With no value the gate falls back to the single active change.
+CHANGE ?=
 
 install: install-js install-py
 
@@ -56,4 +60,14 @@ validate:
 	bash scripts/setup-pi-seats.sh --dry-run
 	rig spec validate --json rig.yaml
 	openspec schema validate evidence-driven
+	uv run pytest scripts/tests -q
 	docker compose -f infra/docker-compose.yml config --quiet
+
+# Deterministic, evidence-based acceptance gate: a non-zero exit blocks archive.
+openspec-gate:
+	uv run python scripts/openspec_quality_gate.py $(CHANGE)
+
+# Archive only through this target: the gate runs first and stops the chain.
+openspec-archive:
+	uv run python scripts/openspec_quality_gate.py $(CHANGE)
+	openspec archive $(CHANGE)

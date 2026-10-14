@@ -1,6 +1,6 @@
 name: evidence-driven
-version: 1
-description: Default OpenSpec workflow - proposal → specs → design → tasks
+version: 2
+description: RatSight evidence-driven workflow - proposal → specs → design → adversarial review → tasks
 artifacts:
   - id: proposal
     generates: proposal.md
@@ -195,6 +195,57 @@ artifacts:
     requires:
       - proposal
 
+  - id: adversarial-review
+    generates: adversarial-review.md
+    description: Adversarial challenge of specs and design before tasks
+    template: adversarial-review.md
+    instruction: |
+      Write the adversarial review record that challenges the specs and design
+      BEFORE tasks.md exists. This artifact is a planning gate: tasks requires
+      it, so task generation is not offered until adversarial-review.md exists.
+
+      The schema enforces presence and ordering only. It does not prove the
+      review happened. A fresh reviewer context and the project quality gate
+      (python3 scripts/openspec_quality_gate.py <change>) check that the
+      record is complete, internally consistent, and free of unresolved
+      blocking findings. Do not backfill this document after implementation.
+
+      Write it from a reviewer context that did not author the proposal,
+      specs, or design, and record the reviewer context, the author context,
+      and the independence mechanism. The gate rejects a record whose reviewer
+      and author are the same context.
+
+      Required sections (see the template):
+      - Review Record: change, reviewer context, author context, independence
+        mechanism, artifacts reviewed, review timestamp.
+      - Review Scope: Requirements, Architecture, Scientific assumptions,
+        Evidence quality, Acceptance criteria, Failure scenarios - each marked
+        Reviewed or "Not applicable - reason".
+      - Assumption Challenges, Requirement Gaps, Design Counterexamples,
+        Scientific Validity, Acceptance Criteria Weaknesses.
+      - Scientific Validity must address evidence applicability, biological
+        assumptions, parameter provenance, mathematical assumptions, model
+        limitations, falsifiability, and uncertainty. Unknowns stay unknown;
+        never invent a value, citation, or confidence score to close a
+        challenge.
+      - Findings: one table with Finding ID, Severity
+        (BLOCKING/MAJOR/MINOR/INFO), Affected artifact, Evidence or reasoning,
+        Proposed resolution, Status (OPEN/RESOLVED/ACCEPTED_RISK/DEFERRED).
+        Cite artifact paths and sections; reasoning must be checkable, not
+        "looks fine".
+      - Review Decision: exactly one Decision line with PASS,
+        PASS_WITH_WARNINGS, or BLOCKED, plus Blocking findings open (the gate
+        checks that count against the findings table), the basis for the
+        decision, and the resolutions required before tasks are written.
+
+      BLOCKING findings must be resolved in proposal/specs/design before
+      tasks.md is created. A blocking finding may only be closed as
+      ACCEPTED_RISK through a recorded human decision reference; never
+      fabricate approval.
+    requires:
+      - specs
+      - design
+
   - id: tasks
     generates: tasks.md
     description: Implementation checklist with trackable tasks
@@ -206,11 +257,12 @@ artifacts:
       would change what gets built, resolve them with the user first - do not
       bake an unstated assumption into the task list.
 
-      **IMPORTANT: Follow the template below for tracked tasks.** The apply phase parses
-      checkbox format to track progress. A box holding only `x` counts as done,
-      upper or lower case and with any spacing, so `- [ x]` is done too. Every
-      other marker, including `- [~]`, `- [-]` and an empty `- []`, reads as
-      unfinished. A line with no checkbox is not tracked at all.
+      **IMPORTANT: Follow the template below for tracked tasks.** The apply
+      phase parses checkbox format to track progress. A box holding only `x`
+      counts as done, upper or lower case and with any spacing, so `- [ x]` is
+      done too. Every other marker, including `- [~]`, `- [-]` and an empty
+      `- []`, reads as unfinished. A line with no checkbox is not tracked at
+      all.
 
       Guidelines:
       - Group related tracked tasks under ## numbered headings
@@ -218,9 +270,10 @@ artifacts:
       - Tasks should be small enough to complete in one session
       - Order tasks by dependency (what must be done first?)
       - Track implementation and verification work that can be completed before
-        archive. If the requested workflow includes archive or work that requires
-        this change to be archived, preserve those steps as plain bullets in an
-        optional `## Workflow follow-up` section at the end of tasks.md. These
+        archive. If the requested workflow includes archive or work that
+        requires this change to be archived, preserve those steps as plain
+        bullets in an optional `## Workflow follow-up` section at the end of
+        tasks.md. These
         bullets are reference information outside tracked task progress.
       - Each task MUST state how to verify completion (a test, command,
         observable behavior, or delivered artifact). Put the verification in
@@ -241,32 +294,82 @@ artifacts:
 
       ## 1. Setup
 
-      - [ ] 1.1 Create new module structure and verify expected files are present
-      - [ ] 1.2 Add dependencies to package.json and verify package installation succeeds
+      - [ ] 1.1 Create new module structure and verify expected files exist
+      - [ ] 1.2 Add dependencies to package.json and verify install succeeds
 
       ## 2. Core Implementation
 
       - [ ] 2.1 Implement data export function and verify the export test passes
-      - [ ] 2.2 Add CSV formatting utilities and verify unit tests cover quoting and delimiters
-      - [ ] 2.3 Document the export API in docs/export.md and verify the documented command runs as written
+      - [ ] 2.2 Add CSV formatting utilities and verify unit tests cover quoting
+      - [ ] 2.3 Document the export API in docs/export.md and verify the
+        documented command runs as written
       ```
 
       When applicable, append workflow follow-up as plain bullets, for example:
       ```
       ## Workflow follow-up
 
-      - Archive the change after the project's review requirements are satisfied.
+      - Archive the change once the project's review requirements are met.
       - Verify the archived result.
       ```
 
-      Reference specs for what needs to be built, design for how to build it.
+      Before writing tasks, read adversarial-review.md and confirm every
+      BLOCKING finding is resolved in proposal/specs/design. Tasks must not
+      encode work that contradicts a recorded review decision, and a finding
+      left OPEN or DEFERRED stays a tracked task.
+
+      Also include the post-implementation stages this project requires before
+      archive: independent code review (verification/code-review.md), QA and
+      applicable scientific model validation, traceability validation
+      (verification/traceability.md), quality gate
+      (python3 scripts/openspec_quality_gate.py <change>), and human
+      acceptance (verification/acceptance.md) when required. These stages are
+      project policy and script-enforced, not schema artifacts - the schema
+      only requires this file. Do not mark such a task complete from a file's
+      existence or from an agent's own success report.
+
+      Reference specs for what needs to be built, design for how to build it,
+      and adversarial-review.md for what must not be built until it is
+      resolved.
     requires:
       - specs
       - design
+      - adversarial-review
 
 apply:
-  requires: [ tasks ]
+  requires: [tasks]
   tracks: tasks.md
   instruction: |
     Read context files, work through pending tasks, mark complete as you go.
     Pause if you hit blockers or need clarification.
+
+    Apply is the implementation stage only. The schema gates this phase on
+    tasks.md; adversarial-review.md is already required to exist through it.
+    The remaining lifecycle stages are project policy, not schema artifacts,
+    and the quality gate is what enforces them:
+
+    1. Adversarial Review - read adversarial-review.md. Every BLOCKING finding
+       must be resolved in proposal/specs/design before implementing. A
+       decision of BLOCKED means stop and escalate, not "proceed carefully".
+    2. Implementation - only after the adversarial review is resolved. Follow
+       Spec → Implementation → Tests → Independent Review.
+    3. Independent Code Review - verification/code-review.md, written from a
+       reviewer context separate from the implementer. Inspect the actual diff
+       and the connected code, not the implementer's summary. The gate rejects
+       self-review and unresolved BLOCKING findings.
+    4. QA and scientific model validation - run the tests and record exact
+       commands and results; for model changes record validation limits. Never
+       invent accuracy metrics or present SIMULATED output as OBSERVED.
+    5. Traceability validation - verification/traceability.md, covering
+       engineering traceability (requirement → acceptance criteria →
+       implementation → tests → execution evidence) and scientific
+       traceability (research evidence → assumption → parameter → model →
+       validation evidence) when applicable.
+    6. Final verification and quality gate -
+       python3 scripts/openspec_quality_gate.py <change>. A non-zero exit code
+       blocks archive; fix the reported failures, never the report.
+    7. Human acceptance - verification/acceptance.md when required by project
+       policy. Never fabricate an approval or use agent consensus as one.
+    8. Archive - only after the quality gate passes and required approval is
+       recorded: python3 scripts/openspec_quality_gate.py <change> && openspec
+       archive <change>
