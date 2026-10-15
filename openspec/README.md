@@ -1,72 +1,50 @@
 # RatSight OpenSpec
 
-The project runs OpenSpec with the project-local `evidence-driven` schema
-(`openspec/config.yaml` sets `schema: evidence-driven`). The authoritative
-lifecycle and checkpoint rules are in `guidance/openspec-workflow.md`; this file
-covers the OpenSpec mechanics.
+The repository selects the project-local `evidence-driven` schema in
+`openspec/config.yaml`. Project review, evidence, and approval policy lives in
+`guidance/openspec-workflow.md`.
 
-## Schema
+## Native OpenSpec
 
-`openspec/schemas/evidence-driven/schema.yaml` forks the installed `spec-driven`
-schema using only the artifact fields OpenSpec 1.14.1 supports, and adds one
-planning artifact:
+The schema adds an adversarial-review planning artifact and task dependency:
 
 ```text
-proposal -> specs -> design -> adversarial-review -> tasks
+proposal -> specs + design -> adversarial-review -> tasks -> apply
 ```
 
-- `adversarial-review` requires `specs` and `design`.
-- `tasks` requires `specs`, `design`, and `adversarial-review`.
-- `apply` requires `tasks` and tracks `tasks.md`.
-
-The schema enforces artifact presence and ordering only. It does not prove that a
-review happened, and the CLI has no post-implementation lifecycle hook, so
-independent code review, traceability validation, and human acceptance are
-project records, not schema artifacts. Never claim the schema enforces them.
-
-The schema, the workflow in `guidance/openspec-workflow.md`, and the quality gate
-are runtime-independent: they need only the OpenSpec CLI, Python 3.10+, and a
-repository checkout (the repository's uv environment provides 3.12). Orchestration (who runs a review, how a separate context is
-provided, how a human is reached) belongs to the runtime, not to these files.
+OpenSpec CLI validates schema syntax, artifact dependencies, change/spec
+requirements, status, and delta output. It enforces artifact presence and
+ordering only; it does not verify review quality or post-implementation work.
 
 ```sh
 openspec schema validate evidence-driven
+openspec validate <change>
 openspec status --change <change> --json
+openspec show <change> --json --deltas-only
 openspec instructions tasks --change <change>
 ```
 
-## Change lifecycle
+Use `.openspec.yaml` `skip_specs: true` only for changes with no
+requirement-level behavior change.
 
-1. `openspec new change <name>` - the project schema is used automatically.
-2. Write `proposal.md`, `specs/**/*.md`, `design.md`, and
-   `adversarial-review.md` from the templates in
-   `openspec/schemas/evidence-driven/templates/`.
-3. Resolve every BLOCKING adversarial finding in proposal/specs/design. Only
-   then write `tasks.md`, which the schema gates on the review artifact.
-4. Implement the tasks and mark checkboxes as work lands.
-5. Record the post-implementation stages inside the change directory:
-   `verification/code-review.md`, `verification/traceability.md`, and, when
-   required, `verification/acceptance.md`. Start each record from the matching
-   template in `openspec/schemas/evidence-driven/templates/verification/`.
+## Project quality gate
 
-## Quality gate
+`make openspec-gate CHANGE=<change>` runs
+`uv run python scripts/openspec_quality_gate.py <change>`. It delegates schema,
+change, status, and requirement lookup to the installed OpenSpec CLI, then
+checks recorded state in `verification/gate.json` and presence of required
+narrative reports. The gate does not parse report formatting or authenticate
+review, execution, approval, or scientific claims. See the workflow guide for
+checks and limitations.
+
+`make openspec-archive CHANGE=<change>` runs the gate before native archive.
+This target is a wrapper only; direct `openspec archive` does not consult the
+gate.
 
 ```sh
-make openspec-gate CHANGE=<change>      # python3 scripts/openspec_quality_gate.py <change>
-make openspec-archive CHANGE=<change>   # gate first, archive only if it passes
+uv run pytest scripts/tests
 ```
 
-Exit `0` passes, `1` blocks, `2` is a usage error; `--json` prints the report.
-The gate re-reads the planning artifacts, the `verification/` records, and the
-OpenSpec CLI's own validation, and it checks recorded evidence rather than file
-existence, checked boxes, or agent summaries. Fix the evidence, never the
-report. Archive through `make openspec-archive` (or an equivalent gate run
-followed by `openspec archive`): `openspec archive` on its own does not consult
-the gate.
-
-## Evidence and classification
-
-Evidence belongs in `docs/evidence/`; cite stable evidence IDs and parameter IDs
-in specs and designs. Keep unknown parameters explicitly unknown. Classify every
-output OBSERVED, INFERRED, SIMULATED, or UNVERIFIED, and never describe simulated
-trajectories as observed migration routes.
+The schema integration tests exercise the installed OpenSpec CLI, including
+custom-schema validation and task dependencies. CI also runs repository lint,
+type, test, and frontend checks; it does not gate each active change.

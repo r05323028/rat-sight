@@ -1,0 +1,44 @@
+{
+  "reviews": {
+    "adversarial": {
+      "reviewer": "fixture-reviewer-ar",
+      "author": "fixture-author",
+      "independence": "SEPARATE_SESSION",
+      "independence_evidence": "synthetic-ar-context",
+      "decision": "PASS",
+      "findings": []
+    },
+    "code": {
+      "reviewer": "fixture-reviewer-cr",
+      "implementer": "fixture-implementer",
+      "independence": "SEPARATE_SESSION",
+      "independence_evidence": "synthetic-cr-context",
+      "decision": "PASS",
+      "findings": []
+    }
+  },
+  "engineering": [
+    {
+      "requirement": "gate-fixture#Fixture capability returns a constant",
+      "status": "VERIFIED",
+      "implementation": ["services/api/src/fixture.py"],
+      "tests": ["services/api/tests/fixture_case.py"],
+      "verification": ["fixture-test-run"]
+    }
+  ],
+  "verification": [
+    {
+      "id": "fixture-test-run",
+      "command": "synthetic fixture command (not executed evidence)",
+      "exit_code": 0,
+      "result": "synthetic fixture result",
+      "reference": "fixture-only-reference"
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "reason": "Synthetic engineering-only fixture; no scientific claim, parameter, or model is affected.",
+    "claims": []
+  },
+  "approval": null
+}

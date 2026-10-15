@@ -1,0 +1,44 @@
+{
+  "reviews": {
+    "adversarial": {
+      "reviewer": "",
+      "author": "",
+      "independence": "NONE",
+      "independence_evidence": "",
+      "decision": "BLOCKED",
+      "findings": []
+    },
+    "code": {
+      "reviewer": "",
+      "implementer": "",
+      "independence": "NONE",
+      "independence_evidence": "",
+      "decision": "BLOCKED",
+      "findings": []
+    }
+  },
+  "verification": [
+    {
+      "id": "",
+      "command": "",
+      "exit_code": null,
+      "result": "",
+      "reference": ""
+    }
+  ],
+  "engineering": [
+    {
+      "requirement": "",
+      "status": "UNVERIFIED",
+      "implementation": [],
+      "tests": [],
+      "verification": []
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "reason": "",
+    "claims": []
+  },
+  "approval": null
+}

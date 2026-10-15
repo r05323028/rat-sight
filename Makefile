@@ -63,11 +63,11 @@ validate:
 	uv run pytest scripts/tests -q
 	docker compose -f infra/docker-compose.yml config --quiet
 
-# Deterministic, evidence-based acceptance gate: a non-zero exit blocks archive.
+# Deterministic check used by the archive wrapper; not an OpenSpec hook.
 openspec-gate:
 	uv run python scripts/openspec_quality_gate.py $(CHANGE)
 
-# Archive only through this target: the gate runs first and stops the chain.
+# Wrapper only; direct `openspec archive` bypasses the project quality gate.
 openspec-archive:
 	uv run python scripts/openspec_quality_gate.py $(CHANGE)
 	openspec archive $(CHANGE)
