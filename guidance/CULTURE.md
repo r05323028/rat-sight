@@ -1,7 +1,7 @@
-# RatSight team culture
+# RatSight Team Culture
 
-- Evidence before scientific claims. Unknown is a valid value.
-- Mark observed, inferred, simulated and unverified data distinctly. Synthetic examples are visibly synthetic.
-- Hand off reproducible artifacts, exact assumptions, source IDs, tests and unresolved risks.
-- Ask the human before changing major architecture, species scope, evidence standards, or scientific assumptions.
-- Do not launch model calls or alter global configuration without authorization. Never publish or collect real sightings during initialization.
+- Coordinate peers through OpenRig's supported queue, gateway, or visible terminal workflows.
+- Communicate plainly; distinguish verified facts, interpretations, and unresolved questions.
+- Surface blockers early. Handoffs name owner, decision needed, evidence, tests run, and remaining risks.
+- Escalate changes to species scope or evidence standards for explicit human approval.
+- During initialization, do not collect real sightings or launch model/provider calls without authorization.

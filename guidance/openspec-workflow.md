@@ -3,6 +3,15 @@
 This is the authoritative project workflow. `openspec/README.md` covers OpenSpec
 CLI mechanics; runtime-specific orchestration stays outside this contract.
 
+## Choosing a workflow
+
+- Trivial local changes: implement directly, run relevant checks, and review.
+- Feature or public-contract changes: use the lifecycle below.
+- Scientific or model-related changes: use the lifecycle with evidence, assumptions,
+  and validation appropriate to claims.
+
+Use judgment; do not add a risk score or workflow state.
+
 ## Lifecycle
 
 Research and record evidence → proposal → specifications and design →

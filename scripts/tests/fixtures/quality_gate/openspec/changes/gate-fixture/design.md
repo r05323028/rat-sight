@@ -7,7 +7,7 @@ The test fixture isolates one OpenSpec requirement from repository worktree stat
 
 **Goals:** Exercise CLI and gate behavior.
 
-**Non-Goals:** Model real scientific evidence or prove review independence.
+**Non-Goals:** Model real scientific evidence or prove a real review occurred.
 
 ## Decisions
 Keep fixture paths and gate state static so tests mutate only the relevant decision.

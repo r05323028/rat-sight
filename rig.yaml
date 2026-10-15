@@ -2,6 +2,17 @@ version: "0.2"
 name: rat-team
 summary: Evidence-driven RatSight project team. All members run in isolated Pi RPC seats.
 
+startup:
+  files:
+    - path: guidance/CULTURE.md
+      delivery_hint: send_text
+      required: true
+      applies_on: [fresh_start]
+    - path: guidance/project.md
+      delivery_hint: send_text
+      required: true
+      applies_on: [fresh_start]
+
 pods:
   - id: orchestration
     label: Orchestration
@@ -14,12 +25,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/lead.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
 
   - id: development
     label: Development
@@ -32,12 +42,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/frontend.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
       - id: backend
         agent_ref: "local:.openrig/agents/vendor/development/implementer"
         profile: default
@@ -46,12 +55,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/backend.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
 
   - id: domain
     label: Domain
@@ -64,12 +72,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/infrastructure.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
       - id: public-health
         agent_ref: "local:.openrig/agents/vendor/research/analyst"
         profile: default
@@ -78,12 +85,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/public-health.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
 
   - id: science
     label: Science
@@ -96,12 +102,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/math-modeler.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
       - id: researcher
         agent_ref: "local:.openrig/agents/vendor/research/analyst"
         profile: default
@@ -110,12 +115,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/research-scientist.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
 
   - id: verification
     label: Verification
@@ -128,12 +132,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/reviewer.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
       - id: qa
         agent_ref: "local:.openrig/agents/vendor/development/qa"
         profile: default
@@ -142,12 +145,11 @@ pods:
         cwd: "."
         startup:
           files:
-            - path: guidance/project.md
-              delivery_hint: guidance_merge
-              required: true
             - path: guidance/qa.md
-              delivery_hint: guidance_merge
+              orientation: role
+              delivery_hint: send_text
               required: true
+              applies_on: [fresh_start]
 
 edges:
   - kind: delegates_to

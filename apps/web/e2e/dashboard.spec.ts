@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-test("dashboard renders controls and map shell", async ({ page }) => {
+// Frontend-only smoke: API endpoints and map style are mocked.
+// API-to-simulation behavior is covered by services/api/tests/test_api.py.
+test("dashboard renders controls and map shell with mocked services", async ({ page }) => {
   await page.route("**/gl/positron-gl-style/style.json", (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [] } }),
   );
@@ -57,7 +59,34 @@ test("dashboard renders controls and map shell", async ({ page }) => {
           message: "Available after a synthetic preview.",
         },
       ],
-      headers: { "Access-Control-Allow-Origin": "*" },
+    }),
+  );
+  await page.route("**/api/v1/simulations/preview", (route) =>
+    route.fulfill({
+      json: {
+        simulation_status: "completed",
+        classification: "SIMULATED",
+        model_id: "synthetic_weighted_random_walk",
+        model_version: "0.1.0",
+        parameters: {
+          study_area: "taipei_synthetic_demo",
+          duration_steps: 12,
+          walkers: 24,
+          random_seed: 42,
+          movement_model: "weighted_random_walk",
+          intervention_scenario: "baseline",
+        },
+        provenance: {
+          classification: "SIMULATED",
+          source_type: "synthetic_fixture",
+          source_id: "ratsight-synthetic-graph-v1",
+          source_crs: "EPSG:4326",
+          note: "synthetic only",
+        },
+        assumptions: ["synthetic fixture"],
+        nodes: [],
+        edges: [],
+      },
     }),
   );
   await page.goto("/");

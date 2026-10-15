@@ -13,6 +13,7 @@
 # JavaScript
 node_modules/
 .next/
+*.tsbuildinfo
 apps/web/public/maplibre/
 coverage/
 playwright-report/

@@ -27,4 +27,5 @@ startup:
     - path: guidance/role.md
       delivery_hint: send_text
       required: true
+      applies_on: [fresh_start]
   actions: []

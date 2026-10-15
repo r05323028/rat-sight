@@ -16,6 +16,7 @@ export default defineConfig({
     command: `corepack pnpm dev --hostname 127.0.0.1 --port ${port}`,
     url: baseURL,
     reuseExistingServer: false,
+    env: { NEXT_PUBLIC_API_URL: baseURL },
     timeout: 120_000,
   },
 });
