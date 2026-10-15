@@ -1,4 +1,4 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e lint typecheck format-check build validate openspec-gate openspec-archive
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e lint typecheck format-check build validate openspec-gate openspec-archive import-districts
 
 PNPM ?= corepack pnpm
 
@@ -22,6 +22,9 @@ db-down:
 
 migrate:
 	uv run --package ratsight-api alembic -c services/api/alembic.ini upgrade head
+
+import-districts:
+	uv run --package ratsight-api python -m ratsight_api.importers.administrative_districts $(ARGS)
 
 api:
 	uv run --package ratsight-api uvicorn ratsight_api.main:app --reload

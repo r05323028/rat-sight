@@ -26,7 +26,11 @@ def upgrade() -> None:
             server_default=sa.text("'{}'::jsonb"),
             nullable=False,
         ),
-        sa.Column("geometry", Geometry(geometry_type="GEOMETRY", srid=4326), nullable=True),
+        sa.Column(
+            "geometry",
+            Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=False),
+            nullable=True,
+        ),
         sa.CheckConstraint(
             "classification IN ('OBSERVED', 'INFERRED', 'SIMULATED', 'UNVERIFIED')",
             name="ck_spatial_artifacts_classification",

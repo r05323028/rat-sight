@@ -50,6 +50,53 @@ export type SimulationPreview = {
   }[];
 };
 
+// Administrative reference geometry. `data_class` is deliberately separate from the
+// epistemic `classification` vocabulary used for rodent/infrastructure evidence.
+export type AdministrativeDistrictGeometry =
+  | { type: "Polygon"; coordinates: number[][][] }
+  | { type: "MultiPolygon"; coordinates: number[][][][] };
+
+export type AdministrativeDistrictProvenance = {
+  schema_version: string;
+  source_url: string;
+  dataset_id: string;
+  resource_version: string;
+  retrieved_at: string;
+  archive_sha256: string;
+  license: string;
+  attribution: string;
+  source_crs: "EPSG:3826";
+  target_crs: "EPSG:4326";
+  processing: { tool: string; tool_version: string; steps: string[] };
+  uncertainty: { currentness: string; note: string };
+};
+
+export type AdministrativeDistrictProperties = {
+  district_id: string;
+  district_name: string;
+  data_class: "ADMINISTRATIVE_REFERENCE";
+  classification: "UNVERIFIED";
+  provenance_schema_version: string;
+  dataset_id: string;
+  resource_version: string;
+  archive_sha256: string;
+};
+
+export type AdministrativeDistrictFeature = {
+  type: "Feature";
+  id?: string | number;
+  geometry: AdministrativeDistrictGeometry;
+  properties: AdministrativeDistrictProperties;
+};
+
+export type AdministrativeDistricts = {
+  type: "FeatureCollection";
+  data_state: "empty" | "available";
+  data_class: "ADMINISTRATIVE_REFERENCE";
+  provenance: AdministrativeDistrictProvenance | null;
+  features: AdministrativeDistrictFeature[];
+};
+
 export async function fetchLayers(): Promise<Layer[]> {
   const response = await fetch(`${API_BASE_URL}/api/v1/layers`);
   if (!response.ok) throw new Error(`Layer request failed (${response.status})`);
@@ -71,4 +118,12 @@ export async function requestPreview(input: {
   });
   if (!response.ok) throw new Error(`Simulation preview failed (${response.status})`);
   return response.json() as Promise<SimulationPreview>;
+}
+
+export async function fetchAdministrativeDistricts(): Promise<AdministrativeDistricts> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/administrative-districts`);
+  if (!response.ok) {
+    throw new Error(`Administrative districts request failed (${response.status})`);
+  }
+  return response.json() as Promise<AdministrativeDistricts>;
 }

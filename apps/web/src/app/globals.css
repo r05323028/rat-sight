@@ -177,6 +177,9 @@ select {
 .legend-simulated {
   background: #0f766e;
 }
+.legend-administrative {
+  background: #b7791f;
+}
 .data-boundary {
   display: grid;
   gap: 4px;
@@ -240,6 +243,9 @@ select {
 }
 .glyph-simulated_paths {
   color: var(--teal);
+}
+.glyph-administrative_boundaries {
+  color: var(--amber);
 }
 .layer-name {
   display: grid;
@@ -358,6 +364,62 @@ select {
   color: #788780;
   font-size: 9px;
   line-height: 1.45;
+}
+.reference-details {
+  display: grid;
+}
+.reference-details .analysis-row:first-child {
+  border-top: none;
+}
+.reference-note {
+  margin: 9px 0 0;
+  color: #788780;
+  font-size: 9px;
+  line-height: 1.45;
+}
+.reference-label {
+  margin: 0 0 6px;
+  color: #6a7973;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.district-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  margin: 0 0 10px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.district-button {
+  padding: 5px 9px;
+  border: 1px solid #e1e8e5;
+  border-radius: 999px;
+  color: #364741;
+  background: #fbfcfb;
+  font-size: 10px;
+  cursor: pointer;
+}
+.district-button:hover {
+  border-color: #b7791f;
+}
+.district-button:focus-visible {
+  outline: 2px solid #b7791f;
+  outline-offset: 1px;
+}
+.district-button.is-selected {
+  border-color: #b7791f;
+  color: #6b4408;
+  background: #fdf3df;
+  font-weight: 700;
+}
+.provenance-block a {
+  overflow-wrap: anywhere;
+  color: #0f766e;
+  font-size: 10px;
 }
 .result-summary {
   display: flex;

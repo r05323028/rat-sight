@@ -1,0 +1,47 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "BND-001", "severity": "BLOCKING", "status": "RESOLVED"},
+        {"id": "BND-002", "severity": "BLOCKING", "status": "RESOLVED"},
+        {"id": "BND-003", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "BND-004", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "BND-005", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "BND-006", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "BND-007", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "BND-008", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "CR-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-002", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-003", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-004", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "QA-001", "severity": "BLOCKING", "status": "RESOLVED"},
+        {"id": "QA-002", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    }
+  },
+  "verification": [
+    {"id": "V-PYTHON", "command": ".venv/bin/python -m pytest -q services/api/tests packages/geo/tests packages/simulation/tests scripts/tests", "exit_code": 0, "result": "81 passed, 0 skipped", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-LINT", "command": ".venv/bin/ruff check . && .venv/bin/ruff format --check .", "exit_code": 0, "result": "ruff clean; format clean", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-TYPE", "command": ".venv/bin/basedpyright", "exit_code": 0, "result": "0 errors, 0 warnings, 0 notes", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-IMPORT", "command": "python -m ratsight_api.importers.administrative_districts --inspect-only synthetic-archive --archive-sha256 expected", "exit_code": 0, "result": "synthetic EPSG:3826 archive inspected; geometry, envelopes, and provenance validated", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-POSTGIS", "command": "make migrate && live PostGIS administrative district persistence test", "exit_code": 0, "result": "fresh 0001->0002 migration succeeded; one GiST index per table; persistence test passed", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-WEB-TEST", "command": "corepack pnpm --filter @ratsight/web test", "exit_code": 0, "result": "3 files, 13 tests passed", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-WEB-E2E", "command": "corepack pnpm --filter @ratsight/web e2e", "exit_code": 0, "result": "3 passed", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-WEB-BUILD", "command": "corepack pnpm --filter @ratsight/web typecheck && corepack pnpm --filter @ratsight/web lint && corepack pnpm --filter @ratsight/web build && corepack pnpm --filter @ratsight/web format:check", "exit_code": 0, "result": "typecheck, lint, build, and Prettier format check passed", "reference": "openspec/changes/import-taipei-district-boundaries/verification/qa.md"},
+    {"id": "V-OPENSPEC", "command": "openspec validate import-taipei-district-boundaries", "exit_code": 0, "result": "valid; two long-requirement warnings", "reference": "openspec/changes/import-taipei-district-boundaries/adversarial-review.md"}
+  ],
+  "engineering": [
+    {"requirement": "administrative-boundaries#Verified source import", "status": "VERIFIED", "implementation": ["services/api/src/ratsight_api/importers/administrative_districts.py", "services/api/src/ratsight_api/api/schemas.py", "docs/infrastructure/administrative-boundaries-import.md"], "tests": ["services/api/tests/test_administrative_districts_import.py"], "verification": ["V-PYTHON", "V-LINT", "V-TYPE", "V-IMPORT"]},
+    {"requirement": "administrative-boundaries#Idempotent district persistence", "status": "VERIFIED", "implementation": ["services/api/alembic/versions/0001_initial_schema.py", "services/api/alembic/versions/0002_administrative_districts.py", "services/api/src/ratsight_api/infrastructure/database/models.py", "services/api/src/ratsight_api/importers/administrative_districts.py"], "tests": ["services/api/tests/test_administrative_districts_import.py"], "verification": ["V-PYTHON", "V-POSTGIS"]},
+    {"requirement": "administrative-boundaries#Boundary GeoJSON contract", "status": "VERIFIED", "implementation": ["services/api/src/ratsight_api/application/administrative_districts.py", "services/api/src/ratsight_api/api/routes/administrative_districts.py", "services/api/src/ratsight_api/api/schemas.py"], "tests": ["services/api/tests/test_administrative_districts_api.py"], "verification": ["V-PYTHON", "V-POSTGIS"]},
+    {"requirement": "administrative-boundaries#Dashboard boundary visualization", "status": "VERIFIED", "implementation": ["apps/web/src/lib/api.ts", "apps/web/src/components/map-view.tsx", "apps/web/src/components/dashboard.tsx", "apps/web/src/app/globals.css"], "tests": ["apps/web/src/lib/api.test.ts", "apps/web/src/components/dashboard.test.tsx", "apps/web/src/components/map-view.test.tsx", "apps/web/e2e/dashboard.spec.ts"], "verification": ["V-WEB-TEST", "V-WEB-E2E", "V-WEB-BUILD"]}
+  ],
+  "science": {"applicable": false, "reason": "This change imports and visualizes administrative reference geometry only; it introduces no biological claim, parameter, movement model, calibration, or prediction.", "claims": []},
+  "approval": null
+}

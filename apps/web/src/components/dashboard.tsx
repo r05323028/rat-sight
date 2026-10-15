@@ -5,7 +5,14 @@ import { useState } from "react";
 
 import { MapView } from "@/components/map-view";
 import { Button } from "@/components/ui/button";
-import { fetchLayers, requestPreview, type Layer, type SimulationPreview } from "@/lib/api";
+import {
+  fetchAdministrativeDistricts,
+  fetchLayers,
+  requestPreview,
+  type AdministrativeDistrictProperties,
+  type Layer,
+  type SimulationPreview,
+} from "@/lib/api";
 
 const DEFAULT_LAYERS: Layer[] = [
   ["rodent_observations", "Rodent observations"],
@@ -33,15 +40,36 @@ const LAYER_GLYPHS: Record<string, string> = {
   simulated_paths: "⌁",
 };
 
+function isSafeExternalUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
 export function Dashboard() {
   const layersQuery = useQuery({ queryKey: ["layers"], queryFn: fetchLayers });
+  const districtsQuery = useQuery({
+    queryKey: ["administrative-districts"],
+    queryFn: fetchAdministrativeDistricts,
+  });
   const [preview, setPreview] = useState<SimulationPreview | null>(null);
   const [showSimulatedPaths, setShowSimulatedPaths] = useState(false);
+  const [showBoundaries, setShowBoundaries] = useState(false);
+  const [selectedDistrict, setSelectedDistrict] = useState<AdministrativeDistrictProperties | null>(
+    null,
+  );
   const [duration, setDuration] = useState(12);
   const [seed, setSeed] = useState(42);
   const [walkers, setWalkers] = useState(24);
   const mutation = useMutation({ mutationFn: requestPreview, onSuccess: setPreview });
   const layers = layersQuery.data ?? DEFAULT_LAYERS;
+  const districts = districtsQuery.data ?? null;
+  const hasDistricts = (districts?.features.length ?? 0) > 0;
+  const boundaryStatus = districtsQuery.isPending
+    ? "Loading boundaries…"
+    : districtsQuery.isError
+      ? "Boundary service unavailable"
+      : hasDistricts
+        ? "Administrative reference · UNVERIFIED"
+        : "No boundaries imported";
 
   return (
     <main className="dashboard-shell">
@@ -74,14 +102,24 @@ export function Dashboard() {
           <div className="map-toolbar">
             <div>
               <strong>Spatial context</strong>
-              <span>Basemap only · no rodent observations</span>
+              <span>Basemap · reference boundaries · no rodent observations</span>
             </div>
             <span className="map-coordinate">25.033° N · 121.565° E</span>
           </div>
-          <MapView preview={preview} showSimulatedPaths={showSimulatedPaths} />
+          <MapView
+            preview={preview}
+            showSimulatedPaths={showSimulatedPaths}
+            boundaries={districts}
+            showBoundaries={showBoundaries}
+            selectedDistrictId={selectedDistrict?.district_id ?? null}
+            onSelectDistrict={setSelectedDistrict}
+          />
           <div className="map-legend">
             <span className="legend-item">
               <i className="legend-basemap" /> Basemap
+            </span>
+            <span className="legend-item">
+              <i className="legend-administrative" /> Administrative reference
             </span>
             <span className="legend-item">
               <i className="legend-simulated" /> Simulated · synthetic fixture
@@ -109,6 +147,22 @@ export function Dashboard() {
               <p className="inline-note">API unavailable; showing empty layer catalog.</p>
             )}
             <div className="layer-list">
+              <label className={`layer-row ${hasDistricts ? "" : "is-unavailable"}`}>
+                <span className="layer-glyph glyph-administrative_boundaries" aria-hidden="true">
+                  ▦
+                </span>
+                <span className="layer-name">
+                  Administrative districts
+                  <small>{boundaryStatus}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Administrative districts"
+                  disabled={!hasDistricts}
+                  checked={showBoundaries}
+                  onChange={(event) => setShowBoundaries(event.target.checked)}
+                />
+              </label>
               {layers.map((layer) => {
                 const previewReady = layer.id === "simulated_paths" && preview !== null;
                 const available = layer.available || previewReady;
@@ -141,6 +195,106 @@ export function Dashboard() {
                 );
               })}
             </div>
+          </section>
+
+          <section
+            className="panel reference-panel"
+            aria-label="Administrative reference inspection"
+          >
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">ADMINISTRATIVE REFERENCE</p>
+                <h3>District inspection</h3>
+              </div>
+              <span className="classification-badge">UNVERIFIED</span>
+            </div>
+            {hasDistricts && districts ? (
+              <>
+                <p className="reference-label" id="district-list-label">
+                  Districts · select to inspect
+                </p>
+                <ul className="district-list" aria-labelledby="district-list-label">
+                  {districts.features.map((feature) => {
+                    const selected =
+                      selectedDistrict?.district_id === feature.properties.district_id;
+                    return (
+                      <li key={feature.properties.district_id}>
+                        <button
+                          type="button"
+                          className={`district-button ${selected ? "is-selected" : ""}`}
+                          aria-pressed={selected}
+                          onClick={() => setSelectedDistrict(feature.properties)}
+                        >
+                          {feature.properties.district_name}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {selectedDistrict ? (
+                  <div className="reference-details" aria-live="polite">
+                    <div className="analysis-row">
+                      <span>District</span>
+                      <strong>{selectedDistrict.district_name}</strong>
+                    </div>
+                    <div className="analysis-row">
+                      <span>District ID</span>
+                      <strong>{selectedDistrict.district_id}</strong>
+                    </div>
+                    <div className="analysis-row">
+                      <span>Data class</span>
+                      <strong>{selectedDistrict.data_class}</strong>
+                    </div>
+                    <div className="analysis-row">
+                      <span>Classification</span>
+                      <strong>{selectedDistrict.classification}</strong>
+                    </div>
+                    <div className="analysis-row">
+                      <span>Dataset</span>
+                      <strong>{selectedDistrict.dataset_id || "Unknown"}</strong>
+                    </div>
+                    <div className="analysis-row">
+                      <span>Resource version</span>
+                      <strong>{selectedDistrict.resource_version || "Unknown"}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="inline-note" aria-live="polite">
+                    Select a district from the list or the map to inspect its name and source.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="inline-note" aria-live="polite">
+                {boundaryStatus}
+              </p>
+            )}
+            <p className="reference-note">
+              Administrative reference geometry. Not rodent observations, inferred connectivity, or
+              simulated movement.
+            </p>
+            {districts?.provenance && (
+              <div className="provenance-block" aria-label="Administrative source provenance">
+                <span>Source URL</span>
+                {isSafeExternalUrl(districts.provenance.source_url) ? (
+                  <a
+                    href={districts.provenance.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {districts.provenance.source_url}
+                  </a>
+                ) : (
+                  <strong>{districts.provenance.source_url}</strong>
+                )}
+                <span>Attribution</span>
+                <strong>{districts.provenance.attribution}</strong>
+                <span>License</span>
+                <strong>{districts.provenance.license}</strong>
+                <span>Currentness</span>
+                <strong>{districts.provenance.uncertainty.currentness}</strong>
+              </div>
+            )}
           </section>
 
           <section className="panel simulation-panel">

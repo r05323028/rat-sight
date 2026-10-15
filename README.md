@@ -16,7 +16,7 @@ RatSight 是面向臺北市的證據導向都市鼠類活動模擬與市政決�
 - `openspec/`：以本機 `evidence-driven` schema 建立 OpenSpec 變更流程。
 - `rig.yaml`、`.openrig/`、`guidance/`：OpenRig rat-team 與角色規範。
 
-詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md) 與 [資料來源政策](docs/infrastructure/data-sources.md)。
+詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md)、[資料來源政策](docs/infrastructure/data-sources.md) 與 [行政區界匯入指令](docs/infrastructure/administrative-boundaries-import.md)。
 
 ## 本機開發
 
@@ -58,4 +58,4 @@ OpenRig `rat-team` 有五個 pods、九個 Pi seats。`scripts/setup-pi-seats.sh
 
 ## 目前限制
 
-沒有臺北真實觀測、地下管線或排水資料；沒有生物參數、校準或驗證結果。模擬是 deterministic synthetic weighted random walk。OpenAI 指定 provider-qualified model `openai/gpt-5.6-luna` 尚未在本機 Pi model catalog 註冊；配置保留原值，無替代。`opencode-go/deepseek-v4.1-flash` 在本機 catalog 可見，但 seats 未啟動、憑證未驗證。
+沒有臺北真實觀測、地下管線或排水資料；沒有生物參數、校準或驗證結果。模擬是 deterministic synthetic weighted random walk。Pi model catalog 已註冊指定模型 `openai-codex/gpt-5.6-luna`；實際 provider 認證與 seat 執行尚未驗證。`opencode-go/deepseek-v4.1-flash` 在本機 catalog 可見，但 seats 未啟動、憑證未驗證。

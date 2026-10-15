@@ -8,7 +8,7 @@ Validate with `rig spec validate --json rig.yaml`. Edges express delegation/coll
 
 OpenRig Pi seats resolve to `$OPENRIG_HOME/state/pi/<podId>-<memberId>@rat-team/agent` (`OPENRIG_HOME` defaults to `~/.openrig`). Run `scripts/setup-pi-seats.sh --dry-run` to preview; `--apply` creates missing isolated agent directories and links `~/.pi/agent/models.json` only. Existing files/symlinks are never replaced. Optional `--auth`, `--mcp`, and `--extensions` require explicit opt-in. `settings.json` is never linked; sessions, conversation history, writable seat state, and role guidance stay independent. Use optional links only after reviewing credential exposure and RPC compatibility.
 
-The local Pi model catalog currently lacks the exact requested `openai/gpt-5.6-luna` registration; do not substitute a different provider. `opencode-go/deepseek-v4.1-flash` is registered. Register the exact missing provider/model and credentials in the host's private Pi configuration before launching affected seats. Never put credentials in this repository. The host's MCP config is absent; MCP-dependent tools need separate private setup.
+The Pi model catalog registers the exact requested key `openai-codex/gpt-5.6-luna` (provider `openai-codex`, model `gpt-5.6-luna`). Catalog registration is verified; provider authentication and actual seat startup remain unverified. Keep credentials in private host configuration; never add them to this repository. `opencode-go/deepseek-v4.1-flash` is also registered. The host's MCP config is absent; MCP-dependent tools need separate private setup.
 
 ## Human decisions
 
