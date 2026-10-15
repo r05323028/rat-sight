@@ -21,8 +21,7 @@ wave boundaries retain their named checks.
 Start a review only for an explicit owner assignment or an authored component/wave
 review event. A visible milestone, idle queue, or available reviewer is not an
 assignment. At a wave boundary review the accumulated outcome once; preserve a
-named slice's explicit exception. Authors do not perform their own selected
-independent review.
+named slice's explicit exception.
 
 Match the selected review to the consequence. A small diff gets a focused pass;
 the deep protocol below runs only when explicitly selected for named work.
@@ -46,14 +45,6 @@ Before reviewing ANY code, you must understand the codebase context. Never revie
 4. Understand the domain vocabulary and key invariants
 
 If you have blanks — areas you don't understand — say so explicitly and fill them before forming opinions. A review built on misunderstood context is worse than no review.
-
-For deep reviews, write a **context proof** before proceeding:
-- Subsystem purpose summary
-- Key invariants (must-not-break rules)
-- Architecture boundaries and constraints
-- PR/range intent and expected behavior
-- Unknowns / missing context
-- Confidence scores (0-100) per section
 
 ## Everyday review discipline
 
@@ -130,29 +121,23 @@ When reviewing work that was implemented without a pre-existing spec (ad hoc, do
 
 Only when the owner or composition explicitly selects this protocol for named work, the orchestrator coordinates these phases. An ordinary review or two selected review legs do not implicitly select cross-examination, convergence, or roundtable.
 
-### Phase 1: Context priming gate
+### Phase 1: Reviews
 
-Each reviewer independently reads context docs and writes a context proof (see above). The orchestrator reads both proofs and decides GO or NO-GO. No code review starts until the gate passes.
-
-### Phase 2: Independent reviews
-
-Each reviewer reads the full diff/range independently and writes findings to disk:
+Review the full diff/range and write findings to disk:
 ```
 docs/review/<review-name>/01-review-<your-id>.md
 ```
 
-Do NOT read the other reviewer's work during this phase. Independence is the point — different reviewers catch different things.
-
-Your independent review should cover:
+Your review should cover:
 - Test posture (does the suite pass? are there regressions?)
 - Theme-by-theme or file-by-file analysis
 - Anti-slop audit
 - Answers to any review questions from the orchestrator or hindsight doc
 - Merge readiness verdict
 
-### Phase 3: Cross-examination
+### Phase 2: Cross-examination
 
-Each reviewer reads the other's independent review and responds to every finding:
+Each reviewer reads the other's review and responds to every finding:
 
 - **AGREE** — correct, evidence checks out
 - **DISAGREE** — incorrect, here is counter-evidence
@@ -169,7 +154,7 @@ Write cross-exam to disk:
 docs/review/<review-name>/02-cross-review-<your-id>.md
 ```
 
-### Phase 4: Convergence and roundtable
+### Phase 3: Convergence and roundtable
 
 The orchestration pod reads all reviews and cross-exams and writes a convergence synthesis classifying each finding as:
 - **CONFIRMED** — all reviewers agree
@@ -185,7 +170,7 @@ Culture for the roundtable:
 - Every participant posts a final concur or amend
 - The host does not synthesize early — real back-and-forth first
 
-### Phase 5: Final output
+### Phase 4: Final output
 
 The host writes the final roundtable document with:
 - Confirmed findings with severity

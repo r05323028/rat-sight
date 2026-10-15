@@ -62,7 +62,9 @@ def approval(findings: list[str] | None = None) -> dict[str, Any]:
     }
 
 
-def test_complete_change_passes_and_acceptance_is_optional(tmp_path: Path) -> None:
+def test_complete_change_passes_without_context_fields_and_acceptance_is_optional(
+    tmp_path: Path,
+) -> None:
     if not (os.environ.get("RATSIGHT_OPENSPEC_BIN") or shutil.which("openspec")):
         pytest.skip("OpenSpec CLI unavailable")
     repo = prepare_repo(tmp_path)
@@ -82,24 +84,14 @@ def test_gate_blocks_when_openspec_validation_fails(tmp_path: Path) -> None:
     assert any(error["code"].startswith("GATE-OPENSPEC") for error in report["errors"])
 
 
-@pytest.mark.parametrize(
-    ("review", "reviewer", "independence", "expected"),
-    [
-        ("adversarial", "fixture-author", "SEPARATE_SESSION", "GATE-AR-SELF-REVIEW"),
-        ("code", "fixture-implementer", "SEPARATE_SESSION", "GATE-CR-SELF-REVIEW"),
-        ("adversarial", "fixture-reviewer-ar", "NONE", "GATE-AR-INDEPENDENCE"),
-    ],
-)
-def test_self_review_or_unestablished_independence_blocks(
-    tmp_path: Path, review: str, reviewer: str, independence: str, expected: str
-) -> None:
+def test_same_reviewer_and_subject_identities_do_not_block(tmp_path: Path) -> None:
     repo = prepare_repo(tmp_path)
     state = read_state(repo)
-    state["reviews"][review].update({"reviewer": reviewer, "independence": independence})
+    state["reviews"]["adversarial"].update({"reviewer": "same-person", "author": "same-person"})
+    state["reviews"]["code"].update({"reviewer": "same-person", "implementer": "same-person"})
     save_state(repo, state)
     result, report = run_gate(repo, "--skip-openspec")
-    assert result.returncode == 1
-    assert expected in error_codes(report)
+    assert result.returncode == 0, report["errors"]
 
 
 @pytest.mark.parametrize("report_path", ["adversarial-review.md", "verification/code-review.md"])

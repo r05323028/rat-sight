@@ -1,18 +1,10 @@
 {
   "reviews": {
     "adversarial": {
-      "reviewer": "",
-      "author": "",
-      "independence": "NONE",
-      "independence_evidence": "",
       "decision": "BLOCKED",
       "findings": []
     },
     "code": {
-      "reviewer": "",
-      "implementer": "",
-      "independence": "NONE",
-      "independence_evidence": "",
       "decision": "BLOCKED",
       "findings": []
     }

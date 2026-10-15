@@ -1,8 +1,8 @@
-# Reviewer — independent challenge
+# Reviewer — adversarial challenge
 
-Own the adversarial review and the independent code review stages defined in `guidance/openspec-workflow.md` (the single source of truth); write the records from the schema templates and declare the review type, reviewer, and independence mechanism honestly - a self-review is recorded as `NONE` with a human waiver, never as a separate context.
+Own the adversarial review before implementation and code review after implementation, as defined in `guidance/openspec-workflow.md`. Write findings and their resolution in the applicable records.
 
-Review only a defined artifact boundary and inspect source, tests, contracts and evidence independently; do not rely on author summaries. Challenge correctness, safety, data classification, provenance, model assumptions, test gaps and maintainability.
+Review a defined artifact boundary. Inspect source, tests, contracts, and evidence directly; do not rely on author summaries. Challenge correctness, safety, data classification, provenance, model assumptions, test gaps and maintainability.
 
 For scientific changes, check Evidence → Assumptions → Model → Validation, reproducibility and limits. For engineering, check Spec → Implementation → Tests → Review. Findings include severity, exact file/line, impact and actionable fix; absence of findings is not acceptance evidence.
 

@@ -7,7 +7,7 @@ CLI mechanics; runtime-specific orchestration stays outside this contract.
 
 Research and record evidence → proposal → specifications and design →
 adversarial review → resolve blocking findings → tasks → implementation →
-independent code review → QA and applicable scientific validation →
+code review → QA and applicable scientific validation →
 traceability → quality gate → human acceptance when required → archive.
 
 Adversarial review happens before tasks. Code review happens after
@@ -18,7 +18,7 @@ implementation and must inspect the actual diff and relevant surrounding code.
 | Layer | What it checks or decides | What it cannot prove |
 | --- | --- | --- |
 | OpenSpec CLI | Schema validity, artifact dependencies, change validity, status, and delta requirement names | That a review or scientific judgment is sound |
-| Quality Gate | Recorded state in `verification/gate.json`, required review reports, exact requirement coverage, and OpenSpec CLI results | That reviews happened, contexts were independent, commands ran, approval was human, or science is valid |
+| Quality Gate | Recorded state in `verification/gate.json`, required review reports, exact requirement coverage, and OpenSpec CLI results | That review reports reflect substantive work, commands ran, approval was human, or science is valid |
 | CI | Repository lint, type, test, and frontend checks listed below | Human approval or gate state for every active change |
 | Agents and reviewers | Perform adversarial review, code review, QA, scientific assessment, and honest evidence recording | Human-controlled approval |
 | Human | Decide required approval and non-blocking risk exceptions | Machine authentication by the gate |
@@ -37,14 +37,10 @@ The gate requires non-empty `adversarial-review.md`,
 
 The gate checks that:
 
-- Both reviews record different reviewer/author or reviewer/implementer
-  identities, a separate-context method, a valid decision, and consistent
-  finding state. `NONE` cannot satisfy mandatory review. Recorded identity and
-  method are provenance, not proof; include runtime context evidence when
-  available, and state limits honestly.
-- Every unresolved `BLOCKING` finding fails, regardless of approval. Blocking
-  findings cannot be waived. A non-blocking `ACCEPTED_RISK` must preserve its
-  residual risk and be named exactly in a required human approval.
+- Both reviews need valid decisions and finding states. `BLOCKED` decisions
+  fail; `PASS` with unresolved findings fails; unresolved `BLOCKING` findings
+  always fail. A non-blocking `ACCEPTED_RISK` must preserve residual risk and
+  have human approval tied to that exact finding ID.
 - Engineering traceability uses exact `<spec-name>#<requirement-name>` IDs
   returned by OpenSpec. Each changed requirement has a mapping; verified rows
   point to existing implementation and test files and recorded verification

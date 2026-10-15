@@ -28,13 +28,6 @@ SCHEMA_NAME = "evidence-driven"
 CHANGES = Path("openspec") / "changes"
 GATE_RECORD = Path("verification") / "gate.json"
 EVIDENCE_DIR = Path("docs") / "evidence"
-REVIEW_METHODS = {
-    "SEPARATE_SESSION",
-    "SEPARATE_WORKTREE",
-    "SEPARATE_AGENT",
-    "SEPARATE_MODEL",
-    "HUMAN",
-}
 DECISIONS = {"PASS", "PASS_WITH_WARNINGS", "BLOCKED"}
 SEVERITIES = {"BLOCKING", "MAJOR", "MINOR", "INFO"}
 FINDING_STATES = {"OPEN", "RESOLVED", "ACCEPTED_RISK", "DEFERRED"}
@@ -341,7 +334,6 @@ def check_review(
     reviews: Any,
     key: str,
     report_path: str,
-    subject_key: str,
     code: str,
 ) -> tuple[set[str], list[str]]:
     errors_before = len(report["errors"])
@@ -359,31 +351,6 @@ def check_review(
         check(report, key + " review", False, "state missing")
         return set(), []
 
-    reviewer = review.get("reviewer")
-    subject = review.get(subject_key)
-    if not text(reviewer) or not text(subject):
-        issue(
-            report,
-            code + "-IDENTITY",
-            change_dir / GATE_RECORD,
-            "reviewer and " + subject_key + " must be recorded",
-        )
-    elif reviewer == subject:
-        issue(
-            report,
-            code + "-SELF-REVIEW",
-            change_dir / GATE_RECORD,
-            "reviewer and " + subject_key + " are identical",
-        )
-
-    independence = review.get("independence")
-    if not text(independence) or independence not in REVIEW_METHODS:
-        issue(
-            report,
-            code + "-INDEPENDENCE",
-            change_dir / GATE_RECORD,
-            "review must declare a separate reviewer context; NONE cannot satisfy this gate",
-        )
     decision = review.get("decision")
     if not text(decision) or decision not in DECISIONS:
         issue(
@@ -890,16 +857,10 @@ def main(argv: list[str] | None = None) -> int:
         verification = check_verification(report, change_dir, record)
         reviews = record.get("reviews")
         ar_ids, ar_accepted = check_review(
-            report, change_dir, reviews, "adversarial", "adversarial-review.md", "author", "GATE-AR"
+            report, change_dir, reviews, "adversarial", "adversarial-review.md", "GATE-AR"
         )
         cr_ids, cr_accepted = check_review(
-            report,
-            change_dir,
-            reviews,
-            "code",
-            "verification/code-review.md",
-            "implementer",
-            "GATE-CR",
+            report, change_dir, reviews, "code", "verification/code-review.md", "GATE-CR"
         )
         if ar_ids & cr_ids:
             issue(

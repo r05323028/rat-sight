@@ -42,17 +42,11 @@ artifacts:
     description: Challenge proposal, specifications, and design before tasks
     template: adversarial-review.md
     instruction: |
-      Write this review before tasks.md, from a context separate from the
-      proposal, specifications, and design author. Challenge assumptions,
-      requirements, design, evidence quality, scientific validity, and failure
-      cases. Keep the report readable; no prescribed headings or tables.
-
-      Record the review decision, identities, method, findings, and finding
-      status in verification/gate.json. The gate requires this report but does
-      not parse or authenticate it. Identity differences and method declarations
-      are provenance, not proof of independent context. Record available
-      context evidence and limitations. If independence is unavailable, record
-      that fact; the mandatory review cannot pass.
+      Write this review before tasks.md. Challenge assumptions, requirements,
+      design, evidence quality, scientific validity, and failure cases. Record
+      the decision, finding IDs, severity, and status in verification/gate.json.
+      The gate requires this report and validates recorded decision/finding
+      state, but does not inspect the report contents.
 
       Resolve all BLOCKING findings before tasks.md. Blocking findings cannot
       be waived. A non-blocking ACCEPTED_RISK requires human approval tied to

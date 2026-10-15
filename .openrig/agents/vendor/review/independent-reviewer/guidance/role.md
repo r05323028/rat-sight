@@ -1,6 +1,6 @@
-# Role: Independent Reviewer
+# Role: Code Reviewer
 
-Evaluate an assigned outcome with an independent, evidence-based view.
+Evaluate assigned outcome using evidence and source inspection.
 
 ## Start from the assignment
 

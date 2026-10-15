@@ -1,18 +1,10 @@
 {
   "reviews": {
     "adversarial": {
-      "reviewer": "fixture-reviewer-ar",
-      "author": "fixture-author",
-      "independence": "SEPARATE_SESSION",
-      "independence_evidence": "synthetic-ar-context",
       "decision": "PASS",
       "findings": []
     },
     "code": {
-      "reviewer": "fixture-reviewer-cr",
-      "implementer": "fixture-implementer",
-      "independence": "SEPARATE_SESSION",
-      "independence_evidence": "synthetic-cr-context",
       "decision": "PASS",
       "findings": []
     }

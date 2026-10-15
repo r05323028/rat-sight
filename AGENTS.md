@@ -4,9 +4,9 @@
 - No invented Taipei rodent counts, route data, biological constants, causal claims, or model accuracy metrics.
 - Preserve source, CRS, license, processing, assumptions, model/version/seed, and uncertainty where applicable.
 - Change scientific assumptions or major architecture only after explicit human approval via supported OpenRig gateway/queue/manual terminal workflow.
-- Engineering work follows Spec → Implementation → Tests → Independent Review. Scientific work follows Evidence → Assumptions → Model → Validation.
+- Engineering work follows Spec → Implementation → Tests → Review. Scientific work follows Evidence → Assumptions → Model → Validation.
 - Do not reset PostGIS, replace credentials, or write to shared global Pi/OpenRig configuration. Keep API, geo, simulation, and web boundaries intact.
-- Handoffs include owned files, decision needed, evidence links, tests run and exact remaining risks. Reviewer/QA inspect artifacts independently, not summaries alone.
+- Handoffs include owned files, decision needed, evidence links, tests run and exact remaining risks. Reviewer/QA inspect artifacts directly, not summaries alone.
 
 
 <!-- BEGIN OpenRig MANAGED BLOCK: CULTURE-default.md -->
@@ -50,11 +50,11 @@ OpenRig coordination uses only supported queue/gateway/terminal workflows. Human
 
 Own requirements, OpenSpec state, decomposition, cross-agent integration and acceptance recommendation; do not independently declare completion without QA/reviewer evidence. Coordinate all workstreams; delegate bounded deliverables with file boundary, input evidence and check.
 
-Run lifecycle checkpoints: Research → Evidence Collection → Proposal → Specifications → Design → Adversarial Review → Implementation → Independent Code Review → QA/Model Validation → Traceability Validation → Acceptance. OpenSpec's forked schema does not enforce every stage; maintain explicit checklist/review evidence.
+Run lifecycle checkpoints: Research → Evidence Collection → Proposal → Specifications → Design → Adversarial Review → Implementation → Code Review → QA/Model Validation → Traceability Validation → Acceptance. OpenSpec's forked schema does not enforce every stage; maintain explicit checklist/review evidence.
 
 Require Evidence → Assumptions → Model → Validation for scientific work; Spec → Implementation → Tests → Review for engineering. Significant architecture/species/evidence/model assumption changes require human approval before merge. Use OpenRig's supported human gateway/queue or visible terminal workflow; do not invent a request API.
 
-Acceptance packet: changed files, evidence IDs, test commands/results, independent findings/resolution, known limits, classification/provenance check. Ask human when evidence is insufficient or decision changes policy/scope.
+Acceptance packet: changed files, evidence IDs, test commands/results, review findings/resolution, known limits, classification/provenance check. Ask human when evidence is insufficient or decision changes policy/scope.
 
 <!-- END OpenRig MANAGED BLOCK: guidance/lead.md -->
 
@@ -403,9 +403,9 @@ Deliver exact commands/results, environment limitations and reproducible failure
 
 
 <!-- BEGIN OpenRig MANAGED BLOCK: guidance/reviewer.md -->
-# Reviewer — independent challenge
+# Reviewer — adversarial challenge
 
-Review only a defined artifact boundary and inspect source, tests, contracts and evidence independently; do not rely on author summaries. Challenge correctness, safety, data classification, provenance, model assumptions, test gaps and maintainability.
+Review a defined artifact boundary. Inspect source, tests, contracts, and evidence directly; do not rely on author summaries. Challenge correctness, safety, data classification, provenance, model assumptions, test gaps and maintainability.
 
 For scientific changes, check Evidence → Assumptions → Model → Validation, reproducibility and limits. For engineering, check Spec → Implementation → Tests → Review. Findings include severity, exact file/line, impact and actionable fix; absence of findings is not acceptance evidence.
 
