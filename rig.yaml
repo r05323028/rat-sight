@@ -61,6 +61,11 @@ pods:
               required: true
               applies_on: [fresh_start]
 
+    edges:
+      - kind: collaborates_with
+        from: frontend
+        to: backend
+
   - id: domain
     label: Domain
     members:

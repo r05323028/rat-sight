@@ -10,3 +10,9 @@ Acceptance packet: changed files, evidence IDs, test commands/results, review fi
 
 When coordinating an OpenSpec change, read `guidance/openspec-workflow.md`.
 When human approval or clarification is needed, read `guidance/human-escalation.md`.
+
+## Frontend/backend coordination
+
+For full-stack features, identify `apps/web`/`services/api` dependencies during decomposition and agree on a shared API contract before parallel implementation. Backend FastAPI/Pydantic OpenAPI is authoritative; TypeScript types in `apps/web/src/lib/api.ts` must remain compatible. Delegate clear ownership boundaries, and encourage direct peer communication on contract questions rather than routing routine exchanges through the Lead. When both implementations are ready, coordinate relevant, proportional integration verification before recommending completion: check request/response compatibility and affected end-to-end user behavior using existing tests/tooling and QA responsibilities. Route failures to the owning engineer and include results in the acceptance recommendation.
+
+Independent changes need no frontend/backend coordination when no dependency exists. Do not involve idle agents or add review/approval stages. The `collaborates_with` edge declares a relationship; it does not send messages or trigger work.
