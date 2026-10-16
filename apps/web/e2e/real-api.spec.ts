@@ -25,8 +25,16 @@ test("renders administrative data obtained from the running FastAPI API", async 
   expect(longitude).toBeLessThanOrEqual(180);
   expect(latitude).toBeGreaterThanOrEqual(-90);
   expect(latitude).toBeLessThanOrEqual(90);
-  await expect(page.getByRole("button", { name: "測試行政區" })).toBeVisible();
-  await page.getByRole("button", { name: "測試行政區" }).click();
+  const districtButton = page.getByRole("button", { name: "測試行政區" });
+  await expect(districtButton).toBeVisible();
+  const boundaryToggle = page.getByLabel("Administrative districts");
+  await expect(boundaryToggle).toBeEnabled();
+  await boundaryToggle.check();
+  await districtButton.click();
+  await expect(districtButton).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("smoke-1")).toBeVisible();
+  await boundaryToggle.uncheck();
+  await boundaryToggle.check();
+  await expect(districtButton).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("RatSight automated test fixture")).toBeVisible();
 });

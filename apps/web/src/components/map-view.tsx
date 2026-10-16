@@ -210,7 +210,7 @@ export function MapView({
     return () => {
       map.off("load", apply);
     };
-  }, [selectedDistrictId, boundaries]);
+  }, [selectedDistrictId, boundaries, showBoundaries]);
 
   return (
     <div className="map-frame" role="region" aria-label="Interactive GIS map" ref={container} />

@@ -17,7 +17,7 @@ Use judgment; do not add a risk score or workflow state.
 Research and record evidence → proposal → specifications and design →
 adversarial review → resolve blocking findings → tasks → implementation →
 code review → QA and applicable scientific validation →
-traceability → quality gate → human acceptance when required → archive.
+traceability → quality gate → Ready for Human Review → project-owner acceptance → archive (policy-required human approval is a separate trigger within this flow).
 
 Adversarial review happens before tasks. Code review happens after
 implementation and must inspect the actual diff and relevant surrounding code.
@@ -107,7 +107,10 @@ records.
 
 `make openspec-archive CHANGE=<change>` runs the gate and then native archive.
 It is a project wrapper, not an interception hook: direct `openspec archive`
-bypasses the gate. Exit codes are `0` pass, `1` blocked, `2` usage error.
+bypasses the gate. The wrapper does not authenticate project-owner acceptance;
+the Lead must not run it merely because the gate passes. Stop at Ready for
+Human Review and obtain explicit owner authorization first. Exit codes are
+`0` pass, `1` blocked, `2` usage error.
 A pass validates recorded state and CLI results only; it is not proof of review,
 command execution, human approval, or scientific validity.
 

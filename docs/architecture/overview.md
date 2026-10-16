@@ -18,7 +18,7 @@ FastAPI routes → application service → domain/API schemas
 
 `POST /api/v1/simulations/preview` runs a deterministic weighted random walk over a small synthetic NetworkX graph. Response includes status `SIMULATED`, model/version, parameters, seed, synthetic provenance, assumptions, node/edge visitation counts and normalized frequencies. It is a demonstration, not a prediction. Coordinates are schematic fixture geometry, not infrastructure or observation data.
 
-The UI starts on a configurable CARTO Positron style (`NEXT_PUBLIC_MAP_STYLE_URL`), with provider attribution retained. Non-synthetic data layers remain unavailable placeholders. Map style/network availability depends on provider terms and connectivity.
+The UI starts on a configurable CARTO Positron style (`NEXT_PUBLIC_MAP_STYLE_URL`), with provider attribution retained. The Taipei administrative district layer is available through the archive-only importer and versioned GeoJSON API; other non-synthetic data layers remain unavailable placeholders. Map style/network availability depends on provider terms and connectivity.
 
 ## Boundaries and contracts
 

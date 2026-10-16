@@ -279,6 +279,14 @@ describe("MapView", () => {
       "63000010",
     ]);
     map.setFilter.mockClear();
+    rerender(mapElement({ boundaries, showBoundaries: false, selectedDistrictId: "63000010" }));
+    rerender(mapElement({ boundaries, showBoundaries: true, selectedDistrictId: "63000010" }));
+    expect(map.setFilter).toHaveBeenCalledWith("ratsight-administrative-districts-highlight", [
+      "==",
+      ["get", "district_id"],
+      "63000010",
+    ]);
+    map.setFilter.mockClear();
     rerender(mapElement({ boundaries, showBoundaries: true, selectedDistrictId: null }));
     expect(map.setFilter).toHaveBeenCalledWith("ratsight-administrative-districts-highlight", [
       "==",
