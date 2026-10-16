@@ -16,7 +16,7 @@ RatSight 是面向臺北市的證據導向都市鼠類活動模擬與市政決�
 - `openspec/`：以本機 `evidence-driven` schema 建立 OpenSpec 變更流程。
 - `rig.yaml`、`.openrig/`、`guidance/`：OpenRig rat-team 與角色規範。
 
-詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md)、[資料來源政策](docs/infrastructure/data-sources.md) 與 [行政區界匯入指令](docs/infrastructure/administrative-boundaries-import.md)。系統已能以 archive-only 指令匯入官方臺北行政區界，並以 `make geospatial-smoke` 驗證隔離的 Next.js → FastAPI → PostGIS 路徑。
+詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md)、[資料來源政策](docs/infrastructure/data-sources.md)、[行政區界匯入指令](docs/infrastructure/administrative-boundaries-import.md) 與 [雨水下水道管線匯入指令](docs/infrastructure/stormwater-pipelines-import.md)。系統已能以 archive-only 指令匯入官方臺北行政區界，並以 `make geospatial-smoke` 驗證隔離的 Next.js → FastAPI → PostGIS 路徑。
 
 ## 本機開發
 

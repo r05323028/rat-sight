@@ -1,0 +1,120 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "SW-001", "severity": "BLOCKING", "status": "RESOLVED"},
+        {"id": "SW-002", "severity": "BLOCKING", "status": "RESOLVED"},
+        {"id": "SW-003", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "SW-004", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "SW-005", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "SW-006", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "SW-007", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "SW-008", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "CR-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-002", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "CR-003", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-004", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    }
+  },
+  "verification": [
+    {
+      "id": "V1",
+      "command": "openspec validate integrate-taipei-stormwater-network",
+      "exit_code": 0,
+      "result": "valid; three non-blocking long-requirement warnings",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V2",
+      "command": "uv run pytest -q",
+      "exit_code": 0,
+      "result": "117 passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V3",
+      "command": "corepack pnpm --filter @ratsight/web test && typecheck && lint && format:check && build",
+      "exit_code": 0,
+      "result": "28 tests passed; typecheck, lint, format, and build passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V4",
+      "command": "make geospatial-smoke",
+      "exit_code": 0,
+      "result": "four real-API smoke specs passed against isolated PostGIS/FastAPI",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V5",
+      "command": "bash scripts/verify_official_districts.sh",
+      "exit_code": 0,
+      "result": "official district archive hash, 12 records, API, dashboard, and cleanup passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V6",
+      "command": "uv run basedpyright",
+      "exit_code": 0,
+      "result": "0 errors, 0 warnings, 0 notes",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-GATE",
+      "command": "make openspec-gate CHANGE=integrate-taipei-stormwater-network",
+      "exit_code": 0,
+      "result": "PASS; reviews, QA evidence, and five requirement mappings recorded",
+      "reference": "verification/qa.md"
+    }
+  ],
+  "engineering": [
+    {
+      "requirement": "stormwater-network#Verified stormwater source import",
+      "status": "VERIFIED",
+      "implementation": ["services/api/src/ratsight_api/importers/stormwater_pipelines.py", "Makefile"],
+      "tests": ["services/api/tests/test_stormwater_pipelines_import.py"],
+      "verification": ["V2", "V4"]
+    },
+    {
+      "requirement": "stormwater-network#Idempotent stormwater persistence",
+      "status": "VERIFIED",
+      "implementation": ["services/api/alembic/versions/0003_stormwater_pipelines.py", "services/api/src/ratsight_api/importers/stormwater_pipelines.py"],
+      "tests": ["services/api/tests/test_stormwater_pipelines_import.py"],
+      "verification": ["V2", "V4"]
+    },
+    {
+      "requirement": "stormwater-network#Stormwater GeoJSON API",
+      "status": "VERIFIED",
+      "implementation": ["services/api/src/ratsight_api/api/routes/stormwater_pipelines.py", "services/api/src/ratsight_api/application/stormwater_pipelines.py"],
+      "tests": ["services/api/tests/test_stormwater_pipelines_api.py", "services/api/tests/test_api.py"],
+      "verification": ["V2", "V4"]
+    },
+    {
+      "requirement": "stormwater-network#Stormwater dashboard inspection",
+      "status": "VERIFIED",
+      "implementation": ["apps/web/src/components/dashboard.tsx", "apps/web/src/components/map-view.tsx", "apps/web/src/lib/api.ts"],
+      "tests": ["apps/web/src/components/dashboard.test.tsx", "apps/web/src/components/map-view.test.tsx", "apps/web/e2e/real-stormwater.spec.ts"],
+      "verification": ["V3", "V4"]
+    },
+    {
+      "requirement": "stormwater-network#Existing layer integrity",
+      "status": "VERIFIED",
+      "implementation": ["apps/web/src/components/map-view.tsx", "scripts/verify_official_districts.sh"],
+      "tests": ["apps/web/src/components/map-view.test.tsx", "apps/web/e2e/official-district.spec.ts"],
+      "verification": ["V4", "V5"]
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "reason": "This change provides infrastructure reference data plumbing only; it makes no biological, rodent, causal, or model-accuracy claim.",
+    "claims": []
+  },
+  "approval": null
+}

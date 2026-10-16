@@ -12,6 +12,9 @@ import type {
   AdministrativeDistrictProperties,
   AdministrativeDistricts,
   SimulationPreview,
+  StormwaterBbox,
+  StormwaterNetwork,
+  StormwaterProperties,
 } from "@/lib/api";
 
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
@@ -25,6 +28,9 @@ const BOUNDARY_SOURCE = "ratsight-administrative-districts";
 const BOUNDARY_FILL_LAYER = "ratsight-administrative-districts-fill";
 const BOUNDARY_OUTLINE_LAYER = "ratsight-administrative-districts-outline";
 const BOUNDARY_HIGHLIGHT_LAYER = "ratsight-administrative-districts-highlight";
+const STORMWATER_SOURCE = "ratsight-stormwater-pipelines";
+const STORMWATER_LINE_LAYER = "ratsight-stormwater-pipelines-line";
+const STORMWATER_HIGHLIGHT_LAYER = "ratsight-stormwater-pipelines-highlight";
 
 type MapViewProps = {
   preview: SimulationPreview | null;
@@ -33,6 +39,11 @@ type MapViewProps = {
   showBoundaries: boolean;
   selectedDistrictId: string | null;
   onSelectDistrict: (properties: AdministrativeDistrictProperties) => void;
+  stormwater: StormwaterNetwork | null;
+  showStormwater: boolean;
+  selectedSegmentId: string | null;
+  onSelectSegment: (properties: StormwaterProperties) => void;
+  onBoundsChange: (bbox: StormwaterBbox) => void;
 };
 
 export function MapView({
@@ -42,9 +53,16 @@ export function MapView({
   showBoundaries,
   selectedDistrictId,
   onSelectDistrict,
+  stormwater,
+  showStormwater,
+  selectedSegmentId,
+  onSelectSegment,
+  onBoundsChange,
 }: MapViewProps) {
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const lastBoundsKey = useRef<string | null>(null);
+  const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!container.current) return;
@@ -75,19 +93,21 @@ export function MapView({
       if (map.getSource(SIMULATION_SOURCE)) map.removeSource(SIMULATION_SOURCE);
       if (!preview) return;
       const nodes = new Map(preview.nodes.map((node) => [node.id, node.coordinates]));
-      const features = preview.edges.flatMap((edge) => {
-        const start = nodes.get(edge.source);
-        const end = nodes.get(edge.target);
-        return start && end
-          ? [
-              {
-                type: "Feature" as const,
-                properties: { visits: edge.visits, classification: "SIMULATED" },
-                geometry: { type: "LineString" as const, coordinates: [start, end] },
-              },
-            ]
-          : [];
-      });
+      const features = preview.edges
+        .filter((edge) => edge.visits > 0)
+        .flatMap((edge) => {
+          const start = nodes.get(edge.source);
+          const end = nodes.get(edge.target);
+          return start && end
+            ? [
+                {
+                  type: "Feature" as const,
+                  properties: { visits: edge.visits, classification: "SIMULATED" },
+                  geometry: { type: "LineString" as const, coordinates: [start, end] },
+                },
+              ]
+            : [];
+        });
       map.addSource(SIMULATION_SOURCE, {
         type: "geojson",
         data: { type: "FeatureCollection", features },
@@ -211,6 +231,128 @@ export function MapView({
       map.off("load", apply);
     };
   }, [selectedDistrictId, boundaries, showBoundaries]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const removeStormwaterLayers = () => {
+      if (map.getLayer(STORMWATER_HIGHLIGHT_LAYER)) map.removeLayer(STORMWATER_HIGHLIGHT_LAYER);
+      if (map.getLayer(STORMWATER_LINE_LAYER)) map.removeLayer(STORMWATER_LINE_LAYER);
+      if (map.getSource(STORMWATER_SOURCE)) map.removeSource(STORMWATER_SOURCE);
+    };
+
+    const update = () => {
+      if (!map.isStyleLoaded()) return;
+      removeStormwaterLayers();
+      if (!stormwater || stormwater.features.length === 0) return;
+      map.addSource(STORMWATER_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: stormwater.features },
+      });
+      // Keep infrastructure reference geometry beneath simulated movement.
+      const beforeId = map.getLayer(SIMULATION_LAYER) ? SIMULATION_LAYER : undefined;
+      const visibility = showStormwater ? "visible" : "none";
+      map.addLayer(
+        {
+          id: STORMWATER_LINE_LAYER,
+          type: "line",
+          source: STORMWATER_SOURCE,
+          layout: { visibility, "line-cap": "round", "line-join": "round" },
+          paint: { "line-color": "#2563eb", "line-width": 1.5, "line-opacity": 0.85 },
+        },
+        beforeId,
+      );
+      map.addLayer(
+        {
+          id: STORMWATER_HIGHLIGHT_LAYER,
+          type: "line",
+          source: STORMWATER_SOURCE,
+          layout: { visibility, "line-cap": "round", "line-join": "round" },
+          filter: ["==", ["get", "segment_id"], ""],
+          paint: { "line-color": "#1e3a8a", "line-width": 3.25, "line-opacity": 1 },
+        },
+        beforeId,
+      );
+    };
+
+    const handleClick = (event: MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (feature?.properties) {
+        onSelectSegment(feature.properties as StormwaterProperties);
+      }
+    };
+    const handleMouseEnter = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const handleMouseLeave = () => {
+      map.getCanvas().style.cursor = "";
+    };
+
+    map.on("load", update);
+    map.on("click", STORMWATER_LINE_LAYER, handleClick);
+    map.on("mouseenter", STORMWATER_LINE_LAYER, handleMouseEnter);
+    map.on("mouseleave", STORMWATER_LINE_LAYER, handleMouseLeave);
+    if (map.isStyleLoaded()) update();
+    return () => {
+      map.off("load", update);
+      map.off("click", STORMWATER_LINE_LAYER, handleClick);
+      map.off("mouseenter", STORMWATER_LINE_LAYER, handleMouseEnter);
+      map.off("mouseleave", STORMWATER_LINE_LAYER, handleMouseLeave);
+    };
+  }, [stormwater, showStormwater, onSelectSegment]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      if (!map.getLayer(STORMWATER_HIGHLIGHT_LAYER)) return;
+      map.setFilter(STORMWATER_HIGHLIGHT_LAYER, [
+        "==",
+        ["get", "segment_id"],
+        selectedSegmentId ?? "",
+      ]);
+    };
+    map.on("load", apply);
+    if (map.isStyleLoaded()) apply();
+    return () => {
+      map.off("load", apply);
+    };
+  }, [selectedSegmentId, stormwater, showStormwater]);
+
+  // Request the current viewport on load and after debounced map movement so the
+  // dashboard can issue bounded stormwater bbox queries instead of fetching all.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const round = (value: number) => Math.round(value * 1e5) / 1e5;
+    const emit = () => {
+      const bounds = map.getBounds();
+      if (!bounds) return;
+      const bbox: StormwaterBbox = [
+        round(bounds.getWest()),
+        round(bounds.getSouth()),
+        round(bounds.getEast()),
+        round(bounds.getNorth()),
+      ];
+      const key = bbox.join(",");
+      if (lastBoundsKey.current === key) return;
+      lastBoundsKey.current = key;
+      onBoundsChange(bbox);
+    };
+    const schedule = () => {
+      if (boundsTimer.current) clearTimeout(boundsTimer.current);
+      boundsTimer.current = setTimeout(emit, 300);
+    };
+    map.on("load", emit);
+    map.on("moveend", schedule);
+    if (map.isStyleLoaded()) emit();
+    return () => {
+      map.off("load", emit);
+      map.off("moveend", schedule);
+      if (boundsTimer.current) clearTimeout(boundsTimer.current);
+    };
+  }, [onBoundsChange]);
 
   return (
     <div className="map-frame" role="region" aria-label="Interactive GIS map" ref={container} />

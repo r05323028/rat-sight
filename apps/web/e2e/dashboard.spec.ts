@@ -134,6 +134,67 @@ const AVAILABLE_BOUNDARIES = {
   ],
 };
 
+const STORMWATER_RESPONSE = {
+  type: "FeatureCollection",
+  data_state: "available",
+  data_class: "INFRASTRUCTURE_REFERENCE",
+  feature_count: 1,
+  bbox: [121.5, 24.98, 121.63, 25.09],
+  truncated: false,
+  provenance: {
+    schema_version: "1",
+    source_url: "https://data.taipei/stormwater",
+    download_url: "https://data.taipei/stormwater/download",
+    dataset_id: "97b82d58-faba-4ee4-9488-dd5d04a79efd",
+    resource_id: "5240223d-5187-454e-b323-63443a195639",
+    resource_version: "2026-02-23T17:10:41",
+    retrieved_at: "2026-10-16T16:58:44Z",
+    archive_sha256: "b".repeat(64),
+    license: "政府資料開放授權條款-第1版",
+    attribution: "臺北市政府工務局",
+    source_crs: "EPSG:3826",
+    target_crs: "EPSG:4326",
+    z_handling: "dropped",
+    processing: { tool: "test", tool_version: "0", steps: ["fixture"] },
+    source_quality: {
+      reference_only: true,
+      missing_pipe_number_count: 20,
+      duplicate_pipe_number_value_count: 311,
+      missing_start_endpoint_count: 991,
+      missing_end_endpoint_count: 991,
+      missing_notes_count: 17950,
+    },
+    uncertainty: {
+      currentness: "Publisher reference-only; currentness UNVERIFIED",
+      note: "fixture",
+    },
+  },
+  features: [
+    {
+      type: "Feature",
+      id: "S-1",
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [121.55, 25.02],
+          [121.58, 25.06],
+        ],
+      },
+      properties: {
+        segment_id: "S-1",
+        data_class: "INFRASTRUCTURE_REFERENCE",
+        classification: "UNVERIFIED",
+        provenance_schema_version: "1",
+        dataset_id: "97b82d58-faba-4ee4-9488-dd5d04a79efd",
+        resource_version: "2026-02-23T17:10:41",
+        archive_sha256: "b".repeat(64),
+        pipe_number: "P-1",
+        material: "RCP",
+      },
+    },
+  ],
+};
+
 async function mockDashboardServices(page: import("@playwright/test").Page, boundaries: unknown) {
   await page.route("**/gl/positron-gl-style/style.json", (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [] } }),
@@ -144,6 +205,9 @@ async function mockDashboardServices(page: import("@playwright/test").Page, boun
   );
   await page.route("**/api/v1/administrative-districts", (route) =>
     route.fulfill({ json: boundaries }),
+  );
+  await page.route("**/api/v1/stormwater-pipelines**", (route) =>
+    route.fulfill({ json: STORMWATER_RESPONSE }),
   );
 }
 
@@ -195,4 +259,21 @@ test("selects a district through the keyboard-accessible list and shows provenan
   await expect(sourceLink).toBeVisible();
   await expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
   await expect(page.getByText("臺北市政府民政局")).toBeVisible();
+});
+
+test("enables the stormwater reference layer and shows its provenance", async ({ page }) => {
+  await mockDashboardServices(page, AVAILABLE_BOUNDARIES);
+  await page.goto("/");
+  const toggle = page.getByLabel("Stormwater pipelines");
+  await expect(toggle).toBeEnabled();
+  await toggle.check();
+  await expect(toggle).toBeChecked();
+  const sourceLink = page.getByRole("link", {
+    name: "https://data.taipei/stormwater",
+    exact: true,
+  });
+  await expect(sourceLink).toBeVisible();
+  await expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(page.getByText("臺北市政府工務局")).toBeVisible();
+  await expect(page.getByText(/Publisher reference-only warning/)).toBeVisible();
 });

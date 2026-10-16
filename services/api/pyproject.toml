@@ -5,6 +5,7 @@ description = "FastAPI and PostGIS service for RatSight"
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "alembic>=1.14,<2",
+  "defusedxml>=0.7,<1",
   "fastapi>=0.115,<1",
   "geoalchemy2>=0.18,<1",
   "psycopg[binary]>=3.2,<4",

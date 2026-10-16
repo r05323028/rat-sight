@@ -1,7 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { AdministrativeDistricts, SimulationPreview } from "@/lib/api";
+import type { AdministrativeDistricts, SimulationPreview, StormwaterNetwork } from "@/lib/api";
 
 const h = vi.hoisted(() => ({
   mapConstructor: vi.fn(),
@@ -49,6 +49,12 @@ vi.mock("maplibre-gl", () => ({
       return this;
     });
     setFilter = vi.fn();
+    getBounds = () => ({
+      getWest: () => 121.5,
+      getSouth: () => 24.98,
+      getEast: () => 121.63,
+      getNorth: () => 25.09,
+    });
     getCanvas = () => ({ style: { cursor: "" } });
     remove = vi.fn();
     constructor(options: unknown) {
@@ -145,6 +151,39 @@ const preview: SimulationPreview = {
   ],
 };
 
+const stormwater: StormwaterNetwork = {
+  type: "FeatureCollection",
+  data_state: "available",
+  data_class: "INFRASTRUCTURE_REFERENCE",
+  feature_count: 1,
+  bbox: [121.5, 24.98, 121.63, 25.09],
+  truncated: false,
+  provenance: null,
+  features: [
+    {
+      type: "Feature",
+      id: "S-1",
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [121.55, 25.02],
+          [121.58, 25.06],
+        ],
+      },
+      properties: {
+        segment_id: "S-1",
+        data_class: "INFRASTRUCTURE_REFERENCE",
+        classification: "UNVERIFIED",
+        provenance_schema_version: "1",
+        dataset_id: "97b82d58-faba-4ee4-9488-dd5d04a79efd",
+        resource_version: "2026-02-23T17:10:41",
+        archive_sha256: "b".repeat(64),
+        pipe_number: "P-1",
+      },
+    },
+  ],
+};
+
 type MapViewProps = {
   preview?: SimulationPreview | null;
   showSimulatedPaths?: boolean;
@@ -152,6 +191,11 @@ type MapViewProps = {
   showBoundaries?: boolean;
   selectedDistrictId?: string | null;
   onSelectDistrict?: (properties: unknown) => void;
+  stormwater?: StormwaterNetwork | null;
+  showStormwater?: boolean;
+  selectedSegmentId?: string | null;
+  onSelectSegment?: (properties: unknown) => void;
+  onBoundsChange?: (bbox: [number, number, number, number]) => void;
 };
 
 function mapElement({
@@ -161,6 +205,11 @@ function mapElement({
   showBoundaries = false,
   selectedDistrictId = null,
   onSelectDistrict = vi.fn(),
+  stormwater: stormwaterValue = null,
+  showStormwater = false,
+  selectedSegmentId = null,
+  onSelectSegment = vi.fn(),
+  onBoundsChange = vi.fn(),
 }: MapViewProps = {}) {
   return (
     <MapView
@@ -170,6 +219,11 @@ function mapElement({
       showBoundaries={showBoundaries}
       selectedDistrictId={selectedDistrictId}
       onSelectDistrict={onSelectDistrict}
+      stormwater={stormwaterValue}
+      showStormwater={showStormwater}
+      selectedSegmentId={selectedSegmentId}
+      onSelectSegment={onSelectSegment}
+      onBoundsChange={onBoundsChange}
     />
   );
 }
@@ -189,6 +243,21 @@ describe("MapView", () => {
         style: expect.stringContaining("style.json"),
         center: [121.5654, 25.033],
         attributionControl: {},
+      }),
+    );
+  });
+
+  it("does not render unvisited synthetic edges", () => {
+    const unvisitedPreview = {
+      ...preview,
+      edges: [{ ...preview.edges[0], visits: 0 }],
+    };
+    render(mapElement({ preview: unvisitedPreview, showSimulatedPaths: true }));
+    const map = h.latest.current as { addSource: ReturnType<typeof vi.fn> };
+    expect(map.addSource).toHaveBeenCalledWith(
+      "ratsight-simulated-edges",
+      expect.objectContaining({
+        data: { type: "FeatureCollection", features: [] },
       }),
     );
   });
@@ -307,6 +376,71 @@ describe("MapView", () => {
     expect(map.removeLayer).toHaveBeenCalledWith("ratsight-administrative-districts-fill");
     expect(map.removeLayer).toHaveBeenCalledWith("ratsight-administrative-districts-outline");
     expect(map.removeSource).toHaveBeenCalledWith("ratsight-administrative-districts");
+    expect(map.addSource).not.toHaveBeenCalled();
+  });
+
+  it("requests the current viewport bbox after style load", () => {
+    const onBoundsChange = vi.fn();
+    render(mapElement({ onBoundsChange }));
+    expect(onBoundsChange).toHaveBeenCalledWith([121.5, 24.98, 121.63, 25.09]);
+  });
+
+  it("adds the stormwater source and line/highlight layers beneath simulation", () => {
+    render(mapElement({ stormwater, showStormwater: true }));
+    const map = h.latest.current as {
+      addSource: ReturnType<typeof vi.fn>;
+      addLayer: ReturnType<typeof vi.fn>;
+    };
+    expect(map.addSource).toHaveBeenCalledWith(
+      "ratsight-stormwater-pipelines",
+      expect.objectContaining({
+        type: "geojson",
+        data: { type: "FeatureCollection", features: stormwater.features },
+      }),
+    );
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "ratsight-stormwater-pipelines-line",
+        type: "line",
+        layout: expect.objectContaining({ visibility: "visible" }),
+        paint: expect.objectContaining({ "line-color": "#2563eb" }),
+      }),
+      undefined,
+    );
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "ratsight-stormwater-pipelines-highlight",
+        type: "line",
+        filter: ["==", ["get", "segment_id"], ""],
+      }),
+      undefined,
+    );
+  });
+
+  it("calls onSelectSegment when a stormwater line is clicked", () => {
+    const onSelectSegment = vi.fn();
+    render(mapElement({ stormwater, showStormwater: true, onSelectSegment }));
+    const map = h.latest.current as { handlers: Record<string, HandlerEntry[]> };
+    const click = map.handlers.click.find(
+      (entry) => entry.layerId === "ratsight-stormwater-pipelines-line",
+    );
+    expect(click).toBeDefined();
+    click!.handler({ features: [{ properties: stormwater.features[0].properties }] });
+    expect(onSelectSegment).toHaveBeenCalledWith(stormwater.features[0].properties);
+  });
+
+  it("removes stale stormwater layers when the collection is empty", () => {
+    const { rerender } = render(mapElement({ stormwater, showStormwater: true }));
+    const map = h.latest.current as {
+      addSource: ReturnType<typeof vi.fn>;
+      removeLayer: ReturnType<typeof vi.fn>;
+      removeSource: ReturnType<typeof vi.fn>;
+    };
+    map.addSource.mockClear();
+    rerender(mapElement({ stormwater: null, showStormwater: true }));
+    expect(map.removeLayer).toHaveBeenCalledWith("ratsight-stormwater-pipelines-line");
+    expect(map.removeLayer).toHaveBeenCalledWith("ratsight-stormwater-pipelines-highlight");
+    expect(map.removeSource).toHaveBeenCalledWith("ratsight-stormwater-pipelines");
     expect(map.addSource).not.toHaveBeenCalled();
   });
 });

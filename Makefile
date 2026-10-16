@@ -1,4 +1,4 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts import-stormwater
 
 PNPM ?= corepack pnpm
 
@@ -25,6 +25,9 @@ migrate:
 
 import-districts:
 	uv run --package ratsight-api python -m ratsight_api.importers.administrative_districts $(ARGS)
+
+import-stormwater:
+	uv run --package ratsight-api python -m ratsight_api.importers.stormwater_pipelines $(ARGS)
 
 api:
 	uv run --package ratsight-api uvicorn ratsight_api.main:app --reload

@@ -8,10 +8,14 @@ import { Button } from "@/components/ui/button";
 import {
   fetchAdministrativeDistricts,
   fetchLayers,
+  fetchStormwaterPipelines,
+  isStormwaterBboxTooBroad,
   requestPreview,
   type AdministrativeDistrictProperties,
   type Layer,
   type SimulationPreview,
+  type StormwaterBbox,
+  type StormwaterProperties,
 } from "@/lib/api";
 
 const DEFAULT_LAYERS: Layer[] = [
@@ -44,18 +48,75 @@ function isSafeExternalUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
 
+// Approximates the initial map center until MapView reports the real viewport bbox.
+const DEFAULT_STORMWATER_BBOX: StormwaterBbox = [121.5, 24.98, 121.63, 25.09];
+
+const STORMWATER_ATTRIBUTE_LABELS: [keyof StormwaterProperties, string][] = [
+  ["segment_id", "Segment ID"],
+  ["category_code", "Category code"],
+  ["pipe_number", "Pipe number"],
+  ["start_node_id", "Start node (publisher attribute)"],
+  ["end_node_id", "End node (publisher attribute)"],
+  ["managing_unit", "Managing unit"],
+  ["work_category", "Work category"],
+  ["installation_date", "Installation date"],
+  ["dimension_unit", "Dimension unit"],
+  ["diameter_width", "Diameter / width"],
+  ["diameter_height", "Diameter / height"],
+  ["conduit_count", "Conduit count"],
+  ["material", "Material"],
+  ["start_burial_depth", "Start burial depth"],
+  ["end_burial_depth", "End burial depth"],
+  ["length", "Length"],
+  ["pipe_type", "Pipe type"],
+  ["use_status", "Use status"],
+  ["data_status", "Data status"],
+  ["notes", "Notes"],
+];
+
+function zHandlingText(zHandling: "dropped" | "retained" | "not_present"): string {
+  if (zHandling === "dropped") return "Source Z dropped — no documented vertical CRS";
+  if (zHandling === "retained") return "Source Z retained";
+  return "No source Z present";
+}
+
+function stormwaterQualitySummary(quality: {
+  missing_pipe_number_count: number;
+  duplicate_pipe_number_value_count: number;
+  missing_start_endpoint_count: number;
+  missing_end_endpoint_count: number;
+  missing_notes_count: number;
+}): string {
+  return [
+    `Missing pipe numbers: ${quality.missing_pipe_number_count}`,
+    `Duplicate pipe-number values: ${quality.duplicate_pipe_number_value_count}`,
+    `Missing start endpoints: ${quality.missing_start_endpoint_count}`,
+    `Missing end endpoints: ${quality.missing_end_endpoint_count}`,
+    `Missing notes: ${quality.missing_notes_count}`,
+  ].join(" · ");
+}
+
 export function Dashboard() {
   const layersQuery = useQuery({ queryKey: ["layers"], queryFn: fetchLayers });
   const districtsQuery = useQuery({
     queryKey: ["administrative-districts"],
     queryFn: fetchAdministrativeDistricts,
   });
+  const [viewportBbox, setViewportBbox] = useState<StormwaterBbox>(DEFAULT_STORMWATER_BBOX);
+  const bboxTooBroad = isStormwaterBboxTooBroad(viewportBbox);
+  const stormwaterQuery = useQuery({
+    queryKey: ["stormwater-pipelines", viewportBbox],
+    queryFn: () => fetchStormwaterPipelines(viewportBbox),
+    enabled: !bboxTooBroad,
+  });
   const [preview, setPreview] = useState<SimulationPreview | null>(null);
   const [showSimulatedPaths, setShowSimulatedPaths] = useState(false);
   const [showBoundaries, setShowBoundaries] = useState(false);
+  const [showStormwater, setShowStormwater] = useState(false);
   const [selectedDistrict, setSelectedDistrict] = useState<AdministrativeDistrictProperties | null>(
     null,
   );
+  const [selectedSegment, setSelectedSegment] = useState<StormwaterProperties | null>(null);
   const [duration, setDuration] = useState(12);
   const [seed, setSeed] = useState(42);
   const [walkers, setWalkers] = useState(24);
@@ -70,6 +131,27 @@ export function Dashboard() {
       : hasDistricts
         ? "Administrative reference · UNVERIFIED"
         : "No boundaries imported";
+  const stormwater = stormwaterQuery.data ?? null;
+  const hasStormwater = stormwater?.data_state === "available";
+  const selectedVisibleSegment =
+    stormwaterQuery.isError || stormwater?.data_state !== "available"
+      ? null
+      : (stormwater.features.find(
+          (feature) => feature.properties.segment_id === selectedSegment?.segment_id,
+        )?.properties ?? null);
+  const stormwaterStatus = bboxTooBroad
+    ? "Zoom in to load pipelines"
+    : stormwaterQuery.isPending
+      ? "Loading pipelines…"
+      : stormwaterQuery.isError
+        ? "Stormwater service unavailable"
+        : stormwater?.data_state === "empty"
+          ? "No pipelines imported"
+          : (stormwater?.feature_count ?? 0) === 0
+            ? "No pipelines in view"
+            : stormwater?.truncated
+              ? "Showing partial data · zoom in"
+              : "Infrastructure reference · UNVERIFIED";
 
   return (
     <main className="dashboard-shell">
@@ -113,6 +195,11 @@ export function Dashboard() {
             showBoundaries={showBoundaries}
             selectedDistrictId={selectedDistrict?.district_id ?? null}
             onSelectDistrict={setSelectedDistrict}
+            stormwater={stormwater}
+            showStormwater={showStormwater}
+            selectedSegmentId={selectedVisibleSegment?.segment_id ?? null}
+            onSelectSegment={setSelectedSegment}
+            onBoundsChange={setViewportBbox}
           />
           <div className="map-legend">
             <span className="legend-item">
@@ -120,6 +207,9 @@ export function Dashboard() {
             </span>
             <span className="legend-item">
               <i className="legend-administrative" /> Administrative reference
+            </span>
+            <span className="legend-item">
+              <i className="legend-stormwater" /> Stormwater (reference)
             </span>
             <span className="legend-item">
               <i className="legend-simulated" /> Simulated · synthetic fixture
@@ -161,6 +251,22 @@ export function Dashboard() {
                   disabled={!hasDistricts}
                   checked={showBoundaries}
                   onChange={(event) => setShowBoundaries(event.target.checked)}
+                />
+              </label>
+              <label className={`layer-row ${hasStormwater ? "" : "is-unavailable"}`}>
+                <span className="layer-glyph glyph-stormwater" aria-hidden="true">
+                  ═
+                </span>
+                <span className="layer-name">
+                  Stormwater pipelines
+                  <small>{stormwaterStatus}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Stormwater pipelines"
+                  disabled={!hasStormwater}
+                  checked={showStormwater}
+                  onChange={(event) => setShowStormwater(event.target.checked)}
                 />
               </label>
               {layers.map((layer) => {
@@ -293,6 +399,121 @@ export function Dashboard() {
                 <strong>{districts.provenance.license}</strong>
                 <span>Currentness</span>
                 <strong>{districts.provenance.uncertainty.currentness}</strong>
+              </div>
+            )}
+          </section>
+
+          <section className="panel stormwater-panel" aria-label="Stormwater pipeline inspection">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">INFRASTRUCTURE REFERENCE</p>
+                <h3>Stormwater pipelines</h3>
+              </div>
+              <span className="classification-badge">UNVERIFIED</span>
+            </div>
+            {hasStormwater ? (
+              <>
+                <p className="reference-label">{stormwaterStatus}</p>
+                <p className="reference-label" id="segment-list-label">
+                  Pipelines · select to inspect
+                </p>
+                <ul className="district-list" aria-labelledby="segment-list-label">
+                  {stormwater?.features.map((feature) => {
+                    const selected =
+                      selectedVisibleSegment?.segment_id === feature.properties.segment_id;
+                    return (
+                      <li key={feature.properties.segment_id}>
+                        <button
+                          type="button"
+                          className={`district-button ${selected ? "is-selected" : ""}`}
+                          aria-pressed={selected}
+                          aria-label={feature.properties.segment_id}
+                          onClick={() => setSelectedSegment(feature.properties)}
+                        >
+                          {feature.properties.pipe_number || feature.properties.segment_id}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {selectedVisibleSegment ? (
+                  <div className="reference-details" aria-live="polite">
+                    {STORMWATER_ATTRIBUTE_LABELS.map(([key, label]) => (
+                      <div className="analysis-row" key={key}>
+                        <span>{label}</span>
+                        <strong>{selectedVisibleSegment[key] || "Unavailable"}</strong>
+                      </div>
+                    ))}
+                    <div className="analysis-row">
+                      <span>Data class</span>
+                      <strong>{selectedVisibleSegment.data_class}</strong>
+                    </div>
+                    <div className="analysis-row">
+                      <span>Classification</span>
+                      <strong>{selectedVisibleSegment.classification}</strong>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="inline-note" aria-live="polite">
+                    Select a pipeline from the list or the map to inspect its source attributes.
+                  </p>
+                )}
+                <p className="reference-note">
+                  Not verified physical connectivity. Start/end node values are publisher attributes
+                  only.
+                </p>
+              </>
+            ) : (
+              <p className="inline-note" aria-live="polite">
+                {stormwaterStatus === "No pipelines imported"
+                  ? "No stormwater pipelines have been imported."
+                  : stormwaterStatus}
+              </p>
+            )}
+            {stormwater?.provenance && (
+              <div className="provenance-block" aria-label="Stormwater source provenance">
+                <span>Source URL</span>
+                {isSafeExternalUrl(stormwater.provenance.source_url) ? (
+                  <a
+                    href={stormwater.provenance.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {stormwater.provenance.source_url}
+                  </a>
+                ) : (
+                  <strong>{stormwater.provenance.source_url}</strong>
+                )}
+                <span>Download URL</span>
+                {isSafeExternalUrl(stormwater.provenance.download_url) ? (
+                  <a
+                    href={stormwater.provenance.download_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {stormwater.provenance.download_url}
+                  </a>
+                ) : (
+                  <strong>{stormwater.provenance.download_url}</strong>
+                )}
+                <span>Attribution</span>
+                <strong>{stormwater.provenance.attribution}</strong>
+                <span>License</span>
+                <strong>{stormwater.provenance.license}</strong>
+                <span>Resource version</span>
+                <strong>{stormwater.provenance.resource_version}</strong>
+                <span>Currentness</span>
+                <strong>{stormwater.provenance.uncertainty.currentness}</strong>
+                <span>Vertical coordinate</span>
+                <strong>{zHandlingText(stormwater.provenance.z_handling)}</strong>
+                <span>Source quality</span>
+                <strong>{stormwaterQualitySummary(stormwater.provenance.source_quality)}</strong>
+                {stormwater.provenance.source_quality.reference_only && (
+                  <small>
+                    Publisher reference-only warning: use as a reference; obtain exact data from the
+                    responsible utility agency.
+                  </small>
+                )}
               </div>
             )}
           </section>

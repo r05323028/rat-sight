@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     # Default is the documented Taipei dataset (Evidence ID
     # EVID-TPE-DISTRICT-BOUNDARIES-2026-10-15); override for another deployment.
     administrative_district_dataset_id: str = "121199"
+    # Explicit endpoint identity for the single stormwater reference layer.
+    # Default is the documented Candidate B dataset
+    # (Evidence ID EVID-TPE-STORMWATER-NETWORK-2026-10-16).
+    stormwater_dataset_id: str = "97b82d58-faba-4ee4-9488-dd5d04a79efd"
 
     @property
     def cors_origin_list(self) -> list[str]:

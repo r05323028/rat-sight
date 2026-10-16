@@ -6,6 +6,7 @@ import { Dashboard } from "@/components/dashboard";
 
 const mockState = vi.hoisted(() => ({
   boundaryMode: "empty" as "empty" | "available" | "error",
+  stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
   district: {
     district_id: "63000010",
     district_name: "松山區",
@@ -15,6 +16,17 @@ const mockState = vi.hoisted(() => ({
     dataset_id: "121199",
     resource_version: "20220915",
     archive_sha256: "a".repeat(64),
+  },
+  stormwaterFeature: {
+    segment_id: "S-1",
+    data_class: "INFRASTRUCTURE_REFERENCE",
+    classification: "UNVERIFIED",
+    provenance_schema_version: "1",
+    dataset_id: "97b82d58-faba-4ee4-9488-dd5d04a79efd",
+    resource_version: "2026-02-23T17:10:41",
+    archive_sha256: "b".repeat(64),
+    pipe_number: "P-1",
+    material: "RCP",
   },
 }));
 
@@ -44,6 +56,32 @@ const PROVENANCE = {
   target_crs: "EPSG:4326",
   processing: { tool: "test", tool_version: "0", steps: ["fixture"] },
   uncertainty: { currentness: "UNVERIFIED after 2022-09-15", note: "fixture" },
+};
+
+const STORMWATER_PROVENANCE = {
+  schema_version: "1",
+  source_url: "https://data.taipei/stormwater",
+  download_url: "https://data.taipei/stormwater/download",
+  dataset_id: "97b82d58-faba-4ee4-9488-dd5d04a79efd",
+  resource_id: "5240223d-5187-454e-b323-63443a195639",
+  resource_version: "2026-02-23T17:10:41",
+  retrieved_at: "2026-10-16T16:58:44Z",
+  archive_sha256: "b".repeat(64),
+  license: "政府資料開放授權條款-第1版",
+  attribution: "臺北市政府工務局",
+  source_crs: "EPSG:3826",
+  target_crs: "EPSG:4326",
+  z_handling: "dropped",
+  processing: { tool: "test", tool_version: "0", steps: ["fixture"] },
+  source_quality: {
+    reference_only: true,
+    missing_pipe_number_count: 20,
+    duplicate_pipe_number_value_count: 311,
+    missing_start_endpoint_count: 991,
+    missing_end_endpoint_count: 991,
+    missing_notes_count: 17950,
+  },
+  uncertainty: { currentness: "Publisher reference-only; currentness UNVERIFIED", note: "fixture" },
 };
 
 beforeEach(() => {
@@ -139,6 +177,41 @@ beforeEach(() => {
             data_state: features.length > 0 ? "available" : "empty",
             data_class: "ADMINISTRATIVE_REFERENCE",
             provenance: features.length > 0 ? PROVENANCE : null,
+            features,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/api/v1/stormwater-pipelines")) {
+        if (mockState.stormwaterMode === "error") {
+          return new Response("storage unavailable", { status: 503 });
+        }
+        const features =
+          mockState.stormwaterMode === "empty" || mockState.stormwaterMode === "in_view"
+            ? []
+            : [
+                {
+                  type: "Feature",
+                  id: mockState.stormwaterFeature.segment_id,
+                  geometry: {
+                    type: "LineString",
+                    coordinates: [
+                      [121.55, 25.02],
+                      [121.58, 25.06],
+                    ],
+                  },
+                  properties: mockState.stormwaterFeature,
+                },
+              ];
+        return new Response(
+          JSON.stringify({
+            type: "FeatureCollection",
+            data_state: mockState.stormwaterMode === "empty" ? "empty" : "available",
+            data_class: "INFRASTRUCTURE_REFERENCE",
+            provenance: mockState.stormwaterMode === "empty" ? null : STORMWATER_PROVENANCE,
+            feature_count: features.length,
+            bbox: [121.5, 24.98, 121.63, 25.09],
+            truncated: mockState.stormwaterMode === "truncated",
             features,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -241,5 +314,60 @@ describe("RatSight dashboard", () => {
     });
     expect(await within(reference).findByText("Boundary service unavailable")).toBeInTheDocument();
     expect(screen.getByLabelText("Administrative districts")).toBeDisabled();
+  });
+
+  it("reports the storage-empty stormwater state", async () => {
+    mockState.stormwaterMode = "empty";
+    renderDashboard();
+    expect(await screen.findByText("No pipelines imported")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No stormwater pipelines have been imported."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Stormwater pipelines")).toBeDisabled();
+  });
+
+  it("distinguishes an in-view miss from an empty store", async () => {
+    mockState.stormwaterMode = "in_view";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "Stormwater pipeline inspection" });
+    expect(await within(panel).findByText("No pipelines in view")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Stormwater pipelines")).toBeEnabled());
+  });
+
+  it("shows the capped partial-data state", async () => {
+    mockState.stormwaterMode = "truncated";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "Stormwater pipeline inspection" });
+    expect(await within(panel).findByText("Showing partial data · zoom in")).toBeInTheDocument();
+  });
+
+  it("communicates an unavailable stormwater service", async () => {
+    mockState.stormwaterMode = "error";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "Stormwater pipeline inspection" });
+    expect(await within(panel).findByText("Stormwater service unavailable")).toBeInTheDocument();
+    expect(screen.getByLabelText("Stormwater pipelines")).toBeDisabled();
+  });
+
+  it("inspects a selected stormwater pipeline with reference-only provenance", async () => {
+    mockState.stormwaterMode = "available";
+    renderDashboard();
+    const toggle = await screen.findByLabelText("Stormwater pipelines");
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+
+    const segmentButton = screen.getByRole("button", { name: "S-1" });
+    segmentButton.focus();
+    expect(segmentButton).toHaveFocus();
+    fireEvent.click(segmentButton);
+    expect(segmentButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("RCP")).toBeInTheDocument();
+    expect(screen.getByText("Source Z dropped — no documented vertical CRS")).toBeInTheDocument();
+    expect(screen.getByText(/Not verified physical connectivity/)).toBeInTheDocument();
+    expect(screen.getByText(/Publisher reference-only warning/)).toBeInTheDocument();
+    const sourceLink = screen.getByRole("link", { name: "https://data.taipei/stormwater" });
+    expect(sourceLink).toHaveAttribute("target", "_blank");
+    expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
   });
 });

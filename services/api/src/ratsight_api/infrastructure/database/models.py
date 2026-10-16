@@ -93,3 +93,73 @@ class AdministrativeDistrict(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class StormwaterPipeline(Base):
+    """Provenance-preserving stormwater infrastructure reference line.
+
+    Endpoint IDs and source attributes are publisher records only; no topology
+    or connectivity is represented.
+    """
+
+    __tablename__ = "stormwater_pipelines"
+    __table_args__ = (
+        CheckConstraint(
+            "classification IN ('OBSERVED', 'INFERRED', 'SIMULATED', 'UNVERIFIED')",
+            name="ck_stormwater_pipelines_classification",
+        ),
+        CheckConstraint(
+            "data_class = 'INFRASTRUCTURE_REFERENCE'",
+            name="ck_stormwater_pipelines_data_class",
+        ),
+        CheckConstraint(
+            "GeometryType(geometry) = 'LINESTRING' AND NOT ST_IsEmpty(geometry)",
+            name="ck_stormwater_pipelines_geometry",
+        ),
+        UniqueConstraint(
+            "dataset_id",
+            "resource_version",
+            "source_record_id",
+            name="uq_stormwater_pipelines_key",
+        ),
+        Index("idx_stormwater_pipelines_geometry", "geometry", postgresql_using="gist"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    source_record_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    dataset_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    archive_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    data_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    classification: Mapped[str] = mapped_column(String(16), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    category_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pipe_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_node_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    managing_unit: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    work_category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    installation_date: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dimension_unit: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    diameter_width: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    diameter_height: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    conduit_count: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    material: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    start_burial_depth: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    end_burial_depth: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    length: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    pipe_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    use_status: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    data_status: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    geometry: Mapped[Any] = mapped_column(
+        Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=False), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

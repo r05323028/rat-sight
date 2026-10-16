@@ -32,9 +32,15 @@ test("renders administrative data obtained from the running FastAPI API", async 
   await boundaryToggle.check();
   await districtButton.click();
   await expect(districtButton).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("smoke-1")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Administrative reference" }).getByText("smoke-1"),
+  ).toBeVisible();
   await boundaryToggle.uncheck();
   await boundaryToggle.check();
   await expect(districtButton).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("RatSight automated test fixture")).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Administrative reference" })
+      .getByText("RatSight automated test fixture"),
+  ).toBeVisible();
 });

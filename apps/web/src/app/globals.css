@@ -180,6 +180,9 @@ select {
 .legend-administrative {
   background: #b7791f;
 }
+.legend-stormwater {
+  background: #2563eb;
+}
 .data-boundary {
   display: grid;
   gap: 4px;
@@ -246,6 +249,9 @@ select {
 }
 .glyph-administrative_boundaries {
   color: var(--amber);
+}
+.glyph-stormwater {
+  color: #2563eb;
 }
 .layer-name {
   display: grid;

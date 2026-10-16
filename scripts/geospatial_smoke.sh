@@ -26,6 +26,9 @@ cleanup() {
   [[ -n "$API_PID" ]] && kill_tree "$API_PID"
   [[ -n "$WEB_PID" ]] && wait "$WEB_PID" 2>/dev/null || true
   [[ -n "$API_PID" ]] && wait "$API_PID" 2>/dev/null || true
+  for port in "$WEB_PORT" "$API_PORT"; do
+    for pid in $(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true); do kill -9 "$pid" 2>/dev/null || true; done
+  done
   if [[ "$STACK_STARTED" == "1" ]]; then
     $COMPOSE -f "$OVERRIDE" down -v --remove-orphans >/dev/null 2>&1 || true
   fi
@@ -57,8 +60,10 @@ STACK_STARTED=1
 $COMPOSE -f "$OVERRIDE" up -d --wait postgres
 export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${DB_PORT}/${POSTGRES_DB}"
 export ADMINISTRATIVE_DISTRICT_DATASET_ID="smoke-fixture"
+export STORMWATER_DATASET_ID="00000000-0000-4000-8000-000000000001"
 uv run --package ratsight-api alembic -c services/api/alembic.ini upgrade head
 uv run python scripts/seed_geospatial_smoke.py
+uv run python scripts/seed_stormwater_smoke.py
 
 uv run --package ratsight-api uvicorn ratsight_api.main:app --host 127.0.0.1 --port "$API_PORT" >"${TMPDIR:-/tmp}/ratsight-api-smoke.log" 2>&1 &
 API_PID=$!
@@ -84,3 +89,6 @@ curl -fsS "http://127.0.0.1:${WEB_PORT}/" >/dev/null
 PLAYWRIGHT_EXTERNAL_SERVERS=1 PLAYWRIGHT_PORT="$WEB_PORT" corepack pnpm --filter @ratsight/web exec playwright test e2e/real-api.spec.ts
 SMOKE_EMPTY=1 uv run python scripts/seed_geospatial_smoke.py
 PLAYWRIGHT_EXTERNAL_SERVERS=1 PLAYWRIGHT_PORT="$WEB_PORT" corepack pnpm --filter @ratsight/web exec playwright test e2e/real-api-empty.spec.ts
+PLAYWRIGHT_EXTERNAL_SERVERS=1 PLAYWRIGHT_PORT="$WEB_PORT" corepack pnpm --filter @ratsight/web exec playwright test e2e/real-stormwater.spec.ts
+SMOKE_EMPTY=1 uv run python scripts/seed_stormwater_smoke.py
+PLAYWRIGHT_EXTERNAL_SERVERS=1 PLAYWRIGHT_PORT="$WEB_PORT" corepack pnpm --filter @ratsight/web exec playwright test e2e/real-stormwater-empty.spec.ts
