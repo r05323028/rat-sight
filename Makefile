@@ -1,4 +1,4 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e lint typecheck format-check build validate openspec-gate openspec-archive import-districts
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts
 
 PNPM ?= corepack pnpm
 
@@ -42,6 +42,10 @@ test-py:
 
 test-e2e:
 	$(PNPM) --filter @ratsight/web e2e
+
+# Real browser -> FastAPI -> PostGIS smoke; uses an isolated disposable stack.
+geospatial-smoke:
+	bash scripts/geospatial_smoke.sh
 
 lint:
 	$(PNPM) --filter @ratsight/web lint

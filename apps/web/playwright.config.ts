@@ -12,11 +12,13 @@ export default defineConfig({
     trace: "retain-on-failure",
     ...devices["Desktop Chrome"],
   },
-  webServer: {
-    command: `corepack pnpm dev --hostname 127.0.0.1 --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: false,
-    env: { NEXT_PUBLIC_API_URL: baseURL },
-    timeout: 120_000,
-  },
+  webServer: process.env.PLAYWRIGHT_EXTERNAL_SERVERS
+    ? undefined
+    : {
+        command: `corepack pnpm dev --hostname 127.0.0.1 --port ${port}`,
+        url: baseURL,
+        reuseExistingServer: false,
+        env: { NEXT_PUBLIC_API_URL: baseURL },
+        timeout: 120_000,
+      },
 });
