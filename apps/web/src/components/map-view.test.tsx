@@ -499,6 +499,10 @@ describe("MapView", () => {
 
   it("adds the rodent report source and point/highlight layers", () => {
     render(mapElement({ rodentReports, showRodentReports: true }));
+    expect(screen.getByRole("region", { name: "Interactive GIS map" })).toHaveAttribute(
+      "data-rodent-points",
+      "visible",
+    );
     const map = h.latest.current as {
       addSource: ReturnType<typeof vi.fn>;
       addLayer: ReturnType<typeof vi.fn>;
@@ -539,5 +543,13 @@ describe("MapView", () => {
     expect(click).toBeDefined();
     click!.handler({ features: [{ properties: rodentReports.features[0].properties }] });
     expect(onSelectReport).toHaveBeenCalledWith(rodentReports.features[0].properties);
+  });
+
+  it("marks rodent points hidden when the layer is disabled", () => {
+    render(mapElement({ rodentReports, showRodentReports: false }));
+    expect(screen.getByRole("region", { name: "Interactive GIS map" })).toHaveAttribute(
+      "data-rodent-points",
+      "hidden",
+    );
   });
 });

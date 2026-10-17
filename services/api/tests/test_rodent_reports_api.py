@@ -91,6 +91,8 @@ def _feature_row(geometry: Any = None, **overrides: Any) -> dict[str, Any]:
         "review_status": "unreviewed",
         "municipal_status": "not_assessed",
         "action_status": "none_reported",
+        "data_class": RODENT_REPORT_DATA_CLASS,
+        "classification": RODENT_REPORT_CLASSIFICATION,
         "provenance": _provenance().model_dump(mode="json"),
         "geometry": json.dumps(VALID_POINT if geometry is None else geometry),
     }
@@ -232,6 +234,20 @@ def test_mixed_source_group_raises_data_error() -> None:
         _list([[_meta_row()], [_feature_row(provenance=other_provenance)]])
 
 
+def test_inconsistent_classification_raises_data_error() -> None:
+    from ratsight_api.application.rodent_reports import RodentReportDataError
+
+    with pytest.raises(RodentReportDataError, match="classification is inconsistent"):
+        _list([[_meta_row()], [_feature_row(classification="OBSERVED")]])
+
+
+def test_inconsistent_data_class_raises_data_error() -> None:
+    from ratsight_api.application.rodent_reports import RodentReportDataError
+
+    with pytest.raises(RodentReportDataError, match="data_class is inconsistent"):
+        _list([[_meta_row()], [_feature_row(data_class="OTHER_REFERENCE")]])
+
+
 def test_from_after_to_is_rejected() -> None:
     from ratsight_api.application.rodent_reports import RodentReportQueryError
 
@@ -315,6 +331,16 @@ async def test_route_available_serialization(client: AsyncClient) -> None:
     assert set(payload["features"][0]["properties"]) == PROPERTY_KEYS
     assert payload["bbox"] == [121.5, 25.0, 121.6, 25.1]
     assert payload["reported_from"] == "2026-10-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_route_inconsistent_classification_is_500(client: AsyncClient) -> None:
+    app.dependency_overrides[get_session] = lambda: _FakeSession(
+        [[_meta_row()], [_feature_row(classification="OBSERVED")]]
+    )
+    response = await client.get(ENDPOINT)
+    assert response.status_code == 500
+    assert response.json() == {"detail": route_module.INVALID_DATA_DETAIL}
 
 
 @pytest.mark.asyncio

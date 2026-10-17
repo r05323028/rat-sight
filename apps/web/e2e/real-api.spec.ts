@@ -29,14 +29,17 @@ test("renders administrative data obtained from the running FastAPI API", async 
   await expect(districtButton).toBeVisible();
   const boundaryToggle = page.getByLabel("Administrative districts");
   await expect(boundaryToggle).toBeEnabled();
-  await boundaryToggle.check();
+  await boundaryToggle.click();
+  await expect(boundaryToggle).toBeChecked();
   await districtButton.click();
   await expect(districtButton).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("region", { name: "Administrative reference" }).getByText("smoke-1"),
   ).toBeVisible();
-  await boundaryToggle.uncheck();
-  await boundaryToggle.check();
+  await boundaryToggle.click();
+  await expect(boundaryToggle).not.toBeChecked();
+  await boundaryToggle.click();
+  await expect(boundaryToggle).toBeChecked();
   await expect(districtButton).toHaveAttribute("aria-pressed", "true");
   await expect(
     page

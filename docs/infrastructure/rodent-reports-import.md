@@ -53,6 +53,15 @@ The importer pins the fixture path, dataset, version, and SHA-256; there is no
 - **Idempotent persistence** keyed by `(dataset_id, resource_version,
   source_record_id)` with per-record content identity; a changed record set or
   changed content fails closed. Imports run in one transaction.
+- **Immutable after import.** Migration `0004_rodent_reports` (and the forward
+  repair `0006_rodent_reports_immutability`) install the
+  `rodent_reports_immutable` trigger, which blocks `UPDATE` and `DELETE`. Reset a
+  fixture only by recreating a disposable database/volume; never by deleting
+  rows. A new `--resource-version`/dataset identity is required to change data.
+- **SIMULATED enforced.** The table CHECK requires `classification = 'SIMULATED'`
+  and `data_class = 'RODENT_REPORT'`; the API validates each persisted row and
+  returns an explicit non-2xx data-contract error on inconsistent stored values
+  instead of relabeling them.
 - **Typed provenance**: immutable `RodentReportProvenanceV1` with
   `source_kind=synthetic_fixture`, `synthetic=true`, pinned dataset/version/hash,
   license/attribution notices, CRS pair, processing steps, and uncertainty.
@@ -81,3 +90,12 @@ Any future real report source requires data-owner authorization, written
 license/reuse and privacy/retention terms, a verified schema/CRS, and human
 public-health acceptance; it cannot reuse this fixture provenance or be labeled
 `SIMULATED`.
+
+## Smoke reset
+
+`scripts/rodent_report_smoke.sh` resets the populated→empty scenario by
+recreating its disposable compose volume, running migrations, and verifying the
+immutability trigger is installed. `scripts/seed_rodent_report_smoke.py` never
+deletes rows: with `SMOKE_EMPTY=1` it only verifies the disposable database is
+freshly empty and exits non-zero otherwise. Production immutability and shared
+developer data are never touched.

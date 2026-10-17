@@ -17,7 +17,8 @@ test("renders and inspects stormwater data from the running FastAPI API", async 
   expect(body.features[0].geometry.type).toBe("LineString");
   const toggle = page.getByLabel("Stormwater pipelines");
   await expect(toggle).toBeEnabled();
-  await toggle.check();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
   await expect(
     page.getByText("Select a pipeline from the list or the map to inspect its source attributes."),
   ).toBeVisible();

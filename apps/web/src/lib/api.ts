@@ -320,6 +320,12 @@ export function datetimeLocalToUtc(value: string): string | null {
   return `${year}-${month}-${day}T${hour}:${minute}:00Z`;
 }
 
+// Client-side guard so a reversed range never reaches the API. Both inputs are
+// already normalized to the same RFC3339 Z shape, so lexical comparison is safe.
+export function isReportedRangeInvalid(from: string | null, to: string | null): boolean {
+  return Boolean(from && to && from > to);
+}
+
 export async function fetchRodentReports(
   filters: RodentReportFilters = {},
 ): Promise<RodentReports> {

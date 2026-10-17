@@ -281,7 +281,7 @@ test("dashboard renders controls, simulation, and the administrative toggle", as
 
   const boundaryToggle = page.getByLabel("Administrative districts");
   await expect(boundaryToggle).toBeEnabled();
-  await boundaryToggle.check();
+  await boundaryToggle.click();
   await expect(boundaryToggle).toBeChecked();
 
   await page.getByRole("button", { name: "Run synthetic preview" }).click();
@@ -322,7 +322,7 @@ test("enables the stormwater reference layer and shows its provenance", async ({
   await page.goto("/");
   const toggle = page.getByLabel("Stormwater pipelines");
   await expect(toggle).toBeEnabled();
-  await toggle.check();
+  await toggle.click();
   await expect(toggle).toBeChecked();
   const sourceLink = page.getByRole("link", {
     name: "https://data.taipei/stormwater",
@@ -339,7 +339,7 @@ test("enables the rodent report layer and shows synthetic provenance", async ({ 
   await page.goto("/");
   const toggle = page.getByLabel("Rodent reports");
   await expect(toggle).toBeEnabled();
-  await toggle.check();
+  await toggle.click();
   await expect(toggle).toBeChecked();
   await expect(
     page.getByText(/Not verified observations, prevalence, population, movement, or risk evidence/),

@@ -5,6 +5,7 @@ import {
   fetchAdministrativeDistricts,
   fetchRodentReports,
   fetchStormwaterPipelines,
+  isReportedRangeInvalid,
   isStormwaterBboxTooBroad,
 } from "@/lib/api";
 
@@ -168,5 +169,17 @@ describe("datetimeLocalToUtc", () => {
   it("treats empty and invalid values as absent", () => {
     expect(datetimeLocalToUtc("")).toBeNull();
     expect(datetimeLocalToUtc("not-a-date")).toBeNull();
+  });
+});
+
+describe("isReportedRangeInvalid", () => {
+  it("flags a reversed normalized UTC range", () => {
+    expect(isReportedRangeInvalid("2026-10-10T00:00:00Z", "2026-10-01T00:00:00Z")).toBe(true);
+  });
+
+  it("accepts ordered or partial ranges", () => {
+    expect(isReportedRangeInvalid("2026-10-01T00:00:00Z", "2026-10-10T00:00:00Z")).toBe(false);
+    expect(isReportedRangeInvalid(null, "2026-10-10T00:00:00Z")).toBe(false);
+    expect(isReportedRangeInvalid("2026-10-01T00:00:00Z", null)).toBe(false);
   });
 });

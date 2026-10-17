@@ -185,6 +185,8 @@ def list_rodent_reports(
             RodentReport.dataset_id,
             RodentReport.resource_version,
             RodentReport.provenance,
+            RodentReport.data_class,
+            RodentReport.classification,
             RodentReport.report_type,
             RodentReport.reported_at,
             RodentReport.location_precision,
@@ -226,6 +228,10 @@ def list_rodent_reports(
             or row["provenance"] != meta["provenance"]
         ):
             raise RodentReportDataError("persisted rodent report rows span multiple source groups")
+        if row["data_class"] != RODENT_REPORT_DATA_CLASS:
+            raise RodentReportDataError("persisted rodent report data_class is inconsistent")
+        if row["classification"] != RODENT_REPORT_CLASSIFICATION:
+            raise RodentReportDataError("persisted rodent report classification is inconsistent")
         features.append(
             RodentReportFeature(
                 id=row["source_record_id"],
@@ -239,8 +245,8 @@ def list_rodent_reports(
                     review_status=row["review_status"],
                     municipal_status=row["municipal_status"],
                     action_status=row["action_status"],
-                    data_class=RODENT_REPORT_DATA_CLASS,
-                    classification=RODENT_REPORT_CLASSIFICATION,
+                    data_class=row["data_class"],
+                    classification=row["classification"],
                     provenance_schema_version=provenance.schema_version,
                     dataset_id=row["dataset_id"],
                     resource_version=row["resource_version"],

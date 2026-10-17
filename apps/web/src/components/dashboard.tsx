@@ -12,6 +12,7 @@ import {
   fetchRodentReports,
   fetchStormwaterPipelines,
   isBboxTooBroad,
+  isReportedRangeInvalid,
   requestPreview,
   type AdministrativeDistrictProperties,
   type Bbox,
@@ -114,6 +115,9 @@ const RODENT_REPORT_DETAIL_LABELS: [keyof RodentReportProperties, string][] = [
 const RODENT_REPORT_DISCLAIMER =
   "Synthetic report-shaped fixtures. Not verified observations, prevalence, population, movement, or risk evidence.";
 
+// Keep the auxiliary button list bounded; every feature stays selectable on the map.
+const RODENT_REPORT_LIST_LIMIT = 100;
+
 export function Dashboard() {
   const layersQuery = useQuery({ queryKey: ["layers"], queryFn: fetchLayers });
   const districtsQuery = useQuery({
@@ -131,6 +135,7 @@ export function Dashboard() {
   const [rodentTo, setRodentTo] = useState("");
   const rodentFromUtc = datetimeLocalToUtc(rodentFrom);
   const rodentToUtc = datetimeLocalToUtc(rodentTo);
+  const rodentRangeInvalid = isReportedRangeInvalid(rodentFromUtc, rodentToUtc);
   const rodentQuery = useQuery({
     queryKey: ["rodent-reports", viewportBbox, rodentFromUtc, rodentToUtc],
     queryFn: () =>
@@ -139,7 +144,7 @@ export function Dashboard() {
         reportedFrom: rodentFromUtc,
         reportedTo: rodentToUtc,
       }),
-    enabled: !bboxTooBroad,
+    enabled: !bboxTooBroad && !rodentRangeInvalid,
   });
   const [preview, setPreview] = useState<SimulationPreview | null>(null);
   const [showSimulatedPaths, setShowSimulatedPaths] = useState(false);
@@ -187,26 +192,40 @@ export function Dashboard() {
               ? "Showing partial data · zoom in"
               : "Infrastructure reference · UNVERIFIED";
   const rodentReports = rodentQuery.data ?? null;
-  const hasRodentReports = rodentReports?.data_state === "available";
+  // Drop cached data while the local UTC range is invalid so no stale points,
+  // list, selection, or details remain on screen.
+  const activeRodentReports = rodentRangeInvalid ? null : rodentReports;
+  const hasRodentReports = activeRodentReports?.data_state === "available";
   const selectedVisibleReport =
-    rodentQuery.isError || rodentReports?.data_state !== "available"
+    rodentQuery.isError || activeRodentReports?.data_state !== "available"
       ? null
-      : (rodentReports.features.find(
+      : (activeRodentReports.features.find(
           (feature) => feature.properties.report_id === selectedReport?.report_id,
         )?.properties ?? null);
-  const rodentStatus = bboxTooBroad
-    ? "Zoom in to load reports"
-    : rodentQuery.isPending
-      ? "Loading reports…"
-      : rodentQuery.isError
-        ? "Rodent report service unavailable"
-        : rodentReports?.data_state === "empty"
-          ? "No reports imported"
-          : (rodentReports?.feature_count ?? 0) === 0
-            ? "No reports in filters"
-            : rodentReports?.truncated
-              ? "Showing partial data · zoom in"
-              : "RODENT_REPORT · SIMULATED";
+  const rodentReportButtons = (activeRodentReports?.features ?? []).slice(
+    0,
+    RODENT_REPORT_LIST_LIMIT,
+  );
+  const rodentListTruncated =
+    (activeRodentReports?.features.length ?? 0) > RODENT_REPORT_LIST_LIMIT;
+  const rodentValidationMessage = rodentRangeInvalid
+    ? "Reported from must be on or before reported to."
+    : null;
+  const rodentStatus = rodentValidationMessage
+    ? "Invalid time range"
+    : bboxTooBroad
+      ? "Zoom in to load reports"
+      : rodentQuery.isPending
+        ? "Loading reports…"
+        : rodentQuery.isError
+          ? "Rodent report service unavailable"
+          : rodentReports?.data_state === "empty"
+            ? "No reports imported"
+            : (rodentReports?.feature_count ?? 0) === 0
+              ? "No reports in filters"
+              : rodentReports?.truncated
+                ? "Showing partial data · zoom in"
+                : "RODENT_REPORT · SIMULATED";
 
   return (
     <main className="dashboard-shell">
@@ -258,7 +277,7 @@ export function Dashboard() {
             showStormwater={showStormwater}
             selectedSegmentId={selectedVisibleSegment?.segment_id ?? null}
             onSelectSegment={setSelectedSegment}
-            rodentReports={rodentReports}
+            rodentReports={activeRodentReports}
             showRodentReports={showRodentReports}
             selectedReportId={selectedVisibleReport?.report_id ?? null}
             onSelectReport={setSelectedReport}
@@ -638,14 +657,18 @@ export function Dashboard() {
                 />
               </div>
             </div>
-            {hasRodentReports ? (
+            {rodentValidationMessage ? (
+              <p className="error-note" role="alert">
+                {rodentValidationMessage}
+              </p>
+            ) : hasRodentReports ? (
               <>
                 <p className="reference-label">{rodentStatus}</p>
                 <p className="reference-label" id="report-list-label">
                   Reports · select to inspect
                 </p>
                 <ul className="district-list" aria-labelledby="report-list-label">
-                  {rodentReports?.features.map((feature) => {
+                  {rodentReportButtons.map((feature) => {
                     const selected =
                       selectedVisibleReport?.report_id === feature.properties.report_id;
                     return (
@@ -663,6 +686,13 @@ export function Dashboard() {
                     );
                   })}
                 </ul>
+                {rodentListTruncated && (
+                  <p className="inline-note">
+                    Showing the first {RODENT_REPORT_LIST_LIMIT} of{" "}
+                    {activeRodentReports?.features.length} reports. Use the map to select any
+                    report.
+                  </p>
+                )}
                 {selectedVisibleReport ? (
                   <div className="reference-details" aria-live="polite">
                     {RODENT_REPORT_DETAIL_LABELS.map(([key, label]) => (
@@ -686,24 +716,24 @@ export function Dashboard() {
               </p>
             )}
             <p className="reference-note">{RODENT_REPORT_DISCLAIMER}</p>
-            {rodentReports?.provenance && (
+            {!rodentValidationMessage && activeRodentReports?.provenance && (
               <div className="provenance-block" aria-label="Rodent report source provenance">
                 <span>Provenance schema</span>
-                <strong>{rodentReports.provenance.schema_version}</strong>
+                <strong>{activeRodentReports.provenance.schema_version}</strong>
                 <span>Source kind</span>
-                <strong>{rodentReports.provenance.source_kind}</strong>
+                <strong>{activeRodentReports.provenance.source_kind}</strong>
                 <span>Dataset</span>
-                <strong>{rodentReports.provenance.dataset_id}</strong>
+                <strong>{activeRodentReports.provenance.dataset_id}</strong>
                 <span>Resource version</span>
-                <strong>{rodentReports.provenance.resource_version}</strong>
+                <strong>{activeRodentReports.provenance.resource_version}</strong>
                 <span>Content SHA-256</span>
-                <strong>{rodentReports.provenance.content_sha256}</strong>
+                <strong>{activeRodentReports.provenance.content_sha256}</strong>
                 <span>License</span>
-                <strong>{rodentReports.provenance.license}</strong>
+                <strong>{activeRodentReports.provenance.license}</strong>
                 <span>Attribution</span>
-                <strong>{rodentReports.provenance.attribution}</strong>
+                <strong>{activeRodentReports.provenance.attribution}</strong>
                 <span>Currentness</span>
-                <strong>{rodentReports.provenance.uncertainty.currentness}</strong>
+                <strong>{activeRodentReports.provenance.uncertainty.currentness}</strong>
               </div>
             )}
           </section>

@@ -65,7 +65,8 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
   const panel = page.getByRole("region", { name: "Rodent report inspection" });
   const toggle = page.getByLabel("Rodent reports");
   await expect(toggle).toBeEnabled();
-  await toggle.check();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
   await expect(panel.getByText("RODENT_REPORT · SIMULATED")).toBeVisible();
   await expect(
     panel.getByText(
@@ -85,6 +86,25 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
   await expect(panel.locator(".reference-details").getByText("sighting_report")).toBeVisible();
   await expect(panel.getByText("Reported at")).toBeVisible();
 
+  // Click an actual MapLibre point: RR-0003 sits at the map center.
+  const mapRegion = page.getByRole("region", { name: "Interactive GIS map" });
+  await expect(mapRegion).toHaveAttribute("data-rodent-points", "visible");
+  const canvas = page.locator(".maplibregl-canvas");
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("map canvas is not measurable");
+  await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
+  await expect(panel.getByText("RR-0003")).toBeVisible();
+  await expect(panel.locator(".reference-details").getByText("service_request")).toBeVisible();
+
+  // Disabling the layer hides the points but keeps the selected details.
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(mapRegion).toHaveAttribute("data-rodent-points", "hidden");
+  await expect(panel.getByText("RR-0003")).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await expect(mapRegion).toHaveAttribute("data-rodent-points", "visible");
+
   // Inclusive time filter with no matches: in-filter empty, no stale details.
   const filtered = page.waitForResponse(
     (response) =>
@@ -99,6 +119,9 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
   expect(filteredBody.reported_from).toBe("2026-10-10T00:00:00Z");
   await expect(panel.getByText("No reports in filters")).toBeVisible();
   await expect(panel.getByText("RR-0001")).toHaveCount(0);
+  // Filtering clears the stale map-click selection and its details.
+  await expect(panel.getByText("RR-0003")).toHaveCount(0);
+  await expect(panel.locator(".reference-details")).toHaveCount(0);
 
   // Inclusive lower boundary: from 2026-10-01 includes all fixture reports.
   const restored = page.waitForResponse(

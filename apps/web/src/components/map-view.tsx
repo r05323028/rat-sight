@@ -346,6 +346,11 @@ export function MapView({
     };
 
     const update = () => {
+      const hasPoints = Boolean(rodentReports && rodentReports.features.length > 0);
+      container.current?.setAttribute(
+        "data-rodent-points",
+        hasPoints && showRodentReports ? "visible" : "hidden",
+      );
       if (!map.isStyleLoaded()) return;
       removeRodentLayers();
       if (!rodentReports || rodentReports.features.length === 0) return;

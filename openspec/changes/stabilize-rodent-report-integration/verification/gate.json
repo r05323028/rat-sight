@@ -1,0 +1,37 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "P1", "severity": "BLOCKING", "status": "RESOLVED"},
+        {"id": "P2", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "P3", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "CR-STAB-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-STAB-002", "severity": "MAJOR", "status": "RESOLVED"}
+      ]
+    }
+  },
+  "verification": [
+    {"id": "V-OPEN", "command": "openspec validate stabilize-rodent-report-integration", "exit_code": 0, "result": "valid", "reference": "verification/qa.md"},
+    {"id": "V-PYTHON", "command": "uv run pytest -q", "exit_code": 0, "result": "174 passed", "reference": "verification/qa.md"},
+    {"id": "V-WEB", "command": "corepack pnpm --filter @ratsight/web test && typecheck && lint && format:check && build", "exit_code": 0, "result": "46 tests passed; all checks and build passed", "reference": "verification/qa.md"},
+    {"id": "V-RODENT", "command": "make rodent-report-smoke", "exit_code": 0, "result": "populated and empty-storage browser scenarios passed; immutable trigger enabled", "reference": "verification/qa.md"},
+    {"id": "V-GEO", "command": "make geospatial-smoke", "exit_code": 0, "result": "4/4 real API specs passed", "reference": "verification/qa.md"},
+    {"id": "V-E2E", "command": "corepack pnpm --filter @ratsight/web e2e", "exit_code": 0, "result": "5 passed, 7 intentional skips after checkbox harness hardening", "reference": "verification/qa.md"},
+    {"id": "V-STATIC", "command": "uv run basedpyright && feature Ruff/format checks && bash -n smoke scripts", "exit_code": 0, "result": "clean", "reference": "verification/qa.md"},
+    {"id": "V-CLEANUP", "command": "bash -n scripts/rodent_report_smoke.sh; targeted preflight cleanup isolation probe", "exit_code": 0, "result": "syntax passed; forced Docker-unavailable preflight exited 3 and preserved unrelated listener on port 8008", "reference": "verification/qa.md"}
+  ],
+  "engineering": [
+    {"requirement": "rodent-report-stabilization#Immutable smoke reset", "status": "VERIFIED", "implementation": ["scripts/seed_rodent_report_smoke.py", "scripts/rodent_report_smoke.sh", "services/api/alembic/versions/0006_rodent_reports_immutability.py"], "tests": ["scripts/tests/test_seed_rodent_report_smoke.py"], "verification": ["V-PYTHON", "V-RODENT"]},
+    {"requirement": "rodent-report-stabilization#Consistent simulated classification", "status": "VERIFIED", "implementation": ["services/api/alembic/versions/0005_rodent_reports_simulated.py", "services/api/src/ratsight_api/application/rodent_reports.py"], "tests": ["services/api/tests/test_rodent_reports_api.py"], "verification": ["V-PYTHON"]},
+    {"requirement": "rodent-report-stabilization#Bounded report inspection", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx", "apps/web/src/components/map-view.tsx"], "tests": ["apps/web/src/components/dashboard.test.tsx", "apps/web/e2e/real-rodent-report.spec.ts"], "verification": ["V-WEB", "V-RODENT"]},
+    {"requirement": "rodent-report-stabilization#Temporal validation and map interaction", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx", "apps/web/e2e/real-rodent-report.spec.ts", "apps/web/e2e/dashboard.spec.ts"], "tests": ["apps/web/src/components/dashboard.test.tsx"], "verification": ["V-WEB", "V-E2E", "V-RODENT"]}
+  ],
+  "science": {"applicable": false, "reason": "Focused test and classification stabilization only; no scientific claim or model change.", "claims": []},
+  "approval": null
+}

@@ -175,7 +175,7 @@ class RodentReport(Base):
     __tablename__ = "rodent_reports"
     __table_args__ = (
         CheckConstraint(
-            "classification IN ('OBSERVED', 'INFERRED', 'SIMULATED', 'UNVERIFIED')",
+            "classification = 'SIMULATED'",
             name="ck_rodent_reports_classification",
         ),
         CheckConstraint(

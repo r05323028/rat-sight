@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -237,6 +237,7 @@ def test_model_defines_expected_columns_and_constraints() -> None:
     )
     assert "RODENT_REPORT" in check_sql
     assert "POINT" in check_sql
+    assert "classification = 'SIMULATED'" in check_sql
     assert table.c.geometry.type.srid == 4326  # type: ignore[attr-defined]
 
 
@@ -346,5 +347,63 @@ def test_bbox_and_time_filter_select_matching_points(tmp_path: Path) -> None:
             session.rollback()
 
 
-def _unused(value: Any) -> None:  # pragma: no cover
-    del value
+def _trigger_installed() -> bool:
+    try:
+        with engine.connect() as connection:
+            return bool(
+                connection.execute(
+                    text(
+                        "SELECT 1 FROM pg_trigger WHERE tgrelid = 'rodent_reports'::regclass "
+                        "AND tgname = 'rodent_reports_immutable' AND NOT tgisinternal"
+                    )
+                ).scalar()
+            )
+    except SQLAlchemyError:
+        return False
+
+
+@pytest.mark.skipif(not _postgis_available(), reason="PostGIS unavailable")
+@pytest.mark.skipif(not _table_exists(), reason="rodent_reports migration not applied")
+@pytest.mark.skipif(not _trigger_installed(), reason="immutability trigger not installed")
+def test_immutability_trigger_blocks_update_and_delete(tmp_path: Path) -> None:
+    from ratsight_api.importers.rodent_reports import persist_import
+
+    source, sha256 = _write_csv(tmp_path, [_row("RR-1")])
+    batch = _load(source, sha256)
+    provenance = build_provenance(batch)
+    for statement in (
+        "UPDATE rodent_reports SET report_type = 'nuisance_report' WHERE source_record_id = 'RR-1'",
+        "DELETE FROM rodent_reports WHERE source_record_id = 'RR-1'",
+    ):
+        with SessionLocal() as session:
+            try:
+                persist_import(session, batch, provenance)
+                session.flush()
+                with pytest.raises(SQLAlchemyError, match="immutable"):
+                    session.execute(text(statement))
+            finally:
+                session.rollback()
+
+
+@pytest.mark.skipif(not _postgis_available(), reason="PostGIS unavailable")
+@pytest.mark.skipif(not _table_exists(), reason="rodent_reports migration not applied")
+def test_db_rejects_non_simulated_classification() -> None:
+    with SessionLocal() as session:
+        try:
+            with pytest.raises(SQLAlchemyError):
+                session.execute(
+                    text(
+                        "INSERT INTO rodent_reports (source_record_id, dataset_id, "
+                        "resource_version, content_sha256, data_class, classification, "
+                        "report_type, reported_at, location_precision, review_status, "
+                        "municipal_status, action_status, provenance, geometry) VALUES "
+                        "('BAD-1', 'd', 'v', :sha, 'RODENT_REPORT', 'OBSERVED', "
+                        "'sighting_report', now(), 'synthetic_point', 'unreviewed', "
+                        "'not_assessed', 'none_reported', '{}'::jsonb, "
+                        "ST_SetSRID(ST_MakePoint(121.5, 25.0), 4326))"
+                    ),
+                    {"sha": "0" * 64},
+                )
+                session.flush()
+        finally:
+            session.rollback()

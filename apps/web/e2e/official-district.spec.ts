@@ -16,7 +16,8 @@ test("inspects the imported official administrative district layer", async ({ pa
   expect(body.provenance.dataset_id).toBe("121199");
   const toggle = page.getByLabel("Administrative districts");
   await expect(toggle).toBeEnabled();
-  await toggle.check();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
   const district = page.getByRole("button").filter({ hasText: /區/ }).first();
   await expect(district).toBeVisible();
   await district.click();

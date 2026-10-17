@@ -7,7 +7,7 @@ import { Dashboard } from "@/components/dashboard";
 const mockState = vi.hoisted(() => ({
   boundaryMode: "empty" as "empty" | "available" | "error",
   stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
-  rodentMode: "available" as "available" | "empty" | "in_filters" | "truncated" | "error",
+  rodentMode: "available" as "available" | "empty" | "in_filters" | "truncated" | "error" | "many",
   district: {
     district_id: "63000010",
     district_name: "松山區",
@@ -48,7 +48,13 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/components/map-view", () => ({
-  MapView: () => <div role="region" aria-label="Interactive GIS map" />,
+  MapView: ({ rodentReports }: { rodentReports?: unknown }) => (
+    <div
+      role="region"
+      aria-label="Interactive GIS map"
+      data-has-rodent-reports={rodentReports ? "yes" : "no"}
+    />
+  ),
 }));
 
 function renderDashboard() {
@@ -254,17 +260,28 @@ beforeEach(() => {
         if (mockState.rodentMode === "error") {
           return new Response("storage unavailable", { status: 503 });
         }
+        const many = mockState.rodentMode === "many";
         const features =
           mockState.rodentMode === "empty" || mockState.rodentMode === "in_filters"
             ? []
-            : [
-                {
-                  type: "Feature",
-                  id: mockState.rodentFeature.report_id,
-                  geometry: { type: "Point", coordinates: [121.55, 25.02] },
-                  properties: mockState.rodentFeature,
-                },
-              ];
+            : many
+              ? Array.from({ length: 150 }, (_, index) => {
+                  const reportId = `RR-${String(index).padStart(4, "0")}`;
+                  return {
+                    type: "Feature",
+                    id: reportId,
+                    geometry: { type: "Point", coordinates: [121.55, 25.02] },
+                    properties: { ...mockState.rodentFeature, report_id: reportId },
+                  };
+                })
+              : [
+                  {
+                    type: "Feature",
+                    id: mockState.rodentFeature.report_id,
+                    geometry: { type: "Point", coordinates: [121.55, 25.02] },
+                    properties: mockState.rodentFeature,
+                  },
+                ];
         return new Response(
           JSON.stringify({
             type: "FeatureCollection",
@@ -505,5 +522,42 @@ describe("RatSight dashboard", () => {
       const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
       expect(urls.some((url) => url.includes("reported_from=2026-10-01T08%3A30%3A00Z"))).toBe(true);
     });
+  });
+
+  it("caps the auxiliary report list at 100 with a clear notice", async () => {
+    mockState.rodentMode = "many";
+    renderDashboard();
+    const toggle = await screen.findByLabelText("Rodent reports");
+    await waitFor(() => expect(toggle).toBeEnabled());
+    const panel = screen.getByRole("region", { name: "Rodent report inspection" });
+    await waitFor(() => expect(within(panel).getAllByRole("button")).toHaveLength(100));
+    expect(within(panel).getByText(/Showing the first 100 of 150 reports/)).toBeInTheDocument();
+  });
+
+  it("rejects a reversed UTC range locally without an API request", async () => {
+    mockState.rodentMode = "available";
+    renderDashboard();
+    await waitFor(() => expect(screen.getByLabelText("Rodent reports")).toBeEnabled());
+    fireEvent.change(screen.getByLabelText("Reported from (UTC)"), {
+      target: { value: "2026-10-10T00:00" },
+    });
+    fireEvent.change(screen.getByLabelText("Reported to (UTC)"), {
+      target: { value: "2026-10-01T00:00" },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Reported from must be on or before reported to.",
+    );
+    await waitFor(() => expect(screen.getByLabelText("Rodent reports")).toBeDisabled());
+    // No stale points reach the map while the range is invalid.
+    expect(screen.getByRole("region", { name: "Interactive GIS map" })).toHaveAttribute(
+      "data-has-rodent-reports",
+      "no",
+    );
+    const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
+    expect(
+      urls.some(
+        (url) => url.includes("reported_from=2026-10-10") && url.includes("reported_to=2026-10-01"),
+      ),
+    ).toBe(false);
   });
 });
