@@ -5,3 +5,4 @@
 - Surface blockers early. Handoffs name owner, decision needed, evidence, tests run, and remaining risks.
 - Escalate changes to species scope or evidence standards for explicit human approval.
 - During initialization, do not collect real sightings or launch model/provider calls without authorization.
+- When implementing an OpenSpec change, keep all change artifacts—including reviews, QA, and verification evidence—under `openspec/changes/{change_name}/**/*`; do not scatter them elsewhere before archiving.
