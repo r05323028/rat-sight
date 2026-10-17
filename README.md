@@ -16,7 +16,7 @@ RatSight 是面向臺北市的證據導向都市鼠類活動模擬與市政決�
 - `openspec/`：以本機 `evidence-driven` schema 建立 OpenSpec 變更流程。
 - `rig.yaml`、`.openrig/`、`guidance/`：OpenRig rat-team 與角色規範。
 
-詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md)、[資料來源政策](docs/infrastructure/data-sources.md)、[行政區界匯入指令](docs/infrastructure/administrative-boundaries-import.md) 與 [雨水下水道管線匯入指令](docs/infrastructure/stormwater-pipelines-import.md)。系統已能以 archive-only 指令匯入官方臺北行政區界，並以 `make geospatial-smoke` 驗證隔離的 Next.js → FastAPI → PostGIS 路徑。
+詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md)、[資料來源政策](docs/infrastructure/data-sources.md)、[行政區界匯入指令](docs/infrastructure/administrative-boundaries-import.md) 與 [雨水下水道管線匯入指令](docs/infrastructure/stormwater-pipelines-import.md)。系統提供本機檔案匯入的官方臺北行政區界與雨水管線基礎設施參考層；官方雨水管線 XML 已在一次性隔離驗證中匯入並通過 API 與 MapLibre 驗證。這些資料均不是鼠類觀測，且管線連通性仍為 `UNVERIFIED`。
 
 ## 本機開發
 
@@ -58,4 +58,4 @@ OpenRig `rat-team` 有五個 pods、九個 Pi seats。`scripts/setup-pi-seats.sh
 
 ## 目前限制
 
-已有官方行政區界作為地理參考資料，但沒有臺北真實鼠類觀測、地下管線或排水資料；沒有生物參數、校準或驗證結果。行政區界不是鼠類觀測或風險預測。模擬是 deterministic synthetic weighted random walk。Pi model catalog 已註冊指定模型 `openai-codex/gpt-5.6-luna`；實際 provider 認證與 seat 執行尚未驗證。`opencode-go/deepseek-v4.1-flash` 在本機 catalog 可見，但 seats 未啟動、憑證未驗證。
+已有官方行政區界與雨水管線作為地理／基礎設施參考資料，但沒有臺北真實鼠類觀測；沒有生物參數、校準或驗證結果。雨水管線標示為 `INFRASTRUCTURE_REFERENCE` / `UNVERIFIED`，不代表已驗證的地下連通性、可通行性或風險。行政區界與雨水管線都不是鼠類觀測或風險預測。模擬是 deterministic synthetic weighted random walk。Pi model catalog 已註冊指定模型 `openai-codex/gpt-5.6-luna`；實際 provider 認證與 seat 執行尚未驗證。`opencode-go/deepseek-v4.1-flash` 在本機 catalog 可見，但 seats 未啟動、憑證未驗證。

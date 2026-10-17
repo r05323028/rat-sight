@@ -21,7 +21,6 @@ import {
 const DEFAULT_LAYERS: Layer[] = [
   ["rodent_observations", "Rodent observations"],
   ["sewer_networks", "Sewer networks"],
-  ["stormwater_networks", "Stormwater networks"],
   ["surface_corridors", "Surface movement corridors"],
   ["human_activity", "Human activity"],
   ["environmental_conditions", "Environmental conditions"],
@@ -37,7 +36,6 @@ const DEFAULT_LAYERS: Layer[] = [
 const LAYER_GLYPHS: Record<string, string> = {
   rodent_observations: "●",
   sewer_networks: "━",
-  stormwater_networks: "┄",
   surface_corridors: "╱",
   human_activity: "◌",
   environmental_conditions: "◍",
@@ -50,6 +48,7 @@ function isSafeExternalUrl(value: string): boolean {
 
 // Approximates the initial map center until MapView reports the real viewport bbox.
 const DEFAULT_STORMWATER_BBOX: StormwaterBbox = [121.5, 24.98, 121.63, 25.09];
+const MAX_VISIBLE_PIPELINE_LIST_ITEMS = 100;
 
 const STORMWATER_ATTRIBUTE_LABELS: [keyof StormwaterProperties, string][] = [
   ["segment_id", "Segment ID"],
@@ -184,7 +183,11 @@ export function Dashboard() {
           <div className="map-toolbar">
             <div>
               <strong>Spatial context</strong>
-              <span>Basemap · reference boundaries · no rodent observations</span>
+              <span>
+                Basemap · reference boundaries ·{" "}
+                {hasStormwater ? "stormwater reference data" : "no stormwater data"} · no rodent
+                observations
+              </span>
             </div>
             <span className="map-coordinate">25.033° N · 121.565° E</span>
           </div>
@@ -218,8 +221,8 @@ export function Dashboard() {
           <div className="data-boundary">
             <strong>Data boundary</strong>
             <span>
-              Map center is a navigational starting point. No city infrastructure or animal
-              observations are included in this build.
+              Map center is a navigational starting point. Infrastructure reference data is separate
+              from animal observations; no rodent observations are loaded.
             </span>
           </div>
         </section>
@@ -269,37 +272,39 @@ export function Dashboard() {
                   onChange={(event) => setShowStormwater(event.target.checked)}
                 />
               </label>
-              {layers.map((layer) => {
-                const previewReady = layer.id === "simulated_paths" && preview !== null;
-                const available = layer.available || previewReady;
-                return (
-                  <label
-                    className={`layer-row ${available ? "" : "is-unavailable"}`}
-                    key={layer.id}
-                  >
-                    <span className={`layer-glyph glyph-${layer.id}`}>
-                      {LAYER_GLYPHS[layer.id] ?? "·"}
-                    </span>
-                    <span className="layer-name">
-                      {layer.label}
-                      <small>
-                        {available
-                          ? (layer.classification ?? "AVAILABLE")
-                          : layer.id === "simulated_paths"
-                            ? "Run preview to generate"
-                            : "No dataset loaded"}
-                      </small>
-                    </span>
-                    <input
-                      type="checkbox"
-                      aria-label={layer.label}
-                      disabled={!available || layer.id !== "simulated_paths"}
-                      checked={layer.id === "simulated_paths" && showSimulatedPaths}
-                      onChange={(event) => setShowSimulatedPaths(event.target.checked)}
-                    />
-                  </label>
-                );
-              })}
+              {layers
+                .filter((layer) => layer.id !== "stormwater_networks")
+                .map((layer) => {
+                  const previewReady = layer.id === "simulated_paths" && preview !== null;
+                  const available = layer.available || previewReady;
+                  return (
+                    <label
+                      className={`layer-row ${available ? "" : "is-unavailable"}`}
+                      key={layer.id}
+                    >
+                      <span className={`layer-glyph glyph-${layer.id}`}>
+                        {LAYER_GLYPHS[layer.id] ?? "·"}
+                      </span>
+                      <span className="layer-name">
+                        {layer.label}
+                        <small>
+                          {available
+                            ? (layer.classification ?? "AVAILABLE")
+                            : layer.id === "simulated_paths"
+                              ? "Run preview to generate"
+                              : "No dataset loaded"}
+                        </small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        aria-label={layer.label}
+                        disabled={!available || layer.id !== "simulated_paths"}
+                        checked={layer.id === "simulated_paths" && showSimulatedPaths}
+                        onChange={(event) => setShowSimulatedPaths(event.target.checked)}
+                      />
+                    </label>
+                  );
+                })}
             </div>
           </section>
 
@@ -418,7 +423,7 @@ export function Dashboard() {
                   Pipelines · select to inspect
                 </p>
                 <ul className="district-list" aria-labelledby="segment-list-label">
-                  {stormwater?.features.map((feature) => {
+                  {stormwater?.features.slice(0, MAX_VISIBLE_PIPELINE_LIST_ITEMS).map((feature) => {
                     const selected =
                       selectedVisibleSegment?.segment_id === feature.properties.segment_id;
                     return (
@@ -436,6 +441,12 @@ export function Dashboard() {
                     );
                   })}
                 </ul>
+                {(stormwater?.features.length ?? 0) > MAX_VISIBLE_PIPELINE_LIST_ITEMS && (
+                  <p className="inline-note">
+                    Showing the first {MAX_VISIBLE_PIPELINE_LIST_ITEMS} pipelines; select other
+                    features directly on the map.
+                  </p>
+                )}
                 {selectedVisibleSegment ? (
                   <div className="reference-details" aria-live="polite">
                     {STORMWATER_ATTRIBUTE_LABELS.map(([key, label]) => (

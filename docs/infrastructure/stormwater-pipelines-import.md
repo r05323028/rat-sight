@@ -50,8 +50,9 @@ Omit `--inspect-only` to persist. The Make target is:
 make import-stormwater ARGS="--source ... --archive-sha256 ... --retrieved-at ..."
 ```
 
-Identity/URL/license/attribution flags default to the documented Candidate B
-values; override them only for a different verified source.
+The CLI pins the documented Candidate B dataset, resource, version, and SHA-256.
+For deterministic non-official fixtures only, pass `--allow-nonofficial-source`; this
+flag is not a bypass for production official acceptance.
 
 ## Behavior
 

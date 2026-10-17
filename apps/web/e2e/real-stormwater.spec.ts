@@ -23,4 +23,10 @@ test("renders and inspects stormwater data from the running FastAPI API", async 
   ).toBeVisible();
   await expect(page.getByText("Publisher reference-only warning")).toBeVisible();
   await expect(page.getByText("Not verified physical connectivity.")).toBeVisible();
+  const inspection = page.getByRole("region", { name: "Stormwater pipeline inspection" });
+  const firstPipeline = inspection.getByRole("list").getByRole("button").first();
+  await expect(firstPipeline).toBeVisible();
+  await firstPipeline.click();
+  await expect(inspection.getByText("Segment ID")).toBeVisible();
+  await expect(inspection.getByText("INFRASTRUCTURE_REFERENCE").last()).toBeVisible();
 });

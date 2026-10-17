@@ -122,3 +122,42 @@ shared dev container/volume were confirmed present and unchanged after both runs
 All requested checks pass and the isolated official district verification succeeded. The one
 material evidence gap is the unexercised official stormwater source import; the lead should
 weigh that before acceptance. No functional defect was found in the requested scope.
+
+## Addendum — official stormwater acceptance independently reproduced (2026-10-17)
+
+Focused acceptance QA (`qitem-20261016190306-08c56a9f884d19e6`) of the official stormwater
+acceptance report `docs/evidence/taipei-stormwater-acceptance-2026-10-16.md` and the current
+UI-stabilization diff. The material limitation recorded above is now **RESOLVED** by direct
+reproduction:
+
+| Check | Independent command | Result |
+|-------|--------------------|--------|
+| Official bytes | `curl -L` the documented resource URL | **25,086,504 bytes**; SHA-256 `5d2ea04f…10e4` **matched** |
+| Parse/validate | `python -m ratsight_api.importers.stormwater_pipelines --inspect-only` (pinned identity) | **19,747 records**, `z_handling=dropped`, source-quality `20/310/992/991/17950` — matches the acceptance report exactly |
+| Isolated import | dedicated `ratsight-qa-official-stormwater-<pid>` stack, `0001→0003` | first import **inserted 19,747**; second import **inserted 0 / unchanged 19,747** |
+| Persisted state | `count(*), count(distinct source_record_id), ST_SRID` | **19747 | 19747 | 4326** |
+| API no bbox | `GET /api/v1/stormwater-pipelines` | 200, **5,000 features**, `truncated=true`, `INFRASTRUCTURE_REFERENCE`/`UNVERIFIED`, `LineString`, ~0.42 s |
+| API valid bbox | `?bbox=121.50,24.98,121.63,25.09` | 200, 5,000 features, truncated, bbox echoed |
+| API out-of-area bbox | `?bbox=120.0,24.0,120.1,24.1` | 200, `data_state=available`, **0 features** (in-view miss, no fallback geometry) |
+| API over-span bbox | `?bbox=121.0,24.0,121.5,24.5` | **422** |
+| API malformed bbox | `?bbox=abc` | **422** |
+
+Cleanup: no leftover official-stormwater containers, volumes, or listeners (55441/8002);
+the dev `infra-postgres-1` container and `infra_ratsight-postgres-data` volume were\ untouched; the temporary XML and JSON files were removed.
+
+Current UI-stabilization diff: the duplicate `stormwater_networks` placeholder was removed
+while the real `Stormwater pipelines` layer and backend catalog remain; the auxiliary
+keyboard list is capped at 100 with an explicit notice; boundary language distinguishes
+infrastructure reference from unavailable rodent observations; `real-stormwater.spec.ts` now
+selects the first pipeline and asserts `INFRASTRUCTURE_REFERENCE`. Verified by `uv run pytest
+-q` **117 passed**, web **28 tests** + typecheck + lint + format + build, and
+`make geospatial-smoke` **4/4** real-API specs.
+
+Archival-authorization language: the acceptance report is marked **READY FOR HUMAN REVIEW**
+and explicitly states that explicit project-owner acceptance tied to the archived change is
+`UNVERIFIED`; it recommends acceptance only after owner review and does not treat acceptance
+as scientific validation or archive/push authorization. The language is honest and does not
+overclaim.
+
+**Addendum verdict: CLEAR.** No functional defect and no overclaiming found; the previously
+recorded official-stormwater evidence gap is closed by independent reproduction.
