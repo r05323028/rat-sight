@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Default is the documented Candidate B dataset
     # (Evidence ID EVID-TPE-STORMWATER-NETWORK-2026-10-16).
     stormwater_dataset_id: str = "97b82d58-faba-4ee4-9488-dd5d04a79efd"
+    # Explicit endpoint identity for the fixture-only rodent report layer.
+    rodent_report_dataset_id: str = "00000000-0000-4000-8000-000000000002"
 
     @property
     def cors_origin_list(self) -> list[str]:

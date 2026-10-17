@@ -1,0 +1,43 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "RR-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RR-002", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RR-003", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RR-004", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RR-005", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RR-006", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "RR-007", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "RR-008", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RR-009", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "RR-010", "severity": "MAJOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "CR-RR-001", "severity": "MAJOR", "status": "RESOLVED"}
+      ]
+    }
+  },
+  "verification": [
+    {"id": "V-OPEN", "command": "openspec validate integrate-rodent-report-data", "exit_code": 0, "result": "valid; three long-requirement warnings", "reference": "verification/qa.md"},
+    {"id": "V-PYTHON", "command": "uv run pytest -q", "exit_code": 0, "result": "166 passed", "reference": "verification/qa.md"},
+    {"id": "V-WEB", "command": "corepack pnpm --filter @ratsight/web test && typecheck && lint && format:check && build", "exit_code": 0, "result": "41 tests passed; typecheck/lint/format/build passed", "reference": "verification/qa.md"},
+    {"id": "V-RODENT-SMOKE", "command": "make rodent-report-smoke", "exit_code": 0, "result": "populated and storage-empty fixture smoke phases passed; no application API interception", "reference": "verification/qa.md"},
+    {"id": "V-E2E", "command": "corepack pnpm --filter @ratsight/web e2e", "exit_code": 0, "result": "5 passed, 7 gated skips", "reference": "verification/qa.md"},
+    {"id": "V-TYPE", "command": "uv run basedpyright && feature Ruff/format checks && bash -n scripts/rodent_report_smoke.sh", "exit_code": 0, "result": "clean", "reference": "verification/qa.md"},
+    {"id": "V-GEOSPATIAL", "command": "make geospatial-smoke", "exit_code": 0, "result": "4 Playwright tests passed against live PostGIS/API/UI: administrative populated/empty and stormwater populated/empty; isolated resources/listeners cleaned; shared database untouched", "reference": "verification/qa.md"}
+  ],
+  "engineering": [
+    {"requirement": "rodent-reports#Rodent report source boundary", "status": "VERIFIED", "implementation": ["docs/evidence/rodent-report-source-investigation-2026-10-17.md", "services/api/tests/fixtures/rodent_reports/README.md"], "tests": ["services/api/tests/test_rodent_reports_import.py"], "verification": ["V-PYTHON", "V-RODENT-SMOKE"]},
+    {"requirement": "rodent-reports#Validated rodent report import", "status": "VERIFIED", "implementation": ["services/api/alembic/versions/0004_rodent_reports.py", "services/api/src/ratsight_api/importers/rodent_reports.py", "services/api/src/ratsight_api/api/schemas.py"], "tests": ["services/api/tests/test_rodent_reports_import.py"], "verification": ["V-PYTHON", "V-RODENT-SMOKE"]},
+    {"requirement": "rodent-reports#Bounded rodent report API", "status": "VERIFIED", "implementation": ["services/api/src/ratsight_api/application/rodent_reports.py", "services/api/src/ratsight_api/api/routes/rodent_reports.py"], "tests": ["services/api/tests/test_rodent_reports_api.py"], "verification": ["V-PYTHON", "V-RODENT-SMOKE"]},
+    {"requirement": "rodent-reports#Rodent report dashboard inspection", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx", "apps/web/src/components/map-view.tsx", "apps/web/src/lib/api.ts"], "tests": ["apps/web/src/components/dashboard.test.tsx", "apps/web/e2e/real-rodent-report.spec.ts"], "verification": ["V-WEB", "V-RODENT-SMOKE"]},
+    {"requirement": "rodent-reports#Existing layer integrity", "status": "VERIFIED", "implementation": ["apps/web/src/components/map-view.tsx", "apps/web/src/components/dashboard.tsx"], "tests": ["apps/web/e2e/dashboard.spec.ts"], "verification": ["V-E2E", "V-GEOSPATIAL"]}
+  ],
+  "science": {"applicable": false, "reason": "Fixture-only report-shaped data; no biological, epidemiological, causal, or predictive claim.", "claims": []},
+  "approval": null
+}

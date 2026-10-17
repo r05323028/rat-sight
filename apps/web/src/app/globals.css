@@ -183,6 +183,9 @@ select {
 .legend-stormwater {
   background: #2563eb;
 }
+.legend-rodent-reports {
+  background: #be123c;
+}
 .data-boundary {
   display: grid;
   gap: 4px;
@@ -252,6 +255,9 @@ select {
 }
 .glyph-stormwater {
   color: #2563eb;
+}
+.glyph-rodent-reports {
+  color: #be123c;
 }
 .layer-name {
   display: grid;

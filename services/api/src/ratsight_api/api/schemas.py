@@ -383,3 +383,125 @@ class StormwaterResponse(BaseModel):
     feature_count: int = Field(ge=0)
     bbox: tuple[float, float, float, float] | None = None
     truncated: bool = False
+
+
+# --- Fixture-only rodent reports ---------------------------------------------
+# Synthetic report-shaped records are SIMULATED report events, never rodent
+# observations, prevalence, population, movement, disease risk, or intervention
+# evidence. ``data_class`` stays separate from epistemic ``classification``.
+
+RodentReportDataClass = Literal["RODENT_REPORT"]
+ReportType = Literal["sighting_report", "nuisance_report", "service_request", "unknown"]
+LocationPrecision = Literal["synthetic_point", "coarse_grid_100m", "coarse_grid_1km", "unknown"]
+ReviewStatus = Literal["unreviewed", "platform_moderated", "municipal_reviewed", "unknown"]
+MunicipalStatus = Literal["not_assessed", "confirmed_by_authority", "rejected", "unknown"]
+ActionStatus = Literal["none_reported", "inspection", "treatment", "unknown"]
+
+
+class RodentReportProcessing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str = Field(min_length=1)
+    tool_version: str = Field(min_length=1)
+    steps: list[str] = Field(min_length=1)
+
+    @field_validator("steps")
+    @classmethod
+    def _steps_are_non_empty(cls, value: list[str]) -> list[str]:
+        if any(not step.strip() for step in value):
+            raise ValueError("processing steps must be non-empty strings")
+        return value
+
+
+class RodentReportUncertainty(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    currentness: str = Field(min_length=1)
+    note: str = Field(min_length=1)
+
+
+class RodentReportProvenanceV1(BaseModel):
+    """Immutable version-1 provenance object for synthetic rodent-report fixtures."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: ProvenanceSchemaVersion = "1"
+    source_kind: Literal["synthetic_fixture"]
+    dataset_id: str
+    resource_version: str
+    retrieved_at: str
+    content_sha256: str
+    license: str = Field(min_length=1)
+    attribution: str = Field(min_length=1)
+    source_crs: Literal["EPSG:4326"] = "EPSG:4326"
+    target_crs: Literal["EPSG:4326"] = "EPSG:4326"
+    processing: RodentReportProcessing
+    synthetic: Literal[True] = True
+    uncertainty: RodentReportUncertainty
+
+    @field_validator("dataset_id")
+    @classmethod
+    def _dataset_uuid(cls, value: str) -> str:
+        return _validate_uuid(value)
+
+    @field_validator("resource_version", "retrieved_at")
+    @classmethod
+    def _timestamps(cls, value: str) -> str:
+        return _validate_rfc3339_utc(value)
+
+    @field_validator("content_sha256")
+    @classmethod
+    def _content_hash(cls, value: str) -> str:
+        return _validate_sha256(value)
+
+
+class RodentReportProperties(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    report_id: str = Field(min_length=1)
+    source: Literal["synthetic_fixture"]
+    report_type: ReportType
+    reported_at: str = Field(min_length=1)
+    location_precision: LocationPrecision
+    review_status: ReviewStatus
+    municipal_status: MunicipalStatus
+    action_status: ActionStatus
+    data_class: RodentReportDataClass
+    classification: Literal["SIMULATED"]
+    provenance_schema_version: ProvenanceSchemaVersion
+    dataset_id: str
+    resource_version: str
+    content_sha256: str
+
+
+class RodentReportPoint(BaseModel):
+    type: Literal["Point"] = "Point"
+    coordinates: list[float]
+
+    @field_validator("coordinates")
+    @classmethod
+    def _two_numbers(cls, value: list[float]) -> list[float]:
+        if len(value) != 2:
+            raise ValueError("Point coordinates must be [longitude, latitude]")
+        return value
+
+
+class RodentReportFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: RodentReportPoint
+    properties: RodentReportProperties
+
+
+class RodentReportResponse(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[RodentReportFeature]
+    data_state: Literal["empty", "available"]
+    data_class: RodentReportDataClass = "RODENT_REPORT"
+    classification: Literal["SIMULATED"] = "SIMULATED"
+    provenance: RodentReportProvenanceV1 | None = None
+    feature_count: int = Field(ge=0)
+    bbox: tuple[float, float, float, float] | None = None
+    reported_from: str | None = None
+    reported_to: str | None = None
+    truncated: bool = False

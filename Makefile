@@ -1,4 +1,4 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts import-stormwater
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke rodent-report-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts import-stormwater import-rodent-reports
 
 PNPM ?= corepack pnpm
 
@@ -29,6 +29,9 @@ import-districts:
 import-stormwater:
 	uv run --package ratsight-api python -m ratsight_api.importers.stormwater_pipelines $(ARGS)
 
+import-rodent-reports:
+	uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports $(ARGS)
+
 api:
 	uv run --package ratsight-api uvicorn ratsight_api.main:app --reload
 
@@ -49,6 +52,9 @@ test-e2e:
 # Real browser -> FastAPI -> PostGIS smoke; uses an isolated disposable stack.
 geospatial-smoke:
 	bash scripts/geospatial_smoke.sh
+
+rodent-report-smoke:
+	bash scripts/rodent_report_smoke.sh
 
 lint:
 	$(PNPM) --filter @ratsight/web lint

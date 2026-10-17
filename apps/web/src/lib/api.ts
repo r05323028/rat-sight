@@ -161,7 +161,11 @@ export async function fetchAdministrativeDistricts(): Promise<AdministrativeDist
 // Stormwater infrastructure reference lines. Properties carry the opaque
 // segment_id plus the bounded publisher-attribute allowlist; data_class lives on
 // the envelope and full provenance at the top level. No topology is exposed.
-export type StormwaterBbox = [number, number, number, number];
+// Shared bounded-query bbox: four finite EPSG:4326 numbers in minX,minY,maxX,maxY order.
+export type Bbox = [number, number, number, number];
+
+/** @deprecated use Bbox */
+export type StormwaterBbox = Bbox;
 
 export type StormwaterGeometry = { type: "LineString"; coordinates: number[][] };
 
@@ -231,14 +235,14 @@ export type StormwaterNetwork = ReferenceFeatureCollection<
   truncated: boolean;
 };
 
-// Matches the backend bbox contract: width and height must not exceed 0.30 degrees.
-const STORMWATER_BBOX_MAX_SPAN = 0.3;
+// Shared bounded-query contract: width and height must not exceed 0.30 degrees.
+export const BBOX_MAX_SPAN_DEGREES = 0.3;
 
-export function isStormwaterBboxTooBroad(bbox: StormwaterBbox): boolean {
-  return (
-    bbox[2] - bbox[0] > STORMWATER_BBOX_MAX_SPAN || bbox[3] - bbox[1] > STORMWATER_BBOX_MAX_SPAN
-  );
+export function isBboxTooBroad(bbox: Bbox): boolean {
+  return bbox[2] - bbox[0] > BBOX_MAX_SPAN_DEGREES || bbox[3] - bbox[1] > BBOX_MAX_SPAN_DEGREES;
 }
+
+export const isStormwaterBboxTooBroad = isBboxTooBroad;
 
 export async function fetchStormwaterPipelines(bbox?: StormwaterBbox): Promise<StormwaterNetwork> {
   const query = bbox ? `?bbox=${bbox.join(",")}` : "";
@@ -247,4 +251,86 @@ export async function fetchStormwaterPipelines(bbox?: StormwaterBbox): Promise<S
     throw new Error(`Stormwater pipelines request failed (${response.status})`);
   }
   return response.json() as Promise<StormwaterNetwork>;
+}
+
+// Synthetic rodent report-shaped fixtures. These are SIMULATED report records,
+// not verified observations, prevalence, population, movement, or risk evidence.
+export type RodentReportGeometry = { type: "Point"; coordinates: [number, number] };
+
+export type RodentReportProperties = {
+  report_id: string;
+  source: "synthetic_fixture";
+  report_type: "sighting_report" | "nuisance_report" | "service_request" | "unknown";
+  reported_at: string;
+  location_precision: "synthetic_point" | "coarse_grid_100m" | "coarse_grid_1km" | "unknown";
+  review_status: "unreviewed" | "platform_moderated" | "municipal_reviewed" | "unknown";
+  municipal_status: "not_assessed" | "confirmed_by_authority" | "rejected" | "unknown";
+  action_status: "none_reported" | "inspection" | "treatment" | "unknown";
+  data_class: "RODENT_REPORT";
+  classification: "SIMULATED";
+  provenance_schema_version: string;
+  dataset_id: string;
+  resource_version: string;
+  content_sha256: string;
+};
+
+export type RodentReportProvenance = {
+  schema_version: "1";
+  source_kind: "synthetic_fixture";
+  dataset_id: string;
+  resource_version: string;
+  retrieved_at: string;
+  content_sha256: string;
+  license: string;
+  attribution: string;
+  source_crs: "EPSG:4326";
+  target_crs: "EPSG:4326";
+  processing: ProvenanceProcessing;
+  synthetic: true;
+  uncertainty: ProvenanceUncertainty;
+};
+
+export type RodentReports = ReferenceFeatureCollection<
+  RodentReportGeometry,
+  RodentReportProperties,
+  "RODENT_REPORT",
+  RodentReportProvenance
+> & {
+  classification: "SIMULATED";
+  feature_count: number;
+  bbox: Bbox | null;
+  reported_from: string | null;
+  reported_to: string | null;
+  truncated: boolean;
+};
+
+export type RodentReportFilters = {
+  bbox?: Bbox;
+  reportedFrom?: string | null;
+  reportedTo?: string | null;
+};
+
+// datetime-local values are interpreted as UTC and normalized to RFC3339 Z at
+// minute precision, matching the backend filter contract.
+export function datetimeLocalToUtc(value: string): string | null {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  if (!match) return null;
+  const [, year, month, day, hour, minute] = match;
+  return `${year}-${month}-${day}T${hour}:${minute}:00Z`;
+}
+
+export async function fetchRodentReports(
+  filters: RodentReportFilters = {},
+): Promise<RodentReports> {
+  const params = new URLSearchParams();
+  if (filters.bbox) params.set("bbox", filters.bbox.join(","));
+  if (filters.reportedFrom) params.set("reported_from", filters.reportedFrom);
+  if (filters.reportedTo) params.set("reported_to", filters.reportedTo);
+  const query = params.toString();
+  const response = await fetch(`${API_BASE_URL}/api/v1/rodent-reports${query ? `?${query}` : ""}`);
+  if (!response.ok) {
+    throw new Error(`Rodent reports request failed (${response.status})`);
+  }
+  return response.json() as Promise<RodentReports>;
 }

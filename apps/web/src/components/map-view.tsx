@@ -11,6 +11,8 @@ import {
 import type {
   AdministrativeDistrictProperties,
   AdministrativeDistricts,
+  RodentReportProperties,
+  RodentReports,
   SimulationPreview,
   StormwaterBbox,
   StormwaterNetwork,
@@ -31,6 +33,9 @@ const BOUNDARY_HIGHLIGHT_LAYER = "ratsight-administrative-districts-highlight";
 const STORMWATER_SOURCE = "ratsight-stormwater-pipelines";
 const STORMWATER_LINE_LAYER = "ratsight-stormwater-pipelines-line";
 const STORMWATER_HIGHLIGHT_LAYER = "ratsight-stormwater-pipelines-highlight";
+const RODENT_REPORT_SOURCE = "ratsight-rodent-reports";
+const RODENT_REPORT_POINT_LAYER = "ratsight-rodent-reports-point";
+const RODENT_REPORT_HIGHLIGHT_LAYER = "ratsight-rodent-reports-highlight";
 
 type MapViewProps = {
   preview: SimulationPreview | null;
@@ -43,6 +48,10 @@ type MapViewProps = {
   showStormwater: boolean;
   selectedSegmentId: string | null;
   onSelectSegment: (properties: StormwaterProperties) => void;
+  rodentReports: RodentReports | null;
+  showRodentReports: boolean;
+  selectedReportId: string | null;
+  onSelectReport: (properties: RodentReportProperties) => void;
   onBoundsChange: (bbox: StormwaterBbox) => void;
 };
 
@@ -57,6 +66,10 @@ export function MapView({
   showStormwater,
   selectedSegmentId,
   onSelectSegment,
+  rodentReports,
+  showRodentReports,
+  selectedReportId,
+  onSelectReport,
   onBoundsChange,
 }: MapViewProps) {
   const container = useRef<HTMLDivElement>(null);
@@ -319,6 +332,107 @@ export function MapView({
       map.off("load", apply);
     };
   }, [selectedSegmentId, stormwater, showStormwater]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const removeRodentLayers = () => {
+      if (map.getLayer(RODENT_REPORT_HIGHLIGHT_LAYER)) {
+        map.removeLayer(RODENT_REPORT_HIGHLIGHT_LAYER);
+      }
+      if (map.getLayer(RODENT_REPORT_POINT_LAYER)) map.removeLayer(RODENT_REPORT_POINT_LAYER);
+      if (map.getSource(RODENT_REPORT_SOURCE)) map.removeSource(RODENT_REPORT_SOURCE);
+    };
+
+    const update = () => {
+      if (!map.isStyleLoaded()) return;
+      removeRodentLayers();
+      if (!rodentReports || rodentReports.features.length === 0) return;
+      map.addSource(RODENT_REPORT_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: rodentReports.features },
+      });
+      // Keep report points beneath simulated movement so simulation stays distinct.
+      const beforeId = map.getLayer(SIMULATION_LAYER) ? SIMULATION_LAYER : undefined;
+      const visibility = showRodentReports ? "visible" : "none";
+      map.addLayer(
+        {
+          id: RODENT_REPORT_POINT_LAYER,
+          type: "circle",
+          source: RODENT_REPORT_SOURCE,
+          layout: { visibility },
+          paint: {
+            "circle-radius": 4,
+            "circle-color": "#be123c",
+            "circle-stroke-color": "#7f1d3a",
+            "circle-stroke-width": 1,
+            "circle-opacity": 0.9,
+          },
+        },
+        beforeId,
+      );
+      map.addLayer(
+        {
+          id: RODENT_REPORT_HIGHLIGHT_LAYER,
+          type: "circle",
+          source: RODENT_REPORT_SOURCE,
+          layout: { visibility },
+          filter: ["==", ["get", "report_id"], ""],
+          paint: {
+            "circle-radius": 7,
+            "circle-color": "rgba(190,18,60,0.25)",
+            "circle-stroke-color": "#7f1d3a",
+            "circle-stroke-width": 2,
+          },
+        },
+        beforeId,
+      );
+    };
+
+    const handleClick = (event: MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (feature?.properties) {
+        onSelectReport(feature.properties as RodentReportProperties);
+      }
+    };
+    const handleMouseEnter = () => {
+      map.getCanvas().style.cursor = "pointer";
+    };
+    const handleMouseLeave = () => {
+      map.getCanvas().style.cursor = "";
+    };
+
+    map.on("load", update);
+    map.on("click", RODENT_REPORT_POINT_LAYER, handleClick);
+    map.on("mouseenter", RODENT_REPORT_POINT_LAYER, handleMouseEnter);
+    map.on("mouseleave", RODENT_REPORT_POINT_LAYER, handleMouseLeave);
+    if (map.isStyleLoaded()) update();
+    return () => {
+      map.off("load", update);
+      map.off("click", RODENT_REPORT_POINT_LAYER, handleClick);
+      map.off("mouseenter", RODENT_REPORT_POINT_LAYER, handleMouseEnter);
+      map.off("mouseleave", RODENT_REPORT_POINT_LAYER, handleMouseLeave);
+    };
+  }, [rodentReports, showRodentReports, onSelectReport]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      if (!map.getLayer(RODENT_REPORT_HIGHLIGHT_LAYER)) return;
+      map.setFilter(RODENT_REPORT_HIGHLIGHT_LAYER, [
+        "==",
+        ["get", "report_id"],
+        selectedReportId ?? "",
+      ]);
+    };
+    map.on("load", apply);
+    if (map.isStyleLoaded()) apply();
+    return () => {
+      map.off("load", apply);
+    };
+  }, [selectedReportId, rodentReports, showRodentReports]);
 
   // Request the current viewport on load and after debounced map movement so the
   // dashboard can issue bounded stormwater bbox queries instead of fetching all.

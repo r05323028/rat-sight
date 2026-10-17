@@ -7,6 +7,7 @@ import { Dashboard } from "@/components/dashboard";
 const mockState = vi.hoisted(() => ({
   boundaryMode: "empty" as "empty" | "available" | "error",
   stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
+  rodentMode: "available" as "available" | "empty" | "in_filters" | "truncated" | "error",
   district: {
     district_id: "63000010",
     district_name: "松山區",
@@ -27,6 +28,22 @@ const mockState = vi.hoisted(() => ({
     archive_sha256: "b".repeat(64),
     pipe_number: "P-1",
     material: "RCP",
+  },
+  rodentFeature: {
+    report_id: "report-1",
+    source: "synthetic_fixture",
+    report_type: "sighting_report",
+    reported_at: "2026-10-01T00:00:00Z",
+    location_precision: "synthetic_point",
+    review_status: "unreviewed",
+    municipal_status: "not_assessed",
+    action_status: "none_reported",
+    data_class: "RODENT_REPORT",
+    classification: "SIMULATED",
+    provenance_schema_version: "1",
+    dataset_id: "00000000-0000-4000-8000-000000000002",
+    resource_version: "2026-10-17T00:00:00Z",
+    content_sha256: "c".repeat(64),
   },
 }));
 
@@ -82,6 +99,22 @@ const STORMWATER_PROVENANCE = {
     missing_notes_count: 17950,
   },
   uncertainty: { currentness: "Publisher reference-only; currentness UNVERIFIED", note: "fixture" },
+};
+
+const RODENT_PROVENANCE = {
+  schema_version: "1",
+  source_kind: "synthetic_fixture",
+  dataset_id: "00000000-0000-4000-8000-000000000002",
+  resource_version: "2026-10-17T00:00:00Z",
+  retrieved_at: "2026-10-17T00:00:00Z",
+  content_sha256: "c".repeat(64),
+  license: "Synthetic fixture only; no real report data.",
+  attribution: "RatSight synthetic report fixture",
+  source_crs: "EPSG:4326",
+  target_crs: "EPSG:4326",
+  processing: { tool: "test", tool_version: "0", steps: ["fixture"] },
+  synthetic: true,
+  uncertainty: { currentness: "Synthetic fixture; not a real reporting system.", note: "fixture" },
 };
 
 beforeEach(() => {
@@ -212,6 +245,38 @@ beforeEach(() => {
             feature_count: features.length,
             bbox: [121.5, 24.98, 121.63, 25.09],
             truncated: mockState.stormwaterMode === "truncated",
+            features,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.includes("/api/v1/rodent-reports")) {
+        if (mockState.rodentMode === "error") {
+          return new Response("storage unavailable", { status: 503 });
+        }
+        const features =
+          mockState.rodentMode === "empty" || mockState.rodentMode === "in_filters"
+            ? []
+            : [
+                {
+                  type: "Feature",
+                  id: mockState.rodentFeature.report_id,
+                  geometry: { type: "Point", coordinates: [121.55, 25.02] },
+                  properties: mockState.rodentFeature,
+                },
+              ];
+        return new Response(
+          JSON.stringify({
+            type: "FeatureCollection",
+            data_state: mockState.rodentMode === "empty" ? "empty" : "available",
+            data_class: "RODENT_REPORT",
+            classification: "SIMULATED",
+            provenance: mockState.rodentMode === "empty" ? null : RODENT_PROVENANCE,
+            feature_count: features.length,
+            bbox: [121.5, 24.98, 121.63, 25.09],
+            reported_from: null,
+            reported_to: null,
+            truncated: mockState.rodentMode === "truncated",
             features,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -369,5 +434,76 @@ describe("RatSight dashboard", () => {
     const sourceLink = screen.getByRole("link", { name: "https://data.taipei/stormwater" });
     expect(sourceLink).toHaveAttribute("target", "_blank");
     expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("reports the storage-empty rodent report state", async () => {
+    mockState.rodentMode = "empty";
+    renderDashboard();
+    expect(await screen.findByText("No reports imported")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No synthetic rodent reports have been imported."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Rodent reports")).toBeDisabled();
+  });
+
+  it("distinguishes an in-filter rodent report miss from storage-empty", async () => {
+    mockState.rodentMode = "in_filters";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "Rodent report inspection" });
+    expect(await within(panel).findByText("No reports in filters")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Rodent reports")).toBeEnabled());
+  });
+
+  it("shows the capped rodent report state", async () => {
+    mockState.rodentMode = "truncated";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "Rodent report inspection" });
+    expect(await within(panel).findByText("Showing partial data · zoom in")).toBeInTheDocument();
+  });
+
+  it("communicates an unavailable rodent report service", async () => {
+    mockState.rodentMode = "error";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "Rodent report inspection" });
+    expect(await within(panel).findByText("Rodent report service unavailable")).toBeInTheDocument();
+    expect(screen.getByLabelText("Rodent reports")).toBeDisabled();
+  });
+
+  it("inspects a selected synthetic report with provenance and disclaimer", async () => {
+    mockState.rodentMode = "available";
+    renderDashboard();
+    const toggle = await screen.findByLabelText("Rodent reports");
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+
+    const reportButton = screen.getByRole("button", { name: "report-1" });
+    reportButton.focus();
+    expect(reportButton).toHaveFocus();
+    fireEvent.click(reportButton);
+    expect(reportButton).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("unreviewed")).toBeInTheDocument();
+    expect(screen.getByText("not_assessed")).toBeInTheDocument();
+    expect(screen.getByText("none_reported")).toBeInTheDocument();
+    expect(screen.getByText("synthetic_point")).toBeInTheDocument();
+    expect(screen.getByText("00000000-0000-4000-8000-000000000002")).toBeInTheDocument();
+    expect(screen.getByText("Synthetic fixture only; no real report data.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Synthetic report-shaped fixtures. Not verified observations, prevalence, population, movement, or risk evidence.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("converts a datetime-local filter to an RFC3339 Z query value", async () => {
+    mockState.rodentMode = "available";
+    renderDashboard();
+    fireEvent.change(screen.getByLabelText("Reported from (UTC)"), {
+      target: { value: "2026-10-01T08:30" },
+    });
+    await waitFor(() => {
+      const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
+      expect(urls.some((url) => url.includes("reported_from=2026-10-01T08%3A30%3A00Z"))).toBe(true);
+    });
   });
 });

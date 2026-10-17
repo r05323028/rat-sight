@@ -6,15 +6,18 @@ import { useState } from "react";
 import { MapView } from "@/components/map-view";
 import { Button } from "@/components/ui/button";
 import {
+  datetimeLocalToUtc,
   fetchAdministrativeDistricts,
   fetchLayers,
+  fetchRodentReports,
   fetchStormwaterPipelines,
-  isStormwaterBboxTooBroad,
+  isBboxTooBroad,
   requestPreview,
   type AdministrativeDistrictProperties,
+  type Bbox,
   type Layer,
+  type RodentReportProperties,
   type SimulationPreview,
-  type StormwaterBbox,
   type StormwaterProperties,
 } from "@/lib/api";
 
@@ -47,7 +50,7 @@ function isSafeExternalUrl(value: string): boolean {
 }
 
 // Approximates the initial map center until MapView reports the real viewport bbox.
-const DEFAULT_STORMWATER_BBOX: StormwaterBbox = [121.5, 24.98, 121.63, 25.09];
+const DEFAULT_STORMWATER_BBOX: Bbox = [121.5, 24.98, 121.63, 25.09];
 const MAX_VISIBLE_PIPELINE_LIST_ITEMS = 100;
 
 const STORMWATER_ATTRIBUTE_LABELS: [keyof StormwaterProperties, string][] = [
@@ -95,27 +98,59 @@ function stormwaterQualitySummary(quality: {
   ].join(" · ");
 }
 
+const RODENT_REPORT_DETAIL_LABELS: [keyof RodentReportProperties, string][] = [
+  ["report_id", "Report ID"],
+  ["source", "Source"],
+  ["report_type", "Report type"],
+  ["reported_at", "Reported at"],
+  ["location_precision", "Location precision"],
+  ["review_status", "Review status"],
+  ["municipal_status", "Municipal status"],
+  ["action_status", "Action status"],
+  ["data_class", "Data class"],
+  ["classification", "Classification"],
+];
+
+const RODENT_REPORT_DISCLAIMER =
+  "Synthetic report-shaped fixtures. Not verified observations, prevalence, population, movement, or risk evidence.";
+
 export function Dashboard() {
   const layersQuery = useQuery({ queryKey: ["layers"], queryFn: fetchLayers });
   const districtsQuery = useQuery({
     queryKey: ["administrative-districts"],
     queryFn: fetchAdministrativeDistricts,
   });
-  const [viewportBbox, setViewportBbox] = useState<StormwaterBbox>(DEFAULT_STORMWATER_BBOX);
-  const bboxTooBroad = isStormwaterBboxTooBroad(viewportBbox);
+  const [viewportBbox, setViewportBbox] = useState<Bbox>(DEFAULT_STORMWATER_BBOX);
+  const bboxTooBroad = isBboxTooBroad(viewportBbox);
   const stormwaterQuery = useQuery({
     queryKey: ["stormwater-pipelines", viewportBbox],
     queryFn: () => fetchStormwaterPipelines(viewportBbox),
+    enabled: !bboxTooBroad,
+  });
+  const [rodentFrom, setRodentFrom] = useState("");
+  const [rodentTo, setRodentTo] = useState("");
+  const rodentFromUtc = datetimeLocalToUtc(rodentFrom);
+  const rodentToUtc = datetimeLocalToUtc(rodentTo);
+  const rodentQuery = useQuery({
+    queryKey: ["rodent-reports", viewportBbox, rodentFromUtc, rodentToUtc],
+    queryFn: () =>
+      fetchRodentReports({
+        bbox: viewportBbox,
+        reportedFrom: rodentFromUtc,
+        reportedTo: rodentToUtc,
+      }),
     enabled: !bboxTooBroad,
   });
   const [preview, setPreview] = useState<SimulationPreview | null>(null);
   const [showSimulatedPaths, setShowSimulatedPaths] = useState(false);
   const [showBoundaries, setShowBoundaries] = useState(false);
   const [showStormwater, setShowStormwater] = useState(false);
+  const [showRodentReports, setShowRodentReports] = useState(false);
   const [selectedDistrict, setSelectedDistrict] = useState<AdministrativeDistrictProperties | null>(
     null,
   );
   const [selectedSegment, setSelectedSegment] = useState<StormwaterProperties | null>(null);
+  const [selectedReport, setSelectedReport] = useState<RodentReportProperties | null>(null);
   const [duration, setDuration] = useState(12);
   const [seed, setSeed] = useState(42);
   const [walkers, setWalkers] = useState(24);
@@ -151,6 +186,27 @@ export function Dashboard() {
             : stormwater?.truncated
               ? "Showing partial data · zoom in"
               : "Infrastructure reference · UNVERIFIED";
+  const rodentReports = rodentQuery.data ?? null;
+  const hasRodentReports = rodentReports?.data_state === "available";
+  const selectedVisibleReport =
+    rodentQuery.isError || rodentReports?.data_state !== "available"
+      ? null
+      : (rodentReports.features.find(
+          (feature) => feature.properties.report_id === selectedReport?.report_id,
+        )?.properties ?? null);
+  const rodentStatus = bboxTooBroad
+    ? "Zoom in to load reports"
+    : rodentQuery.isPending
+      ? "Loading reports…"
+      : rodentQuery.isError
+        ? "Rodent report service unavailable"
+        : rodentReports?.data_state === "empty"
+          ? "No reports imported"
+          : (rodentReports?.feature_count ?? 0) === 0
+            ? "No reports in filters"
+            : rodentReports?.truncated
+              ? "Showing partial data · zoom in"
+              : "RODENT_REPORT · SIMULATED";
 
   return (
     <main className="dashboard-shell">
@@ -202,6 +258,10 @@ export function Dashboard() {
             showStormwater={showStormwater}
             selectedSegmentId={selectedVisibleSegment?.segment_id ?? null}
             onSelectSegment={setSelectedSegment}
+            rodentReports={rodentReports}
+            showRodentReports={showRodentReports}
+            selectedReportId={selectedVisibleReport?.report_id ?? null}
+            onSelectReport={setSelectedReport}
             onBoundsChange={setViewportBbox}
           />
           <div className="map-legend">
@@ -213,6 +273,9 @@ export function Dashboard() {
             </span>
             <span className="legend-item">
               <i className="legend-stormwater" /> Stormwater (reference)
+            </span>
+            <span className="legend-item">
+              <i className="legend-rodent-reports" /> Rodent reports (SIMULATED)
             </span>
             <span className="legend-item">
               <i className="legend-simulated" /> Simulated · synthetic fixture
@@ -270,6 +333,22 @@ export function Dashboard() {
                   disabled={!hasStormwater}
                   checked={showStormwater}
                   onChange={(event) => setShowStormwater(event.target.checked)}
+                />
+              </label>
+              <label className={`layer-row ${hasRodentReports ? "" : "is-unavailable"}`}>
+                <span className="layer-glyph glyph-rodent-reports" aria-hidden="true">
+                  ●
+                </span>
+                <span className="layer-name">
+                  Rodent reports
+                  <small>{rodentStatus}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Rodent reports"
+                  disabled={!hasRodentReports}
+                  checked={showRodentReports}
+                  onChange={(event) => setShowRodentReports(event.target.checked)}
                 />
               </label>
               {layers
@@ -525,6 +604,106 @@ export function Dashboard() {
                     responsible utility agency.
                   </small>
                 )}
+              </div>
+            )}
+          </section>
+
+          <section className="panel rodent-panel" aria-label="Rodent report inspection">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">SYNTHETIC REPORTS</p>
+                <h3>Rodent reports</h3>
+              </div>
+              <span className="classification-badge">SIMULATED</span>
+            </div>
+            <div className="field-pair">
+              <div className="form-field">
+                <label htmlFor="rodent-from">Reported from (UTC)</label>
+                <input
+                  id="rodent-from"
+                  type="datetime-local"
+                  step={60}
+                  value={rodentFrom}
+                  onChange={(event) => setRodentFrom(event.target.value)}
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="rodent-to">Reported to (UTC)</label>
+                <input
+                  id="rodent-to"
+                  type="datetime-local"
+                  step={60}
+                  value={rodentTo}
+                  onChange={(event) => setRodentTo(event.target.value)}
+                />
+              </div>
+            </div>
+            {hasRodentReports ? (
+              <>
+                <p className="reference-label">{rodentStatus}</p>
+                <p className="reference-label" id="report-list-label">
+                  Reports · select to inspect
+                </p>
+                <ul className="district-list" aria-labelledby="report-list-label">
+                  {rodentReports?.features.map((feature) => {
+                    const selected =
+                      selectedVisibleReport?.report_id === feature.properties.report_id;
+                    return (
+                      <li key={feature.properties.report_id}>
+                        <button
+                          type="button"
+                          className={`district-button ${selected ? "is-selected" : ""}`}
+                          aria-pressed={selected}
+                          aria-label={feature.properties.report_id}
+                          onClick={() => setSelectedReport(feature.properties)}
+                        >
+                          {feature.properties.reported_at}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {selectedVisibleReport ? (
+                  <div className="reference-details" aria-live="polite">
+                    {RODENT_REPORT_DETAIL_LABELS.map(([key, label]) => (
+                      <div className="analysis-row" key={key}>
+                        <span>{label}</span>
+                        <strong>{selectedVisibleReport[key] || "Unavailable"}</strong>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="inline-note" aria-live="polite">
+                    Select a report from the list or the map to inspect its details.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="inline-note" aria-live="polite">
+                {rodentStatus === "No reports imported"
+                  ? "No synthetic rodent reports have been imported."
+                  : rodentStatus}
+              </p>
+            )}
+            <p className="reference-note">{RODENT_REPORT_DISCLAIMER}</p>
+            {rodentReports?.provenance && (
+              <div className="provenance-block" aria-label="Rodent report source provenance">
+                <span>Provenance schema</span>
+                <strong>{rodentReports.provenance.schema_version}</strong>
+                <span>Source kind</span>
+                <strong>{rodentReports.provenance.source_kind}</strong>
+                <span>Dataset</span>
+                <strong>{rodentReports.provenance.dataset_id}</strong>
+                <span>Resource version</span>
+                <strong>{rodentReports.provenance.resource_version}</strong>
+                <span>Content SHA-256</span>
+                <strong>{rodentReports.provenance.content_sha256}</strong>
+                <span>License</span>
+                <strong>{rodentReports.provenance.license}</strong>
+                <span>Attribution</span>
+                <strong>{rodentReports.provenance.attribution}</strong>
+                <span>Currentness</span>
+                <strong>{rodentReports.provenance.uncertainty.currentness}</strong>
               </div>
             )}
           </section>
