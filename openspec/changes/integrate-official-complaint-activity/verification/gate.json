@@ -1,0 +1,28 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "OCA-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "OCA-002", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "OCA-003", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {"decision": "PASS", "findings": []}
+  },
+  "verification": [
+    {"id": "V-OPEN", "command": "openspec validate integrate-official-complaint-activity", "exit_code": 0, "result": "valid", "reference": "verification/qa.md"},
+    {"id": "V-FEASIBILITY", "command": "inspect docs/evidence/official-complaint-activity-feasibility-2026-10-18.md", "exit_code": 0, "result": "official metadata/resource, license, CSV schema, values, grain, dates, coverage, and NO-GO documented", "reference": "verification/qa.md"},
+    {"id": "V-REVIEW", "command": "inspect verification/public-health-review.md and verification/adversarial-review.md", "exit_code": 0, "result": "independent review confirms no defensible rodent mapping and NO-GO", "reference": "verification/qa.md"},
+    {"id": "V-BOUNDARY", "command": "inspect git status and research artifacts", "exit_code": 0, "result": "no application/data implementation; temporary CSV deleted; no raw complaint records retained", "reference": "verification/qa.md"},
+    {"id": "V-REGRESSION", "command": "prior recorded make rodent-report-smoke and make geospatial-smoke", "exit_code": 0, "result": "rodent populated/empty scenarios passed; geospatial 4/4 passed", "reference": "verification/qa.md"}
+  ],
+  "engineering": [
+    {"requirement": "complaint-activity#Feasibility gate precedes implementation", "status": "VERIFIED", "implementation": ["openspec/changes/integrate-official-complaint-activity/proposal.md", "openspec/changes/integrate-official-complaint-activity/design.md", "docs/evidence/official-complaint-activity-feasibility-2026-10-18.md"], "tests": ["openspec/changes/integrate-official-complaint-activity/verification/qa.md"], "verification": ["V-OPEN", "V-FEASIBILITY", "V-BOUNDARY"]},
+    {"requirement": "complaint-activity#Complaint activity remains administrative data", "status": "VERIFIED", "implementation": ["openspec/changes/integrate-official-complaint-activity/specs/complaint-activity/spec.md", "openspec/changes/integrate-official-complaint-activity/verification/public-health-review.md"], "tests": ["openspec/changes/integrate-official-complaint-activity/verification/qa.md"], "verification": ["V-REVIEW"]},
+    {"requirement": "complaint-activity#Privacy-minimal aggregate contract", "status": "VERIFIED", "implementation": ["openspec/changes/integrate-official-complaint-activity/design.md", "openspec/changes/integrate-official-complaint-activity/verification/traceability.md"], "tests": ["openspec/changes/integrate-official-complaint-activity/verification/qa.md"], "verification": ["V-BOUNDARY", "V-REVIEW"]},
+    {"requirement": "complaint-activity#Reproducible aggregate verification", "status": "NOT_APPLICABLE", "gap": "Feasibility gate is NO-GO; no aggregate importer or output exists to verify.", "implementation": ["openspec/changes/integrate-official-complaint-activity/tasks.md", "openspec/changes/integrate-official-complaint-activity/verification/traceability.md"], "tests": ["openspec/changes/integrate-official-complaint-activity/verification/qa.md"], "verification": ["V-FEASIBILITY", "V-BOUNDARY"]}
+  ],
+  "science": {"applicable": false, "reason": "Phase A feasibility ended NO-GO; no scientific model, parameter, prevalence, movement, or causal claim was implemented.", "claims": []},
+  "approval": null
+}
