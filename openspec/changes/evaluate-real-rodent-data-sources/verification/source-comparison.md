@@ -1,0 +1,19 @@
+# Source comparison and claim register
+
+**Verification date:** 2026-10-17. **Boundary:** metadata/documentation only; no raw report rows, exports, photographs, names, descriptions, or exact locations accessed.
+
+| ID | Candidate / claim | Evidence URL | Status | Limitation / consequence |
+|---|---|---|---|---|
+| RDS-E01 | Rat Radar public pages and transparency surface exist; report categories/statuses and pending/unverified distinction are visible. | <https://ratdar.taipei/>; <https://ratdar.taipei/reports>; <https://ratdar.taipei/transparency> | VERIFIED (interface only) | Does not validate underlying records, species, completeness, or municipal confirmation. |
+| RDS-E02 | Rat Radar export endpoint advertises CSV metadata; only HTTP HEAD was inspected. | <https://ratdar.taipei/reports/export> | VERIFIED (metadata only) | CSV was not downloaded; schema, CRS, historical scope, and update behavior remain unknown. |
+| RDS-E03 | Rat Radar authority/endorsement, licence, automated retrieval, redistribution, privacy/retention/security, CRS, precision, and coverage are not established. | <https://ratdar.taipei/transparency>; <https://ratdar.taipei/> | BLOCKED / UNVERIFIED | Written publisher authorization and field-level privacy contract required before any raw access or redistribution. |
+| RDS-E04 | Rat Radar `已通報1999` is a displayed status/submitter assertion, not verified municipal confirmation. | <https://ratdar.taipei/reports> | VERIFIED (label meaning) | Preserve status semantics; never map to `OBSERVED` or confirmed infestation. |
+| RDS-E05 | Taipei portal search endpoint returned JSON and zero results for five exact keywords at check time. | <https://data.taipei/api/v1/dataset/search>; <https://data.taipei/> | VERIFIED (query response) | Zero matches do not prove absence under other titles/catalogs/departments; no resource selected. |
+| RDS-E06 | No Taipei open-data rodent resource contract was verified: dataset/resource ID, licence, fields, CRS, coverage, update, privacy. | <https://data.taipei/>; <https://data.taipei/rule> | UNVERIFIED / BLOCKED | Requires authorized dataset selection and resource-level review. |
+| RDS-E07 | Taipei City 1999 service page is reachable; no specific rodent complaint dataset or dataset endpoint, schema, licence, CRS, coverage, or privacy terms were verified. | <https://1999.gov.taipei/Front/main> (metadata-only HEAD/GET; HTTP 200; page title `臺北市陳情系統1999`, checked 2026-10-17); <https://data.taipei/>; <https://data.gov.tw/> | VERIFIED (service page only) / UNVERIFIED / BLOCKED (dataset) | Page metadata confirms a Taipei City Government petition/dispatch service, not dataset availability or terms. A data-owner response or official catalog record is still required; no complaint rows accessed. |
+| RDS-E08 | A complaint/service request is not necessarily a sighting, inspection, treatment, or confirmed observation. | <https://data.taipei/>; <https://data.gov.tw/> | VERIFIED (semantic constraint) | Future source must preserve event/status distinctions and avoid prevalence/risk claims. |
+| RDS-E09 | Public-health review permits only an authorized coarse descriptive report-activity use; it rejects raw/exact/identifiable redistribution and biological/causal/movement claims. | `docs/evidence/rodent-report-public-health-suitability-review-2026-10-17.md` (with source URLs above) | VERIFIED (independent review) | Not authorization; legal/privacy and human source selection remain required. |
+
+## Decision
+
+**NO-GO:** no candidate is currently approved for real download, ingestion, redistribution, or model use. Rat Radar is the most promising future target only because its interface exposes report-shaped metadata; it remains license/privacy/authority/CRS blocked. The human project owner, via the supported OpenRig human gateway, must choose NO-GO or authorize only a bounded data-owner contact/metadata clarification step. Agents may not authorize raw access.

@@ -1,0 +1,33 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "RDS-001", "severity": "BLOCKING", "status": "RESOLVED"},
+        {"id": "RDS-002", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RDS-003", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "RDS-004", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "RDS-005", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": []
+    }
+  },
+  "verification": [
+    {"id": "V-OPEN", "command": "openspec validate evaluate-real-rodent-data-sources", "exit_code": 0, "result": "valid", "reference": "verification/qa.md"},
+    {"id": "V-CLAIMS", "command": "inspect verification/source-comparison.md", "exit_code": 0, "result": "9 claim IDs with URL, verification date, status, and limitation", "reference": "verification/qa.md"},
+    {"id": "V-NODATA", "command": "inspect research-only diff and run raw-data indicator scan", "exit_code": 0, "result": "no raw records, names, photos, addresses, or exact coordinates; no application/data changes", "reference": "verification/qa.md"},
+    {"id": "V-SEMANTICS", "command": "inspect evidence, recommendation, and public-health review", "exit_code": 0, "result": "report, moderation, service request, inspection, treatment, and OBSERVED distinctions preserved", "reference": "verification/qa.md"},
+    {"id": "V-SMOKE", "command": "make rodent-report-smoke && make geospatial-smoke", "exit_code": 0, "result": "rodent populated/empty scenarios passed; geospatial 4/4 passed; isolated resources cleaned and shared database untouched", "reference": "verification/qa.md"}
+  ],
+  "engineering": [
+    {"requirement": "real-rodent-data-sources#Metadata-only source investigation", "status": "VERIFIED", "implementation": ["docs/evidence/rodent-report-source-investigation-2026-10-17.md", "openspec/changes/evaluate-real-rodent-data-sources/verification/source-comparison.md"], "tests": ["openspec/changes/evaluate-real-rodent-data-sources/verification/qa.md"], "verification": ["V-OPEN", "V-CLAIMS", "V-NODATA"]},
+    {"requirement": "real-rodent-data-sources#Source comparison preserves semantics", "status": "VERIFIED", "implementation": ["openspec/changes/evaluate-real-rodent-data-sources/evidence.md", "docs/evidence/rodent-report-public-health-suitability-review-2026-10-17.md", "openspec/changes/evaluate-real-rodent-data-sources/verification/source-comparison.md"], "tests": ["openspec/changes/evaluate-real-rodent-data-sources/verification/qa.md"], "verification": ["V-CLAIMS", "V-SEMANTICS"]},
+    {"requirement": "real-rodent-data-sources#Authorization and privacy blockers", "status": "VERIFIED", "implementation": ["openspec/changes/evaluate-real-rodent-data-sources/proposal.md", "openspec/changes/evaluate-real-rodent-data-sources/design.md", "openspec/changes/evaluate-real-rodent-data-sources/recommendation.md", "openspec/changes/evaluate-real-rodent-data-sources/verification/source-comparison.md"], "tests": ["openspec/changes/evaluate-real-rodent-data-sources/verification/qa.md"], "verification": ["V-CLAIMS", "V-NODATA"]},
+    {"requirement": "real-rodent-data-sources#Proposed next implementation boundary", "status": "VERIFIED", "implementation": ["openspec/changes/evaluate-real-rodent-data-sources/design.md", "openspec/changes/evaluate-real-rodent-data-sources/recommendation.md", "openspec/changes/evaluate-real-rodent-data-sources/specs/real-rodent-data-sources/spec.md"], "tests": ["openspec/changes/evaluate-real-rodent-data-sources/verification/qa.md"], "verification": ["V-OPEN", "V-SEMANTICS"]}
+  ],
+  "science": {"applicable": false, "reason": "Research-only feasibility assessment; no scientific model, parameter, or causal claim is implemented.", "claims": []},
+  "approval": null
+}
