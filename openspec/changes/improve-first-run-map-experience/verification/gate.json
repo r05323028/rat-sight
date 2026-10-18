@@ -1,0 +1,38 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "AR-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "AR-002", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "AR-003", "severity": "MAJOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "FIM-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "FIM-002", "severity": "MAJOR", "status": "RESOLVED"}
+      ]
+    }
+  },
+  "verification": [
+    {"id": "V-TEST", "command": "cd apps/web && npm test -- src/components/dashboard.test.tsx src/components/map-view.test.tsx src/lib/api.test.ts", "exit_code": 0, "result": "3 files, 52 tests passed", "reference": "verification/qa.md"},
+    {"id": "V-TYPE", "command": "cd apps/web && npm run typecheck", "exit_code": 0, "result": "TypeScript passed", "reference": "verification/qa.md"},
+    {"id": "V-LINT", "command": "cd apps/web && npm run lint", "exit_code": 0, "result": "ESLint passed", "reference": "verification/qa.md"},
+    {"id": "V-BUILD", "command": "cd apps/web && npm run build", "exit_code": 0, "result": "Next build passed", "reference": "verification/qa.md"},
+    {"id": "V-RUFF", "command": "uv run ruff check . && uv run ruff format --check .", "exit_code": 0, "result": "Ruff checks passed", "reference": "verification/qa.md"},
+    {"id": "V-OPEN", "command": "openspec validate improve-first-run-map-experience", "exit_code": 0, "result": "change valid", "reference": "verification/qa.md"},
+    {"id": "V-BROWSER-A", "command": "real browser Scenario A at http://localhost:3000", "exit_code": 0, "result": "PASS: map pan/zoom, synthetic report selection, synthetic preview, provenance and limitations visible; Scenario B authoritative-data workflow untested", "reference": "verification/qa.md"},
+    {"id": "V-ANALYST-POSTFIX", "command": "read-only municipal analyst re-evaluation via real browser against the isolated instance at http://127.0.0.1:3002 (synthetic fixture data only)", "exit_code": 0, "result": "PASS: first-run copy honest, source-readiness guide named and linked, SIMULATED preview boundaries clear (seed 42, ratsight-synthetic-graph-v1); no remaining misleading wording in the scoped pass; authoritative-data Scenario B, real sources/importers, and real Taipei counts explicitly untested", "reference": "verification/qa.md"},
+    {"id": "V-BROWSER-POSTFIX", "command": "headless Chromium (Playwright 1.64.1) against the isolated instance at http://127.0.0.1:3002 (byte-identical apps/web copy, API http://127.0.0.1:8000)", "exit_code": 0, "result": "PASS: hydration, synthetic SIMULATED fixture group, source-readiness link, catalog-outage wording; POST /api/v1/simulations/preview returned Reproducible run complete · seed 42 with SIMULATED provenance; Scenario B authoritative-data workflow untested", "reference": "verification/qa.md"}
+  ],
+  "engineering": [
+    {"requirement": "first-run-map#First-run data status", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx"], "tests": ["apps/web/src/components/dashboard.test.tsx"], "verification": ["V-TEST", "V-TYPE", "V-LINT", "V-BUILD"]},
+    {"requirement": "first-run-map#Layer catalog clarity", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx"], "tests": ["apps/web/src/components/dashboard.test.tsx"], "verification": ["V-TEST"]},
+    {"requirement": "first-run-map#Synthetic preview interpretation", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx"], "tests": ["apps/web/src/components/dashboard.test.tsx"], "verification": ["V-TEST"]},
+    {"requirement": "first-run-map#Understandable report filtering", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx", "apps/web/e2e/real-rodent-report.spec.ts"], "tests": ["apps/web/src/components/dashboard.test.tsx"], "verification": ["V-TEST"]}
+  ],
+  "science": {"applicable": false, "reason": "UI clarity and status labeling only; no scientific data, model, parameter, or claim is introduced.", "claims": []},
+  "approval": null
+}

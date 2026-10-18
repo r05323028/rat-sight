@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "@/components/dashboard";
 
 const mockState = vi.hoisted(() => ({
+  layerCatalogMode: "available" as "available" | "error",
   boundaryMode: "empty" as "empty" | "available" | "error",
   stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
   rodentMode: "available" as "available" | "empty" | "in_filters" | "truncated" | "error" | "many",
@@ -124,12 +125,18 @@ const RODENT_PROVENANCE = {
 };
 
 beforeEach(() => {
+  mockState.layerCatalogMode = "available";
   mockState.boundaryMode = "empty";
+  mockState.stormwaterMode = "available";
+  mockState.rodentMode = "available";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.endsWith("/api/v1/layers")) {
+        if (mockState.layerCatalogMode === "error") {
+          return new Response("catalog unavailable", { status: 503 });
+        }
         return new Response(
           JSON.stringify([
             {
@@ -345,6 +352,94 @@ describe("RatSight dashboard", () => {
     expect(screen.getByText("No real observation data loaded")).toBeInTheDocument();
   });
 
+  it("reports a catalog failure without calling the fallback catalog empty", async () => {
+    mockState.layerCatalogMode = "error";
+    renderDashboard();
+    expect(await screen.findByText("Layer catalog unavailable")).toBeInTheDocument();
+    expect(screen.getByLabelText("Rodent observations")).toBeDisabled();
+    expect(screen.getByText(/no layer availability is inferred/i)).toBeInTheDocument();
+    expect(screen.queryByText(/showing empty layer catalog/i)).not.toBeInTheDocument();
+  });
+
+  it("groups planned layers with honest source-readiness guidance", async () => {
+    renderDashboard();
+    expect(await screen.findByText("Not loaded in this build")).toBeInTheDocument();
+    expect(await screen.findByText("No observation dataset loaded.")).toBeInTheDocument();
+    expect(screen.getByText(/No approved source or importer is documented/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "source-readiness guide" })).toHaveAttribute(
+      "href",
+      "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure/data-sources.md",
+    );
+    expect(
+      screen.getByText("SIMULATED · Synthetic fixture; run preview to generate"),
+    ).toBeInTheDocument();
+    const unavailableGroup = screen.getByText("Not loaded in this build").parentElement;
+    if (!unavailableGroup) throw new Error("Unavailable layer group was not rendered");
+    expect(
+      within(unavailableGroup).queryByLabelText("Simulated movement paths"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps simulated paths separate and labeled as a fixture before and after preview", async () => {
+    renderDashboard();
+    expect(screen.getByText("Synthetic simulation")).toBeInTheDocument();
+    expect(screen.getByLabelText("Simulated movement paths")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Run synthetic preview" }));
+    await screen.findByRole("status");
+    await waitFor(() => expect(screen.getByLabelText("Simulated movement paths")).toBeEnabled());
+    expect(screen.getByText("SIMULATED · Synthetic fixture")).toBeInTheDocument();
+    expect(screen.getByText("Not loaded in this build")).toBeInTheDocument();
+  });
+
+  it("links to operator-only import guides for supported layers", async () => {
+    mockState.stormwaterMode = "empty";
+    mockState.rodentMode = "empty";
+    renderDashboard();
+    expect(
+      await screen.findByRole("link", { name: "Administrative-boundary import guide" }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure/administrative-boundaries-import.md",
+    );
+    expect(await screen.findByRole("link", { name: "Stormwater import guide" })).toHaveAttribute(
+      "href",
+      "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure/stormwater-pipelines-import.md",
+    );
+    expect(
+      await screen.findByRole("link", { name: "Synthetic report fixture import guide" }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure/rodent-reports-import.md",
+    );
+  });
+
+  it("states synthetic preview limitations beside the analysis metrics", async () => {
+    renderDashboard();
+    expect(
+      screen.getByText(/Synthetic preview — simulated fixture only; no real observations/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/do not infer prevalence, movement, risk, hotspots/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Synthetic corridors")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run synthetic preview" }));
+    await screen.findByRole("status");
+    expect(screen.getByText(/synthetic node visits/)).toBeInTheDocument();
+  });
+
+  it("labels the reported-date filter as UTC inclusive and counts matching reports", async () => {
+    mockState.rodentMode = "available";
+    renderDashboard();
+    expect(screen.getByLabelText("Reported from (UTC, inclusive)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reported to (UTC, inclusive)")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Both timestamps are UTC wall-clock and inclusive/),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText(/1 report match the current viewport and reported-date filter/),
+    ).toBeInTheDocument();
+  });
+
   it("requests and labels synthetic preview output", async () => {
     renderDashboard();
     fireEvent.click(screen.getByRole("button", { name: "Run synthetic preview" }));
@@ -515,7 +610,7 @@ describe("RatSight dashboard", () => {
   it("converts a datetime-local filter to an RFC3339 Z query value", async () => {
     mockState.rodentMode = "available";
     renderDashboard();
-    fireEvent.change(screen.getByLabelText("Reported from (UTC)"), {
+    fireEvent.change(screen.getByLabelText("Reported from (UTC, inclusive)"), {
       target: { value: "2026-10-01T08:30" },
     });
     await waitFor(() => {
@@ -538,10 +633,10 @@ describe("RatSight dashboard", () => {
     mockState.rodentMode = "available";
     renderDashboard();
     await waitFor(() => expect(screen.getByLabelText("Rodent reports")).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("Reported from (UTC)"), {
+    fireEvent.change(screen.getByLabelText("Reported from (UTC, inclusive)"), {
       target: { value: "2026-10-10T00:00" },
     });
-    fireEvent.change(screen.getByLabelText("Reported to (UTC)"), {
+    fireEvent.change(screen.getByLabelText("Reported to (UTC, inclusive)"), {
       target: { value: "2026-10-01T00:00" },
     });
     expect(await screen.findByRole("alert")).toHaveTextContent(

@@ -53,6 +53,8 @@ function isSafeExternalUrl(value: string): boolean {
 // Approximates the initial map center until MapView reports the real viewport bbox.
 const DEFAULT_STORMWATER_BBOX: Bbox = [121.5, 24.98, 121.63, 25.09];
 const MAX_VISIBLE_PIPELINE_LIST_ITEMS = 100;
+const INFRASTRUCTURE_GUIDES_URL =
+  "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure";
 
 const STORMWATER_ATTRIBUTE_LABELS: [keyof StormwaterProperties, string][] = [
   ["segment_id", "Segment ID"],
@@ -211,6 +213,44 @@ export function Dashboard() {
   const rodentValidationMessage = rodentRangeInvalid
     ? "Reported from must be on or before reported to."
     : null;
+  // Imported layers and synthetic preview output are separate groups: a
+  // generated fixture is not a missing local dataset.
+  const catalogLayers = layers.filter(
+    (layer) => layer.id !== "stormwater_networks" && layer.id !== "simulated_paths",
+  );
+  const simulatedPathsLayer = layers.find((layer) => layer.id === "simulated_paths");
+  const catalogLayerAvailable = (layer: Layer) =>
+    layer.available || (layer.id === "simulated_paths" && preview !== null);
+  const availableCatalogLayers = catalogLayers.filter(catalogLayerAvailable);
+  const unavailableCatalogLayers = catalogLayers.filter((layer) => !catalogLayerAvailable(layer));
+
+  const renderCatalogLayer = (layer: Layer) => {
+    const available = catalogLayerAvailable(layer);
+    const simulatedPaths = layer.id === "simulated_paths";
+    return (
+      <label className={`layer-row ${available ? "" : "is-unavailable"}`} key={layer.id}>
+        <span className={`layer-glyph glyph-${layer.id}`}>{LAYER_GLYPHS[layer.id] ?? "·"}</span>
+        <span className="layer-name">
+          {layer.label}
+          <small>
+            {simulatedPaths
+              ? `SIMULATED · Synthetic fixture${available ? "" : "; run preview to generate"}`
+              : available
+                ? (layer.classification ?? "AVAILABLE")
+                : layer.message}
+          </small>
+        </span>
+        <input
+          type="checkbox"
+          aria-label={layer.label}
+          disabled={!available || !simulatedPaths}
+          checked={simulatedPaths && showSimulatedPaths}
+          onChange={(event) => setShowSimulatedPaths(event.target.checked)}
+        />
+      </label>
+    );
+  };
+
   const rodentStatus = rodentValidationMessage
     ? "Invalid time range"
     : bboxTooBroad
@@ -318,9 +358,7 @@ export function Dashboard() {
               </div>
               <span className="panel-count">{layers.length}</span>
             </div>
-            {layersQuery.isError && (
-              <p className="inline-note">API unavailable; showing empty layer catalog.</p>
-            )}
+            <p className="reference-label">Layers</p>
             <div className="layer-list">
               <label className={`layer-row ${hasDistricts ? "" : "is-unavailable"}`}>
                 <span className="layer-glyph glyph-administrative_boundaries" aria-hidden="true">
@@ -370,40 +408,40 @@ export function Dashboard() {
                   onChange={(event) => setShowRodentReports(event.target.checked)}
                 />
               </label>
-              {layers
-                .filter((layer) => layer.id !== "stormwater_networks")
-                .map((layer) => {
-                  const previewReady = layer.id === "simulated_paths" && preview !== null;
-                  const available = layer.available || previewReady;
-                  return (
-                    <label
-                      className={`layer-row ${available ? "" : "is-unavailable"}`}
-                      key={layer.id}
-                    >
-                      <span className={`layer-glyph glyph-${layer.id}`}>
-                        {LAYER_GLYPHS[layer.id] ?? "·"}
-                      </span>
-                      <span className="layer-name">
-                        {layer.label}
-                        <small>
-                          {available
-                            ? (layer.classification ?? "AVAILABLE")
-                            : layer.id === "simulated_paths"
-                              ? "Run preview to generate"
-                              : "No dataset loaded"}
-                        </small>
-                      </span>
-                      <input
-                        type="checkbox"
-                        aria-label={layer.label}
-                        disabled={!available || layer.id !== "simulated_paths"}
-                        checked={layer.id === "simulated_paths" && showSimulatedPaths}
-                        onChange={(event) => setShowSimulatedPaths(event.target.checked)}
-                      />
-                    </label>
-                  );
-                })}
+              {availableCatalogLayers.map(renderCatalogLayer)}
             </div>
+            {simulatedPathsLayer && (
+              <div className="synthetic-layer-group">
+                <p className="reference-label">Synthetic simulation</p>
+                <div className="layer-list">{renderCatalogLayer(simulatedPathsLayer)}</div>
+              </div>
+            )}
+            {unavailableCatalogLayers.length > 0 && (
+              <div className="unavailable-layer-group">
+                <p className="reference-label">
+                  {layersQuery.isError ? "Layer catalog unavailable" : "Not loaded in this build"}
+                </p>
+                <p className="inline-note">
+                  {layersQuery.isError ? (
+                    "Layer catalog unavailable. Retry when the API is running; no layer availability is inferred."
+                  ) : (
+                    <>
+                      No approved source or importer is documented for these planned layers. Ask the
+                      project owner to review ownership, access, license, and availability in the{" "}
+                      <a
+                        href={`${INFRASTRUCTURE_GUIDES_URL}/data-sources.md`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        source-readiness guide
+                      </a>{" "}
+                      before any intake. No browser import action is available.
+                    </>
+                  )}
+                </p>
+                <div className="layer-list">{unavailableCatalogLayers.map(renderCatalogLayer)}</div>
+              </div>
+            )}
           </section>
 
           <section
@@ -474,9 +512,24 @@ export function Dashboard() {
                 )}
               </>
             ) : (
-              <p className="inline-note" aria-live="polite">
-                {boundaryStatus}
-              </p>
+              <>
+                <p className="inline-note" aria-live="polite">
+                  {boundaryStatus}
+                </p>
+                {boundaryStatus === "No boundaries imported" && (
+                  <p className="reference-note">
+                    Operator-only setup · licensed local archive, no live download:{" "}
+                    <a
+                      href={`${INFRASTRUCTURE_GUIDES_URL}/administrative-boundaries-import.md`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Administrative-boundary import guide
+                    </a>
+                    .
+                  </p>
+                )}
+              </>
             )}
             <p className="reference-note">
               Administrative reference geometry. Not rodent observations, inferred connectivity, or
@@ -573,11 +626,28 @@ export function Dashboard() {
                 </p>
               </>
             ) : (
-              <p className="inline-note" aria-live="polite">
-                {stormwaterStatus === "No pipelines imported"
-                  ? "No stormwater pipelines have been imported."
-                  : stormwaterStatus}
-              </p>
+              <>
+                <p className="inline-note" aria-live="polite">
+                  {stormwaterStatus === "No pipelines imported"
+                    ? "No stormwater pipelines have been imported."
+                    : bboxTooBroad
+                      ? "Zoom in to load pipelines. The view is wider than the load limit, so the list is suppressed, not empty."
+                      : stormwaterStatus}
+                </p>
+                {stormwaterStatus === "No pipelines imported" && (
+                  <p className="reference-note">
+                    Operator-only setup · local source file, no live download:{" "}
+                    <a
+                      href={`${INFRASTRUCTURE_GUIDES_URL}/stormwater-pipelines-import.md`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Stormwater import guide
+                    </a>
+                    .
+                  </p>
+                )}
+              </>
             )}
             {stormwater?.provenance && (
               <div className="provenance-block" aria-label="Stormwater source provenance">
@@ -637,7 +707,7 @@ export function Dashboard() {
             </div>
             <div className="field-pair">
               <div className="form-field">
-                <label htmlFor="rodent-from">Reported from (UTC)</label>
+                <label htmlFor="rodent-from">Reported from (UTC, inclusive)</label>
                 <input
                   id="rodent-from"
                   type="datetime-local"
@@ -647,7 +717,7 @@ export function Dashboard() {
                 />
               </div>
               <div className="form-field">
-                <label htmlFor="rodent-to">Reported to (UTC)</label>
+                <label htmlFor="rodent-to">Reported to (UTC, inclusive)</label>
                 <input
                   id="rodent-to"
                   type="datetime-local"
@@ -657,6 +727,9 @@ export function Dashboard() {
                 />
               </div>
             </div>
+            <p className="inline-note">
+              Both timestamps are UTC wall-clock and inclusive. Enter UTC, not local Taipei time.
+            </p>
             {rodentValidationMessage ? (
               <p className="error-note" role="alert">
                 {rodentValidationMessage}
@@ -664,6 +737,12 @@ export function Dashboard() {
             ) : hasRodentReports ? (
               <>
                 <p className="reference-label">{rodentStatus}</p>
+                <p className="inline-note">
+                  {activeRodentReports?.features.length ?? 0} report
+                  {(activeRodentReports?.features.length ?? 0) === 1 ? "" : "s"} match the current
+                  viewport and reported-date filter (UTC, inclusive).
+                  {rodentReports?.truncated ? " More match than shown; zoom in to narrow." : ""}
+                </p>
                 <p className="reference-label" id="report-list-label">
                   Reports · select to inspect
                 </p>
@@ -709,11 +788,28 @@ export function Dashboard() {
                 )}
               </>
             ) : (
-              <p className="inline-note" aria-live="polite">
-                {rodentStatus === "No reports imported"
-                  ? "No synthetic rodent reports have been imported."
-                  : rodentStatus}
-              </p>
+              <>
+                <p className="inline-note" aria-live="polite">
+                  {rodentStatus === "No reports imported"
+                    ? "No synthetic rodent reports have been imported."
+                    : bboxTooBroad
+                      ? "Zoom in to load reports. The view is wider than the load limit, so the list is suppressed, not empty."
+                      : rodentStatus}
+                </p>
+                {rodentStatus === "No reports imported" && (
+                  <p className="reference-note">
+                    Fixture-only operator setup, not real reports:{" "}
+                    <a
+                      href={`${INFRASTRUCTURE_GUIDES_URL}/rodent-reports-import.md`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Synthetic report fixture import guide
+                    </a>
+                    .
+                  </p>
+                )}
+              </>
             )}
             <p className="reference-note">{RODENT_REPORT_DISCLAIMER}</p>
             {!rodentValidationMessage && activeRodentReports?.provenance && (
@@ -833,13 +929,18 @@ export function Dashboard() {
                 <p className="eyebrow">RESULTS & PROVENANCE</p>
                 <h3>Analysis</h3>
               </div>
+              <span className="classification-badge">SIMULATED</span>
             </div>
+            <p className="reference-note">
+              Synthetic preview — simulated fixture only; no real observations or administrative
+              findings. This output cannot support real administrative decisions.
+            </p>
             <div className="analysis-row">
               <span>Observation summary</span>
               <strong>Not available</strong>
             </div>
             <div className="analysis-row">
-              <span>Potential corridors</span>
+              <span>Synthetic corridors</span>
               <strong>{preview ? `${preview.edges.length} synthetic edges` : "Not modeled"}</strong>
             </div>
             <div className="analysis-row">
@@ -850,6 +951,10 @@ export function Dashboard() {
               <span>Model uncertainty</span>
               <strong>Not quantified</strong>
             </div>
+            <p className="reference-note">
+              Uncertainty not estimated; do not infer prevalence, movement, risk, hotspots,
+              completeness, or intervention effect.
+            </p>
             <div className="provenance-block">
               <span>Evidence provenance</span>
               <strong>{preview ? preview.provenance.source_id : "No evidence dataset"}</strong>
@@ -857,7 +962,9 @@ export function Dashboard() {
             </div>
             {preview && (
               <div className="result-summary" aria-label="Simulation summary">
-                <span>{preview.nodes.reduce((sum, node) => sum + node.visits, 0)} node visits</span>
+                <span>
+                  {preview.nodes.reduce((sum, node) => sum + node.visits, 0)} synthetic node visits
+                </span>
                 <span>·</span>
                 <span>
                   {preview.model_id} v{preview.model_version}
