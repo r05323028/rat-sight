@@ -11,6 +11,17 @@
 - **Follow-up review:** QA independently reproduced UX-001 through UI-only, read-only interaction. Public-health reviewed scientific interpretation.
 - **Evidence:** `/tmp/ratsight-top2.png`, `/tmp/ratsight-simulation-map.png`, `/tmp/qa-ux1-20261018/ux1-after-run-full.png`, `/tmp/qa-ux1-20261018/ux1-results-viewport.png`, `/tmp/qa-ux1-20261018/ux1-map-paths-on.png`
 
+### Independent review status
+
+Two rig reviews were requested and closed after the initial pass. Neither reviewer changed code, database, OpenSpec artifacts, or shared state.
+
+| Review | Owner | Scope | Outcome |
+|---|---|---|---|
+| UX-001 reproduction | `verification-qa@rat-team` | UI-only, read-only browser interaction; no source or hidden state | Confirmed. A second seed-42 run produced identical results (312 node visits, 16 synthetic edges); the UI did show `SIMULATED`, `Not estimated`, `Not quantified`, and non-migration wording, but nothing before execution stated that hotspot, risk, or movement must not be inferred, and the `Analysis` panel heading remains misreadable. UX-001 stays **MAJOR** / scientific-interpretation concern. |
+| Scientific interpretation | `domain-public-health@rat-team` | Classification and claim limits for UX-001 | Confirmed and bounded. Fixture content is `SIMULATED`, not `OBSERVED`; `Uncertainty not estimated` must appear adjacent to the map, legend, feature detail, and empty states; prevalence, movement, risk, hotspot, completeness, and intervention-effect claims stay prohibited. Recommended wording: `Synthetic preview — simulated fixture only; no real observations`. Closed with no further action. |
+
+Both reviews therefore close on the same bounded claim: the finding is a presentation and interpretation risk in the synthetic demo, not evidence about real Taipei rodent activity.
+
 ## B. First impression
 
 Purpose is broadly understandable: a workspace for urban movement analysis and decision support. The interface clearly shows `No real observation data loaded`, `SIMULATED`, and `No ... imported/loaded`, allowing a careful user to recognize the data boundary.
