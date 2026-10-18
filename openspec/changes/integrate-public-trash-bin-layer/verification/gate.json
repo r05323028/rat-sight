@@ -1,0 +1,28 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {"id": "TB-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "TB-002", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "TB-003", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "TB-004", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {"decision": "PASS", "findings": []}
+  },
+  "verification": [
+    {"id": "V-OPEN", "command": "openspec validate integrate-public-trash-bin-layer", "exit_code": 0, "result": "valid", "reference": "verification/qa.md"},
+    {"id": "V-SOURCE", "command": "inspect docs/evidence/public-trash-bin-feasibility-2026-10-18.md and evidence.md", "exit_code": 0, "result": "official resources, hashes, CP950 schemas, quality counts, resource separation, and CRS blocker documented", "reference": "verification/qa.md"},
+    {"id": "V-REVIEWS", "command": "inspect verification/public-infrastructure-review.md and verification/public-health-review.md", "exit_code": 0, "result": "independent reviews confirm conditional NO-GO and environmental semantics", "reference": "verification/qa.md"},
+    {"id": "V-BOUNDARY", "command": "inspect git status and research artifacts", "exit_code": 0, "result": "no application code, migration, API, UI, or stored raw source changes", "reference": "verification/qa.md"}
+  ],
+  "engineering": [
+    {"requirement": "public-trash-bins#Verified official source and geometry", "status": "VERIFIED", "implementation": ["openspec/changes/integrate-public-trash-bin-layer/evidence.md", "docs/evidence/public-trash-bin-feasibility-2026-10-18.md"], "tests": ["openspec/changes/integrate-public-trash-bin-layer/verification/qa.md"], "verification": ["V-OPEN", "V-SOURCE", "V-REVIEWS"]},
+    {"requirement": "public-trash-bins#Environmental reference semantics", "status": "VERIFIED", "implementation": ["openspec/changes/integrate-public-trash-bin-layer/specs/public-trash-bins/spec.md", "openspec/changes/integrate-public-trash-bin-layer/verification/public-health-review.md"], "tests": ["openspec/changes/integrate-public-trash-bin-layer/verification/qa.md"], "verification": ["V-REVIEWS"]},
+    {"requirement": "public-trash-bins#Validated immutable point import", "status": "NOT_APPLICABLE", "gap": "Conditional implementation gate is NO-GO while publisher CRS/axis order and resource selection remain unresolved.", "implementation": ["openspec/changes/integrate-public-trash-bin-layer/design.md", "openspec/changes/integrate-public-trash-bin-layer/tasks.md"], "tests": ["openspec/changes/integrate-public-trash-bin-layer/verification/qa.md"], "verification": ["V-SOURCE", "V-BOUNDARY"]},
+    {"requirement": "public-trash-bins#Bounded selectable API and map layer", "status": "NOT_APPLICABLE", "gap": "No API or UI is authorized under the conditional NO-GO feasibility result.", "implementation": ["openspec/changes/integrate-public-trash-bin-layer/design.md", "openspec/changes/integrate-public-trash-bin-layer/tasks.md"], "tests": ["openspec/changes/integrate-public-trash-bin-layer/verification/qa.md"], "verification": ["V-BOUNDARY"]}
+  ],
+  "science": {"applicable": false, "reason": "Feasibility-only environmental reference assessment; no rodent or scientific model claim is implemented.", "claims": []},
+  "approval": null
+}
