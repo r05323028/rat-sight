@@ -92,6 +92,12 @@ The full default suite then passed 5/5 active tests and 7 intentional skips.
 - Repo-wide `ruff`/`format` remain red only because of the untracked third-party
   `.agents/skills/sem/**` + `skills-lock.json`; feature files are clean.
 
+## Follow-up smoke rerun — 2026-10-17
+
+- `make rodent-report-smoke`: **PASS**. Populated phase: 1 passed / 1 skipped; storage-empty phase: 1 passed / 1 skipped. Migrations 0005/0006 ran, immutable-trigger path remained enabled, and the disposable project volume/network were removed.
+- `make geospatial-smoke`: **PASS**. Administrative populated/empty and stormwater populated/empty live API/UI checks: 4/4 passed. Synthetic smoke resources were cleaned. `infra-postgres-1` and `infra_ratsight-postgres-data` remained present and untouched.
+- No smoke listeners, containers, volumes, or networks remained after cleanup. No real rodent data was accessed or imported.
+
 ## QA position
 
 The stabilization's target behaviors are verified and the blocking build finding is resolved.
