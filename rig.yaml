@@ -156,6 +156,20 @@ pods:
               required: true
               applies_on: [fresh_start]
 
+      - id: municipal-analyst
+        agent_ref: "local:.openrig/agents/vendor/research/analyst"
+        profile: default
+        runtime: pi
+        model: openai-codex/gpt-5.6-luna
+        cwd: "."
+        startup:
+          files:
+            - path: guidance/municipal-analyst.md
+              orientation: role
+              delivery_hint: send_text
+              required: true
+              applies_on: [fresh_start]
+
 edges:
   - kind: delegates_to
     from: orchestration.lead
@@ -189,4 +203,13 @@ edges:
     to: domain.infrastructure
   - kind: escalates_to
     from: verification.reviewer
+    to: orchestration.lead
+  - kind: delegates_to
+    from: orchestration.lead
+    to: verification.municipal-analyst
+  - kind: collaborates_with
+    from: verification.municipal-analyst
+    to: development.frontend
+  - kind: escalates_to
+    from: verification.municipal-analyst
     to: orchestration.lead
