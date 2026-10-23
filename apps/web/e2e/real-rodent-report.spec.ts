@@ -112,12 +112,14 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
       response.url().includes("reported_from=2026-10-10T00%3A00%3A00Z") &&
       response.status() === 200,
   );
-  await panel.getByLabel("Reported from (UTC, inclusive)").fill("2026-10-10T00:00");
+  await panel.getByLabel("Reported from (Asia/Taipei, inclusive)").fill("2026-10-10T08:00");
   const filteredBody = await (await filtered).json();
   expect(filteredBody.data_state).toBe("available");
   expect(filteredBody.feature_count).toBe(0);
   expect(filteredBody.reported_from).toBe("2026-10-10T00:00:00Z");
-  await expect(panel.getByText("No reports in filters")).toBeVisible();
+  await expect(
+    panel.getByText(/No returned reports match the selected Asia\/Taipei range and viewport/),
+  ).toBeVisible();
   await expect(panel.getByText("RR-0001")).toHaveCount(0);
   // Filtering clears the stale map-click selection and its details.
   await expect(panel.getByText("RR-0003")).toHaveCount(0);
@@ -130,7 +132,7 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
       response.url().includes("reported_from=2026-10-01T00%3A00%3A00Z") &&
       response.status() === 200,
   );
-  await panel.getByLabel("Reported from (UTC, inclusive)").fill("2026-10-01T00:00");
+  await panel.getByLabel("Reported from (Asia/Taipei, inclusive)").fill("2026-10-01T08:00");
   const restoredBody = await (await restored).json();
   expect(restoredBody.feature_count).toBe(5);
   await expect(panel.getByRole("button", { name: "RR-0002" })).toBeVisible();

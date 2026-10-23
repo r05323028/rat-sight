@@ -1,0 +1,11 @@
+# Design
+
+1. Add `allowedDevOrigins: ["127.0.0.1"]` for the documented loopback origin in existing `apps/web/next.config.ts`; keep API URL and ports configurable rather than hardcoding `3000`. Verify in a fresh browser that hydration completes and a dashboard interaction issues an expected API request; the HMR log alone is not acceptance evidence.
+2. Replace UTC-only local datetime controls with `Asia/Taipei` display/input semantics. Convert selected local values to RFC3339 UTC for current API query parameters without using the machine timezone. Example: `2026-10-01 08:30` Asia/Taipei becomes `2026-10-01T00:30:00Z`; equal local boundaries remain inclusive, and `from > to` is rejected locally. Preserve filtered-empty messaging.
+3. Derive the displayed layer count from the visible layer rows (each catalog/implemented row exactly once), and distinguish data availability from map visibility. A supported map layer gets an actionable visibility control; unavailable/planned or available-but-unsupported entries get status text without a checkbox. Preserve the dedicated stormwater row and do not duplicate it.
+4. Label counts as returned features, explicitly qualify truncation, and never claim a total when `truncated` is true; no count endpoint or API contract change is added. Retain bounded viewport behavior and separate loading/storage-empty/filter-empty/service-error states.
+5. Document and verify this concrete isolated launch shape after checking ports are free: start API with `CORS_ORIGINS=http://127.0.0.1:3010` on `127.0.0.1:8010`, start web with `NEXT_PUBLIC_API_URL=http://127.0.0.1:8010` on `127.0.0.1:3010`, open `http://127.0.0.1:3010`, check `/health`, then click a control and observe its API request. Use a project-scoped disposable DB only when required. Never terminate unrelated processes or mutate the shared database.
+
+## Evidence and limits
+
+Runtime investigation found `Blocked cross-origin request to Next.js dev resource /_next/hmr from "127.0.0.1"` in `apps/web/.next/dev/logs/next-development.log`; generated files matched source timestamps, so stale artifacts are not established as root cause. The fix targets dev-origin configuration and documents process/port ownership checks. Synthetic fixtures remain `SIMULATED`; authoritative-data acceptance is not part of this change.

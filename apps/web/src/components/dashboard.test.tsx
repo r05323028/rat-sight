@@ -347,7 +347,9 @@ describe("RatSight dashboard", () => {
     renderDashboard();
     expect(screen.getByRole("heading", { name: "見光鼠" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Interactive GIS map" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Rodent observations")).toBeDisabled();
+    // Planned catalog entries carry status text, never a dead control.
+    expect(screen.queryByLabelText("Rodent observations")).not.toBeInTheDocument();
+    expect(await screen.findByText("No observation dataset loaded.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run synthetic preview" })).toBeInTheDocument();
     expect(screen.getByText("No real observation data loaded")).toBeInTheDocument();
   });
@@ -356,7 +358,7 @@ describe("RatSight dashboard", () => {
     mockState.layerCatalogMode = "error";
     renderDashboard();
     expect(await screen.findByText("Layer catalog unavailable")).toBeInTheDocument();
-    expect(screen.getByLabelText("Rodent observations")).toBeDisabled();
+    expect(screen.queryByLabelText("Rodent observations")).not.toBeInTheDocument();
     expect(screen.getByText(/no layer availability is inferred/i)).toBeInTheDocument();
     expect(screen.queryByText(/showing empty layer catalog/i)).not.toBeInTheDocument();
   });
@@ -364,7 +366,7 @@ describe("RatSight dashboard", () => {
   it("groups planned layers with honest source-readiness guidance", async () => {
     renderDashboard();
     expect(await screen.findByText("Not loaded in this build")).toBeInTheDocument();
-    expect(await screen.findByText("No observation dataset loaded.")).toBeInTheDocument();
+    expect(screen.getByText("No observation dataset loaded.")).toBeInTheDocument();
     expect(screen.getByText(/No approved source or importer is documented/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "source-readiness guide" })).toHaveAttribute(
       "href",
@@ -383,7 +385,10 @@ describe("RatSight dashboard", () => {
   it("keeps simulated paths separate and labeled as a fixture before and after preview", async () => {
     renderDashboard();
     expect(screen.getByText("Synthetic simulation")).toBeInTheDocument();
-    expect(screen.getByLabelText("Simulated movement paths")).toBeDisabled();
+    expect(screen.queryByLabelText("Simulated movement paths")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("SIMULATED · Synthetic fixture; run preview to generate"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Run synthetic preview" }));
     await screen.findByRole("status");
     await waitFor(() => expect(screen.getByLabelText("Simulated movement paths")).toBeEnabled());
@@ -427,16 +432,50 @@ describe("RatSight dashboard", () => {
     expect(screen.getByText(/synthetic node visits/)).toBeInTheDocument();
   });
 
-  it("labels the reported-date filter as UTC inclusive and counts matching reports", async () => {
+  it("labels the reported-date filter as Asia/Taipei and counts returned reports", async () => {
     mockState.rodentMode = "available";
     renderDashboard();
-    expect(screen.getByLabelText("Reported from (UTC, inclusive)")).toBeInTheDocument();
-    expect(screen.getByLabelText("Reported to (UTC, inclusive)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reported from (Asia/Taipei, inclusive)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Reported to (Asia/Taipei, inclusive)")).toBeInTheDocument();
     expect(
-      screen.getByText(/Both timestamps are UTC wall-clock and inclusive/),
+      screen.getByText(/Wall-clock in Asia\/Taipei \(UTC\+8, no daylight saving\)/),
     ).toBeInTheDocument();
     expect(
-      await screen.findByText(/1 report match the current viewport and reported-date filter/),
+      await screen.findByText(/1 returned report for the current viewport and Asia\/Taipei range/),
+    ).toBeInTheDocument();
+  });
+
+  it("counts visible layer rows once and offers no dead layer checkboxes", async () => {
+    renderDashboard();
+    await screen.findByText("No observation dataset loaded.");
+    for (const label of [
+      "Rodent observations",
+      "Sewer networks",
+      "Surface movement corridors",
+      "Human activity",
+      "Environmental conditions",
+    ]) {
+      expect(screen.getAllByText(label)).toHaveLength(1);
+      expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+    }
+    // Three built-in map rows plus five catalog entries plus synthetic paths.
+    const badge = screen.getByLabelText(/layer rows shown/);
+    expect(badge).toHaveTextContent("9");
+    // The displayed count must equal the rows actually rendered, not a stale total.
+    expect(document.querySelectorAll(".layer-row")).toHaveLength(Number(badge.textContent));
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+  });
+
+  it("qualifies a truncated response without claiming a total", async () => {
+    mockState.rodentMode = "truncated";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "Rodent report inspection" });
+    expect(await within(panel).findByText("Returned data truncated")).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/1 returned report for the current viewport and Asia\/Taipei range/),
+    ).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/bounded response is truncated: more matching records exist/),
     ).toBeInTheDocument();
   });
 
@@ -562,7 +601,12 @@ describe("RatSight dashboard", () => {
     mockState.rodentMode = "in_filters";
     renderDashboard();
     const panel = screen.getByRole("region", { name: "Rodent report inspection" });
-    expect(await within(panel).findByText("No reports in filters")).toBeInTheDocument();
+    expect(
+      await within(panel).findByText(
+        /No returned reports match the selected Asia\/Taipei range and viewport/,
+      ),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(/This is not a count of incidents/)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Rodent reports")).toBeEnabled());
   });
 
@@ -570,7 +614,7 @@ describe("RatSight dashboard", () => {
     mockState.rodentMode = "truncated";
     renderDashboard();
     const panel = screen.getByRole("region", { name: "Rodent report inspection" });
-    expect(await within(panel).findByText("Showing partial data · zoom in")).toBeInTheDocument();
+    expect(await within(panel).findByText("Returned data truncated")).toBeInTheDocument();
   });
 
   it("communicates an unavailable rodent report service", async () => {
@@ -607,15 +651,15 @@ describe("RatSight dashboard", () => {
     ).toBeInTheDocument();
   });
 
-  it("converts a datetime-local filter to an RFC3339 Z query value", async () => {
+  it("converts a Taipei-local filter to an RFC3339 Z query value", async () => {
     mockState.rodentMode = "available";
     renderDashboard();
-    fireEvent.change(screen.getByLabelText("Reported from (UTC, inclusive)"), {
+    fireEvent.change(screen.getByLabelText("Reported from (Asia/Taipei, inclusive)"), {
       target: { value: "2026-10-01T08:30" },
     });
     await waitFor(() => {
       const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
-      expect(urls.some((url) => url.includes("reported_from=2026-10-01T08%3A30%3A00Z"))).toBe(true);
+      expect(urls.some((url) => url.includes("reported_from=2026-10-01T00%3A30%3A00Z"))).toBe(true);
     });
   });
 
@@ -626,17 +670,19 @@ describe("RatSight dashboard", () => {
     await waitFor(() => expect(toggle).toBeEnabled());
     const panel = screen.getByRole("region", { name: "Rodent report inspection" });
     await waitFor(() => expect(within(panel).getAllByRole("button")).toHaveLength(100));
-    expect(within(panel).getByText(/Showing the first 100 of 150 reports/)).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/Showing the first 100 of 150 returned reports/),
+    ).toBeInTheDocument();
   });
 
-  it("rejects a reversed UTC range locally without an API request", async () => {
+  it("rejects a reversed Taipei-local range locally without an API request", async () => {
     mockState.rodentMode = "available";
     renderDashboard();
     await waitFor(() => expect(screen.getByLabelText("Rodent reports")).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("Reported from (UTC, inclusive)"), {
+    fireEvent.change(screen.getByLabelText("Reported from (Asia/Taipei, inclusive)"), {
       target: { value: "2026-10-10T00:00" },
     });
-    fireEvent.change(screen.getByLabelText("Reported to (UTC, inclusive)"), {
+    fireEvent.change(screen.getByLabelText("Reported to (Asia/Taipei, inclusive)"), {
       target: { value: "2026-10-01T00:00" },
     });
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -651,7 +697,7 @@ describe("RatSight dashboard", () => {
     const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
     expect(
       urls.some(
-        (url) => url.includes("reported_from=2026-10-10") && url.includes("reported_to=2026-10-01"),
+        (url) => url.includes("reported_from=2026-10-09") && url.includes("reported_to=2026-09-30"),
       ),
     ).toBe(false);
   });

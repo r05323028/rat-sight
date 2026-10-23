@@ -35,6 +35,20 @@ make web
 
 Web：<http://localhost:3000>。API：<http://127.0.0.1:8000>；OpenAPI：`/docs`。PostGIS 綁定 `127.0.0.1:54329`，僅限本機開發。Compose volume 持久保存；不要用 `down -v` 清除資料。
 
+### 隔離瀏覽器驗證（不碰共享服務）
+
+使用既有 smoke harness 執行可重現的 populated workflow；每個 harness 會先檢查 Docker、端口是否空閒，再建立以專案名稱隔離的 disposable PostGIS volume、migration、fixture、API/Web、health check 與 Playwright browser checks，結束時只清理由自身啟動的程序與 volume：
+
+```sh
+# 行政區界 + 雨水管線：isolated PostGIS → API → Next.js → browser checks
+make geospatial-smoke
+
+# 合成鼠類通報：isolated PostGIS → API → Next.js → browser checks
+make rodent-report-smoke
+```
+
+需要手動檢查時，先確認 `127.0.0.1:8010` 與 `127.0.0.1:3010` 未被佔用並確認程序所有者；不可停止或重啟其他專案程序，也不可使用共享 PostGIS volume。API 必須以 `--host 127.0.0.1 --port <free-api-port>` 啟動，Web 必須以 `NEXT_PUBLIC_API_URL=http://127.0.0.1:<api-port> pnpm dev --hostname 127.0.0.1 --port <free-web-port>` 啟動；確認 `/health` 回傳 200，再以瀏覽器點擊圖層或日期控制並確認 API 請求。若端口或所有者檢查失敗，停止並記錄為未驗證。
+
 免費、無金鑰的 CARTO Positron style 為本機預設底圖；style URL 可由 `NEXT_PUBLIC_MAP_STYLE_URL` 設定。地圖會保留 provider attribution。遵守各 provider 的使用條款、速率限制與 attribution 規定；示範底圖不可視為官方資料。
 
 ## 測試與檢查

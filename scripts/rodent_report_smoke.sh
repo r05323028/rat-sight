@@ -83,7 +83,7 @@ start_api() {
 start_web() {
   (
     cd apps/web
-    exec env NEXT_PUBLIC_API_URL="http://127.0.0.1:${API_PORT}" corepack pnpm dev --hostname 127.0.0.1 --port "$WEB_PORT"
+    exec env NEXT_PUBLIC_API_URL="http://127.0.0.1:${API_PORT}" NEXT_DIST_DIR=".next-ratsight-rodent-report-smoke" corepack pnpm dev --hostname 127.0.0.1 --port "$WEB_PORT"
   ) >"${TMPDIR:-/tmp}/ratsight-rodent-web-smoke.log" 2>&1 &
   WEB_PID=$!
   for _ in {1..120}; do

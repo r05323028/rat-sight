@@ -4,12 +4,13 @@ set -euo pipefail
 # Real browser-to-FastAPI smoke test. The fixture is synthetic test data only.
 PROJECT="ratsight-geospatial-smoke-${BASHPID}"
 DB_PORT="55439"
-API_PORT="8000"
+API_PORT="8010"
 POSTGRES_DB="ratsight"
 POSTGRES_USER="ratsight"
 POSTGRES_PASSWORD="ratsight_dev_only"
 export POSTGRES_PORT="$DB_PORT" POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
-WEB_PORT="3002"
+WEB_PORT="3010"
+export CORS_ORIGINS="http://127.0.0.1:${WEB_PORT},http://localhost:${WEB_PORT}"
 COMPOSE="docker compose -p ${PROJECT} -f infra/docker-compose.yml"
 API_PID=""
 WEB_PID=""
@@ -26,9 +27,6 @@ cleanup() {
   [[ -n "$API_PID" ]] && kill_tree "$API_PID"
   [[ -n "$WEB_PID" ]] && wait "$WEB_PID" 2>/dev/null || true
   [[ -n "$API_PID" ]] && wait "$API_PID" 2>/dev/null || true
-  for port in "$WEB_PORT" "$API_PORT"; do
-    for pid in $(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true); do kill -9 "$pid" 2>/dev/null || true; done
-  done
   if [[ "$STACK_STARTED" == "1" ]]; then
     $COMPOSE -f "$OVERRIDE" down -v --remove-orphans >/dev/null 2>&1 || true
   fi
@@ -76,7 +74,7 @@ curl -fsS "http://127.0.0.1:${API_PORT}/health" >/dev/null
 
 (
   cd apps/web
-  exec env NEXT_PUBLIC_API_URL="http://127.0.0.1:${API_PORT}" corepack pnpm dev --hostname 127.0.0.1 --port "$WEB_PORT"
+  exec env NEXT_PUBLIC_API_URL="http://127.0.0.1:${API_PORT}" NEXT_DIST_DIR=".next-ratsight-geospatial-smoke" corepack pnpm dev --hostname 127.0.0.1 --port "$WEB_PORT"
 ) >"${TMPDIR:-/tmp}/ratsight-web-smoke.log" 2>&1 &
 WEB_PID=$!
 for _ in {1..120}; do

@@ -1,0 +1,35 @@
+{
+  "reviews": {
+    "adversarial": {"decision": "PASS", "findings": [
+      {"id": "AR-LAW-001", "severity": "MAJOR", "status": "RESOLVED"},
+      {"id": "AR-LAW-002", "severity": "MAJOR", "status": "RESOLVED"},
+      {"id": "AR-LAW-003", "severity": "MAJOR", "status": "RESOLVED"},
+      {"id": "AR-LAW-004", "severity": "MINOR", "status": "RESOLVED"},
+      {"id": "AR-LAW-005", "severity": "MINOR", "status": "RESOLVED"}
+    ]},
+    "code": {"decision": "PASS", "findings": [
+      {"id": "LAW-CR-001", "severity": "MINOR", "status": "RESOLVED"},
+      {"id": "LAW-CR-002", "severity": "MINOR", "status": "RESOLVED"},
+      {"id": "LAW-CR-003", "severity": "MINOR", "status": "RESOLVED"},
+      {"id": "LAW-CR-004", "severity": "MAJOR", "status": "RESOLVED"}
+    ]}
+  },
+  "verification": [
+    {"id": "V-TEST", "command": "cd apps/web && corepack pnpm exec vitest run src/components/dashboard.test.tsx src/components/map-view.test.tsx src/lib/api.test.ts", "exit_code": 0, "result": "3 files, 57 tests passed", "reference": "verification/qa.md"},
+    {"id": "V-TYPE", "command": "corepack pnpm --filter @ratsight/web typecheck", "exit_code": 0, "result": "TypeScript passed", "reference": "verification/qa.md"},
+    {"id": "V-LINT", "command": "make lint", "exit_code": 0, "result": "ESLint and Ruff passed", "reference": "verification/qa.md"},
+    {"id": "V-BUILD", "command": "make build", "exit_code": 0, "result": "next build compiled successfully, TypeScript finished, 3/3 static pages generated", "reference": "verification/qa.md"},
+    {"id": "V-OPEN", "command": "openspec validate stabilize-local-analyst-workflow --strict", "exit_code": 0, "result": "change valid", "reference": "verification/qa.md"},
+    {"id": "V-GEO", "command": "make geospatial-smoke", "exit_code": 0, "result": "4 isolated browser checks passed for populated/empty administrative and stormwater fixtures", "reference": "verification/qa.md"},
+    {"id": "V-ROD", "command": "make rodent-report-smoke", "exit_code": 0, "result": "2 isolated browser checks passed for populated/empty synthetic rodent fixtures", "reference": "verification/qa.md"},
+    {"id": "V-MUNI", "command": "Municipal Analyst browser review at http://127.0.0.1:3010", "exit_code": 0, "result": "Browser-only synthetic workflow review passed; date filtering, provenance, empty/reversed ranges, and simulation labeling verified", "reference": "verification/qa.md"}
+  ],
+  "engineering": [
+    {"requirement": "local-analyst-workflow#Taipei-local report filtering", "status": "VERIFIED", "implementation": ["apps/web/src/lib/api.ts", "apps/web/src/components/dashboard.tsx"], "tests": ["apps/web/src/lib/api.test.ts", "apps/web/src/components/dashboard.test.tsx"], "verification": ["V-TEST", "V-TYPE"]},
+    {"requirement": "local-analyst-workflow#Honest layer controls", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx"], "tests": ["apps/web/src/components/dashboard.test.tsx"], "verification": ["V-TEST"]},
+    {"requirement": "local-analyst-workflow#Honest truncated report results", "status": "VERIFIED", "implementation": ["apps/web/src/components/dashboard.tsx"], "tests": ["apps/web/src/components/dashboard.test.tsx"], "verification": ["V-TEST"]},
+    {"requirement": "local-analyst-workflow#Reproducible local runtime", "status": "VERIFIED", "implementation": ["apps/web/next.config.ts", "README.md", "scripts/geospatial_smoke.sh", "scripts/rodent_report_smoke.sh"], "tests": ["apps/web/e2e/real-api.spec.ts", "apps/web/e2e/real-rodent-report.spec.ts"], "verification": ["V-GEO", "V-ROD"]}
+  ],
+  "science": {"applicable": false, "reason": "Runtime and UI semantics only; no scientific data, model, or claim changed.", "claims": []},
+  "approval": null
+}

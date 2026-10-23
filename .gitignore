@@ -15,6 +15,7 @@ node_modules/
 .next/
 *.tsbuildinfo
 apps/web/public/maplibre/
+.next-ratsight-*/
 coverage/
 playwright-report/
 test-results/

@@ -310,18 +310,37 @@ export type RodentReportFilters = {
   reportedTo?: string | null;
 };
 
-// datetime-local values are interpreted as UTC and normalized to RFC3339 Z at
-// minute precision, matching the backend filter contract.
-export function datetimeLocalToUtc(value: string): string | null {
+// Asia/Taipei has been a fixed UTC+08:00 offset since 1979, so the conversion is
+// plain arithmetic: no machine timezone, DST rule, or locale can change it.
+const TAIPEI_UTC_OFFSET_HOURS = 8;
+
+// datetime-local values are Asia/Taipei wall-clock; the backend filter contract
+// takes RFC3339 UTC bounds at minute precision, so convert before sending.
+export function taipeiLocalToUtc(value: string): string | null {
   if (!value) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
   if (!match) return null;
   const [, year, month, day, hour, minute] = match;
-  return `${year}-${month}-${day}T${hour}:${minute}:00Z`;
+  const [y, m, d, h, min] = [year, month, day, hour, minute].map(Number);
+  const converted = new Date(Date.UTC(y, m - 1, d, h - TAIPEI_UTC_OFFSET_HOURS, min));
+  const backToLocal = new Date(converted.getTime() + TAIPEI_UTC_OFFSET_HOURS * 3_600_000);
+  // Date.UTC rolls impossible values over (month 13, year 0050 -> 1950), which
+  // would silently query a different date; refuse them instead.
+  if (
+    backToLocal.getUTCFullYear() !== y ||
+    backToLocal.getUTCMonth() !== m - 1 ||
+    backToLocal.getUTCDate() !== d ||
+    backToLocal.getUTCHours() !== h ||
+    backToLocal.getUTCMinutes() !== min
+  ) {
+    return null;
+  }
+  return `${converted.toISOString().slice(0, 16)}:00Z`;
 }
 
 // Client-side guard so a reversed range never reaches the API. Both inputs are
-// already normalized to the same RFC3339 Z shape, so lexical comparison is safe.
+// already normalized to the same RFC3339 Z shape, so lexical comparison is safe,
+// and equal boundaries stay valid because both ends are inclusive.
 export function isReportedRangeInvalid(from: string | null, to: string | null): boolean {
   return Boolean(from && to && from > to);
 }

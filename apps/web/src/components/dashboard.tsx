@@ -6,7 +6,6 @@ import { useState } from "react";
 import { MapView } from "@/components/map-view";
 import { Button } from "@/components/ui/button";
 import {
-  datetimeLocalToUtc,
   fetchAdministrativeDistricts,
   fetchLayers,
   fetchRodentReports,
@@ -14,6 +13,7 @@ import {
   isBboxTooBroad,
   isReportedRangeInvalid,
   requestPreview,
+  taipeiLocalToUtc,
   type AdministrativeDistrictProperties,
   type Bbox,
   type Layer,
@@ -34,7 +34,12 @@ const DEFAULT_LAYERS: Layer[] = [
   label,
   available: false,
   classification: id === "simulated_paths" ? "SIMULATED" : null,
-  message: id === "simulated_paths" ? "Available after a synthetic preview." : "No dataset loaded.",
+  message:
+    id === "simulated_paths"
+      ? "Available after a synthetic preview."
+      : id === "rodent_observations"
+        ? "No observation dataset loaded."
+        : "No dataset loaded.",
 }));
 
 const LAYER_GLYPHS: Record<string, string> = {
@@ -135,8 +140,8 @@ export function Dashboard() {
   });
   const [rodentFrom, setRodentFrom] = useState("");
   const [rodentTo, setRodentTo] = useState("");
-  const rodentFromUtc = datetimeLocalToUtc(rodentFrom);
-  const rodentToUtc = datetimeLocalToUtc(rodentTo);
+  const rodentFromUtc = taipeiLocalToUtc(rodentFrom);
+  const rodentToUtc = taipeiLocalToUtc(rodentTo);
   const rodentRangeInvalid = isReportedRangeInvalid(rodentFromUtc, rodentToUtc);
   const rodentQuery = useQuery({
     queryKey: ["rodent-reports", viewportBbox, rodentFromUtc, rodentToUtc],
@@ -223,6 +228,11 @@ export function Dashboard() {
     layer.available || (layer.id === "simulated_paths" && preview !== null);
   const availableCatalogLayers = catalogLayers.filter(catalogLayerAvailable);
   const unavailableCatalogLayers = catalogLayers.filter((layer) => !catalogLayerAvailable(layer));
+  // The panel renders three built-in map rows (districts, stormwater, rodent
+  // reports) plus every catalog entry exactly once, synthetic paths included.
+  const BUILT_IN_LAYER_ROW_COUNT = 3;
+  const visibleLayerCount =
+    BUILT_IN_LAYER_ROW_COUNT + catalogLayers.length + (simulatedPathsLayer ? 1 : 0);
 
   const renderCatalogLayer = (layer: Layer) => {
     const available = catalogLayerAvailable(layer);
@@ -240,13 +250,18 @@ export function Dashboard() {
                 : layer.message}
           </small>
         </span>
-        <input
-          type="checkbox"
-          aria-label={layer.label}
-          disabled={!available || !simulatedPaths}
-          checked={simulatedPaths && showSimulatedPaths}
-          onChange={(event) => setShowSimulatedPaths(event.target.checked)}
-        />
+        {simulatedPaths && available ? (
+          <input
+            type="checkbox"
+            aria-label={layer.label}
+            checked={showSimulatedPaths}
+            onChange={(event) => setShowSimulatedPaths(event.target.checked)}
+          />
+        ) : (
+          // Catalog entries have no map visibility control, so state it instead
+          // of offering a permanently dead checkbox.
+          <span className="layer-status">{available ? "Available" : "Not loaded"}</span>
+        )}
       </label>
     );
   };
@@ -264,7 +279,7 @@ export function Dashboard() {
             : (rodentReports?.feature_count ?? 0) === 0
               ? "No reports in filters"
               : rodentReports?.truncated
-                ? "Showing partial data · zoom in"
+                ? "Returned data truncated"
                 : "RODENT_REPORT · SIMULATED";
 
   return (
@@ -356,7 +371,9 @@ export function Dashboard() {
                 <p className="eyebrow">MAP CONTENT</p>
                 <h3>Layers</h3>
               </div>
-              <span className="panel-count">{layers.length}</span>
+              <span className="panel-count" aria-label={`${visibleLayerCount} layer rows shown`}>
+                {visibleLayerCount}
+              </span>
             </div>
             <p className="reference-label">Layers</p>
             <div className="layer-list">
@@ -707,7 +724,7 @@ export function Dashboard() {
             </div>
             <div className="field-pair">
               <div className="form-field">
-                <label htmlFor="rodent-from">Reported from (UTC, inclusive)</label>
+                <label htmlFor="rodent-from">Reported from (Asia/Taipei, inclusive)</label>
                 <input
                   id="rodent-from"
                   type="datetime-local"
@@ -717,7 +734,7 @@ export function Dashboard() {
                 />
               </div>
               <div className="form-field">
-                <label htmlFor="rodent-to">Reported to (UTC, inclusive)</label>
+                <label htmlFor="rodent-to">Reported to (Asia/Taipei, inclusive)</label>
                 <input
                   id="rodent-to"
                   type="datetime-local"
@@ -728,20 +745,31 @@ export function Dashboard() {
               </div>
             </div>
             <p className="inline-note">
-              Both timestamps are UTC wall-clock and inclusive. Enter UTC, not local Taipei time.
+              Wall-clock in Asia/Taipei (UTC+8, no daylight saving); both boundaries are inclusive.
+              Requests use the equivalent UTC bounds, e.g. 2026-10-01 08:30 → 2026-10-01T00:30:00Z.
             </p>
             {rodentValidationMessage ? (
               <p className="error-note" role="alert">
                 {rodentValidationMessage}
               </p>
+            ) : hasRodentReports && (activeRodentReports?.features.length ?? 0) === 0 ? (
+              <>
+                <p className="reference-label">{rodentStatus}</p>
+                <p className="inline-note" aria-live="polite">
+                  No returned reports match the selected Asia/Taipei range and viewport. This is not
+                  a count of incidents, and no reports are implied beyond those returned.
+                </p>
+              </>
             ) : hasRodentReports ? (
               <>
                 <p className="reference-label">{rodentStatus}</p>
                 <p className="inline-note">
-                  {activeRodentReports?.features.length ?? 0} report
-                  {(activeRodentReports?.features.length ?? 0) === 1 ? "" : "s"} match the current
-                  viewport and reported-date filter (UTC, inclusive).
-                  {rodentReports?.truncated ? " More match than shown; zoom in to narrow." : ""}
+                  {activeRodentReports?.features.length ?? 0} returned report
+                  {(activeRodentReports?.features.length ?? 0) === 1 ? "" : "s"} for the current
+                  viewport and Asia/Taipei range (both boundaries inclusive, sent as UTC bounds).
+                  {activeRodentReports?.truncated
+                    ? " The bounded response is truncated: more matching records exist beyond these returned features, and no exact total is claimed."
+                    : ""}
                 </p>
                 <p className="reference-label" id="report-list-label">
                   Reports · select to inspect
@@ -768,8 +796,8 @@ export function Dashboard() {
                 {rodentListTruncated && (
                   <p className="inline-note">
                     Showing the first {RODENT_REPORT_LIST_LIMIT} of{" "}
-                    {activeRodentReports?.features.length} reports. Use the map to select any
-                    report.
+                    {activeRodentReports?.features.length} returned reports. Use the map to select
+                    any returned report.
                   </p>
                 )}
                 {selectedVisibleReport ? (

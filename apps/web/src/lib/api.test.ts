@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  datetimeLocalToUtc,
+  taipeiLocalToUtc,
   fetchAdministrativeDistricts,
   fetchRodentReports,
   fetchStormwaterPipelines,
@@ -161,14 +161,30 @@ describe("fetchRodentReports", () => {
   });
 });
 
-describe("datetimeLocalToUtc", () => {
-  it("normalizes a datetime-local value to RFC3339 Z at minute precision", () => {
-    expect(datetimeLocalToUtc("2026-10-01T08:30")).toBe("2026-10-01T08:30:00Z");
+describe("taipeiLocalToUtc", () => {
+  it("converts an Asia/Taipei wall-clock value to UTC RFC3339 Z", () => {
+    expect(taipeiLocalToUtc("2026-10-01T08:30")).toBe("2026-10-01T00:30:00Z");
+  });
+
+  it("rolls back across the previous day boundary", () => {
+    expect(taipeiLocalToUtc("2026-10-01T07:30")).toBe("2026-09-30T23:30:00Z");
+  });
+
+  it("does not depend on the machine timezone", () => {
+    const originalTimezone = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      expect(taipeiLocalToUtc("2026-10-01T08:30")).toBe("2026-10-01T00:30:00Z");
+    } finally {
+      process.env.TZ = originalTimezone;
+    }
   });
 
   it("treats empty and invalid values as absent", () => {
-    expect(datetimeLocalToUtc("")).toBeNull();
-    expect(datetimeLocalToUtc("not-a-date")).toBeNull();
+    expect(taipeiLocalToUtc("")).toBeNull();
+    expect(taipeiLocalToUtc("not-a-date")).toBeNull();
+    expect(taipeiLocalToUtc("2026-13-45T10:00")).toBeNull();
+    expect(taipeiLocalToUtc("0050-01-01T00:00")).toBeNull();
   });
 });
 
@@ -181,5 +197,9 @@ describe("isReportedRangeInvalid", () => {
     expect(isReportedRangeInvalid("2026-10-01T00:00:00Z", "2026-10-10T00:00:00Z")).toBe(false);
     expect(isReportedRangeInvalid(null, "2026-10-10T00:00:00Z")).toBe(false);
     expect(isReportedRangeInvalid("2026-10-01T00:00:00Z", null)).toBe(false);
+  });
+
+  it("keeps equal boundaries valid because both ends are inclusive", () => {
+    expect(isReportedRangeInvalid("2026-10-01T00:30:00Z", "2026-10-01T00:30:00Z")).toBe(false);
   });
 });
