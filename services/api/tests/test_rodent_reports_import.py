@@ -86,12 +86,16 @@ def _load(source: Path, sha256: str):
 def test_committed_fixture_hash_and_records_match_manifest() -> None:
     assert compute_file_sha256(FIXTURE_PATH) == FIXTURE_SHA256
     batch = _load(FIXTURE_PATH, FIXTURE_SHA256)
-    assert len(batch.records) == 5
+    assert len(batch.records) == 7
     assert batch.records[0].source_record_id == "RR-0001"
     assert {record.location_precision for record in batch.records} == {"synthetic_point"}
     assert {record.review_status for record in batch.records} == {"unreviewed"}
     assert {record.municipal_status for record in batch.records} == {"not_assessed"}
     assert {record.action_status for record in batch.records} == {"none_reported"}
+    assert any(
+        121.528 < record.longitude < 121.532 and 25.028 < record.latitude < 25.032
+        for record in batch.records
+    )
 
 
 def test_valid_synthetic_csv_parses_records(tmp_path: Path) -> None:

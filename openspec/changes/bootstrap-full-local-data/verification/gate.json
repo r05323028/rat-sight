@@ -1,0 +1,346 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {
+          "id": "AR-FLD-001",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "Distinct project ratsight-full-local, owned volume, free-port ownership, and project-scoped teardown proven by V-UP, V-PURGE, V-RECREATE; shared infra container Up 41 hours and volume CreatedAt unchanged."
+        },
+        {
+          "id": "AR-FLD-002",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "Hash mismatch on the first and on the second source both exit non-zero with 'no database writes happened', and canary max(updated_at) did not move (V-MISMATCH, V-SECOND); missing source in inspect-only exits 2 without download (V-INSPECT)."
+        },
+        {
+          "id": "AR-FLD-003",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "Inventory and UI keep UNVERIFIED and reference-only limits: dataset/resource version, archive SHA-256, licence, attribution, currentness, source-quality counts, 'Z dropped, no documented vertical datum', and '未驗證實際連通性' all rendered (V-STATUS, V-API, V-BROWSER)."
+        },
+        {
+          "id": "AR-FLD-004",
+          "severity": "MINOR",
+          "status": "RESOLVED",
+          "note": "Default up leaves rodent_reports empty with 'synthetic fixtures stay opt-in'; --synthetic prints the opt-in note, inserts 5 SIMULATED rows, and the UI labels them RODENT_REPORT · SIMULATED; a purge+default up returns to 0 (V-UP, V-SYNTH, V-SYNTHUI, V-RECREATE)."
+        },
+        {
+          "id": "AR-FLD-005",
+          "severity": "MINOR",
+          "status": "RESOLVED",
+          "note": "No sewer/manhole/trash-bin importer or migration exists; the doc records the candidates as assessment-only (V-CANDIDATE)."
+        },
+        {
+          "id": "AR-FLD-006",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "Cross-source preflight proven before writes for both sources, and ownership-safe discard/recreate of the owned environment proven without touching shared resources (V-SECOND, V-PURGE, V-RECREATE)."
+        }
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": [],
+      "reference": "verification/code-review.md",
+      "note": "Independent read-only post-implementation review found no release-blocking defects. Cross-layer imports are explicitly non-atomic and bounded by failure messaging, status/rerun guidance, and QA evidence for post-first-write conflict plus owned-environment discard/recreate."
+    }
+  },
+  "verification": [
+    {
+      "id": "V-PYTEST",
+      "command": "uv run pytest scripts/tests/test_data_bootstrap_script.py -q",
+      "exit_code": 0,
+      "result": "6 passed in 1.89s",
+      "reference": "/tmp/qa-full-local/10-suite-a.txt"
+    },
+    {
+      "id": "V-BASHN",
+      "command": "bash -n scripts/data_bootstrap.sh",
+      "exit_code": 0,
+      "result": "no syntax errors",
+      "reference": "/tmp/qa-full-local/10-suite-a.txt"
+    },
+    {
+      "id": "V-VITEST",
+      "command": "cd apps/web && corepack pnpm exec vitest run",
+      "exit_code": 0,
+      "result": "Test Files 3 passed (3), Tests 60 passed (60)",
+      "reference": "/tmp/qa-full-local/10-suite-a.txt"
+    },
+    {
+      "id": "V-TYPE",
+      "command": "cd apps/web && corepack pnpm exec tsc --noEmit",
+      "exit_code": 0,
+      "result": "no diagnostics",
+      "reference": "/tmp/qa-full-local/10-suite-a.txt"
+    },
+    {
+      "id": "V-LINT",
+      "command": "make lint",
+      "exit_code": 0,
+      "result": "eslint . and ruff check . -> All checks passed!",
+      "reference": "/tmp/qa-full-local/11-suite-b.txt"
+    },
+    {
+      "id": "V-BUILD",
+      "command": "make build",
+      "exit_code": 0,
+      "result": "next build compiled successfully, 3 static routes",
+      "reference": "/tmp/qa-full-local/11-suite-b.txt"
+    },
+    {
+      "id": "V-OPEN",
+      "command": "corepack pnpm exec openspec validate bootstrap-full-local-data --strict",
+      "exit_code": 0,
+      "result": "Change 'bootstrap-full-local-data' is valid",
+      "reference": "/tmp/qa-full-local/11-suite-b.txt"
+    },
+    {
+      "id": "V-STATUS",
+      "command": "make data-bootstrap ARGS=status",
+      "exit_code": 0,
+      "result": "12 rows 121199@20220915, 5 rows 00000000-0000-4000-8000-000000000002@2026-10-17T00:00:00Z, 19747 rows 97b82d58-faba-4ee4-9488-dd5d04a79efd@2026-02-23T17:10:41Z, both archive SHA-256 printed, container healthy",
+      "reference": "/tmp/qa-full-local/02-status.txt"
+    },
+    {
+      "id": "V-UP",
+      "command": "make data-bootstrap ARGS=up",
+      "exit_code": 0,
+      "result": "171s; sources verified 12 districts EPSG:4326 and 19747 stormwater EPSG:4326 z_handling=dropped; inserted 12 and 19747; rodent empty, synthetic stays opt-in",
+      "reference": "/tmp/qa-full-local/up-recreate.log"
+    },
+    {
+      "id": "V-RERUN",
+      "command": "make data-bootstrap ARGS=up (second run on a populated profile)",
+      "exit_code": 0,
+      "result": "136s; inserted 0 unchanged 12 and inserted 0 unchanged 19747; max(updated_at) unmoved, so no provenance rewrite",
+      "reference": "/tmp/qa-full-local/up-synthetic.log"
+    },
+    {
+      "id": "V-MISMATCH",
+      "command": "RATSIGHT_DISTRICTS_ARCHIVE=/tmp/qa-full-local/bad-districts.zip bash scripts/data_bootstrap.sh up > /tmp/qa-full-local/13-assert-mismatch.txt 2>&1; test $? -eq 1 && grep -q \"no database writes happened\" /tmp/qa-full-local/13-assert-mismatch.txt",
+      "exit_code": 0,
+      "result": "assertion over a fail-closed run: script exit 1 (make exit 2), 'administrative boundaries source SHA-256 mismatch ... (expected 77bcc347..., got a5320f3b...)' and 'no database writes happened: nothing was imported, replaced, or deleted.'",
+      "reference": "/tmp/qa-full-local/13-assert-mismatch.txt"
+    },
+    {
+      "id": "V-SECOND",
+      "command": "RATSIGHT_STORMWATER_SOURCE=/tmp/qa-full-local/bad-stormwater.xml bash scripts/data_bootstrap.sh up > /tmp/qa-full-local/13-assert-second.txt 2>&1; test $? -eq 1 && grep -q \"no database writes happened\" /tmp/qa-full-local/13-assert-second.txt",
+      "exit_code": 0,
+      "result": "assertion over a fail-closed run with valid districts and a corrupted stormwater source: exit 1, 'stormwater network source SHA-256 mismatch', 'no database writes happened'. Canary max(updated_at) unchanged for both tables, so the second-source preflight also precedes any write",
+      "reference": "/tmp/qa-full-local/13-assert-second.txt"
+    },
+    {
+      "id": "V-INSPECT",
+      "command": "RATSIGHT_DISTRICTS_ARCHIVE=/tmp/qa-full-local/missing.zip bash scripts/data_bootstrap.sh up --inspect-only > /tmp/qa-full-local/13-assert-inspect.txt 2>&1; test $? -eq 2 && grep -q \"inspect-only mode never downloads\" /tmp/qa-full-local/13-assert-inspect.txt",
+      "exit_code": 0,
+      "result": "assertion over a fail-closed run: exit 2, 'source not found: /tmp/qa-full-local/missing.zip', 'inspect-only mode never downloads'",
+      "reference": "/tmp/qa-full-local/13-assert-inspect.txt"
+    },
+    {
+      "id": "V-PURGREJECT",
+      "command": "bash scripts/data_bootstrap.sh status --purge > /tmp/qa-full-local/13-assert-purge.txt 2>&1; test $? -eq 2 && grep -q -- \"--purge is valid only with down\" /tmp/qa-full-local/13-assert-purge.txt",
+      "exit_code": 0,
+      "result": "assertion over a rejected run: exit 2, 'error: --purge is valid only with down'",
+      "reference": "/tmp/qa-full-local/13-assert-purge.txt"
+    },
+    {
+      "id": "V-RESTART",
+      "command": "kill and relaunch uvicorn on 8001 and next dev on 3081 against DATABASE_URL 127.0.0.1:54330, then GET /health, /api/v1/administrative-districts, /api/v1/stormwater-pipelines?bbox=121.50,25.00,121.60,25.06, GET /",
+      "exit_code": 0,
+      "result": "/health 200; districts available 12 @121199; stormwater 5000 features feature_count 5000 truncated true; web 200; row counts 12/19747/0 unchanged",
+      "reference": "/tmp/qa-full-local/07-restart.txt"
+    },
+    {
+      "id": "V-PURGE",
+      "command": "make data-bootstrap ARGS=\"down --purge\"",
+      "exit_code": 0,
+      "result": "container, project volume and network removed; 'recreate with: make data-bootstrap'; project container/volume lists empty; status reports 'database not running'",
+      "reference": "/tmp/qa-full-local/09-synthetic-ui-purge.txt"
+    },
+    {
+      "id": "V-RECREATE",
+      "command": "make data-bootstrap ARGS=up after down --purge",
+      "exit_code": 0,
+      "result": "171s; inserted 12 and 19747; volume recreated; rows 12/19747/0 with rodent still opt-in; shared infra-postgres-1 Up 41 hours and shared volume CreatedAt unchanged",
+      "reference": "/tmp/qa-full-local/09-synthetic-ui-purge.txt"
+    },
+    {
+      "id": "V-SYNTH",
+      "command": "make data-bootstrap ARGS=\"up --synthetic\"",
+      "exit_code": 0,
+      "result": "136s; opt-in note printed; rodent inserted 5 while admin/stormwater unchanged; DB string_agg distinct data_class:classification = RODENT_REPORT:SIMULATED; API /api/v1/rodent-reports available 5 features, attribution 'RatSight synthetic rodent-report fixture'",
+      "reference": "/tmp/qa-full-local/08-synthetic.txt"
+    },
+    {
+      "id": "V-SYNTHUI",
+      "command": "headless Chromium probe against http://127.0.0.1:3081 with the synthetic rows loaded",
+      "exit_code": 0,
+      "result": "panel header 合成回報 / SIMULATED · 模擬; row RODENT_REPORT · SIMULATED（模擬）; '回傳 5 筆回報'; five timestamps; 18 SIMULATED/合成 mentions; 0 console errors",
+      "reference": "/tmp/qa-full-local/p5-synthetic-rodent.png"
+    },
+    {
+      "id": "V-API",
+      "command": "curl /api/v1/administrative-districts, /api/v1/stormwater-pipelines?bbox=121.50,25.00,121.60,25.06, and the same endpoint with bbox=120.0,24.0,122.5,25.5",
+      "exit_code": 0,
+      "result": "districts available 12 with full provenance (dataset 121199, resource 20220915, archive_sha256, licence, attribution, EPSG:3826 to EPSG:4326, currentness unresolved); bounded bbox 5000 features truncated true; broad bbox HTTP 422 'bbox width and height must not exceed 0.3 degrees'",
+      "reference": "/tmp/qa-full-local/02-status.txt"
+    },
+    {
+      "id": "V-BROWSER",
+      "command": "headless Chromium probes /tmp/qa-full-local/probe1.cjs, probe2.cjs, probe3.cjs against http://127.0.0.1:3081",
+      "exit_code": 0,
+      "result": "12 district names listed; district detail ADMINISTRATIVE_REFERENCE / UNVERIFIED / dataset 121199 / resource 20220915; stormwater truncation copy plus source-quality counts; pan issued one new bounded bbox 121.48881,24.94906,121.71968,25.08171; zoom-out issued 0 stormwater requests; 0 console errors",
+      "reference": "/tmp/qa-full-local/p3-pan.png"
+    },
+    {
+      "id": "V-BROWSER2",
+      "command": "headless Chromium probe /tmp/qa-full-local/probe4.cjs after the context-line fix",
+      "exit_code": 0,
+      "result": "default context line '雨水下水道參考資料'; zoomed-out '雨水下水道請放大載入'; '無雨水下水道資料' absent while 19747 rows exist; panel copy '請放大以載入管線。目前視圖超過載入上限，因此清單暫不顯示，並不代表沒有資料。'; pipeline detail 管段 ID AE / 類別代碼 8040201 / 管號 4752-p3-p4 / 材質 FRP / 長度 5.108 / 資料類別 INFRASTRUCTURE_REFERENCE / 分類 UNVERIFIED; 0 extra requests on zoom",
+      "reference": "/tmp/qa-full-local/p4-pipeline-selected.png"
+    },
+    {
+      "id": "V-MUNI",
+      "command": "independent verification-municipal-analyst@rat-team browser-only evaluation of http://127.0.0.1:3081 against the populated ratsight-full-local profile (analyst-owned browser session; no repository command)",
+      "exit_code": 0,
+      "result": "PASS with limits. Startup marked no real observations; pipeline loading state; UNVERIFIED/SIMULATED labels. 12 districts visible; selected 松山區 showing ADMINISTRATIVE_REFERENCE/UNVERIFIED, dataset 121199 / resource 20220915, official source URL, licence, currentness. Pipeline view reported 5000 returned for the viewport with an explicit cap and no exact total, first 100 listed, and the 19,747-row quality warnings (missing pipe number 20, duplicate pipe numbers 310, missing start 992, missing end 991, missing notes 17950); selected pipe 4752-p3-p4 with provenance, Z dropped, publisher-only connectivity warning, INFRASTRUCTURE_REFERENCE/UNVERIFIED. Zoom-in changed the visible list under the bounded cap. Runtime left untouched by the analyst; QA owned teardown",
+      "reference": "verification/qa.md section 'Independent Municipal Analyst pass'"
+    },
+    {
+      "id": "V-CANDIDATE",
+      "command": "ls services/api/src/ratsight_api/importers/, ls services/api/alembic/versions/, grep candidate sections in docs/infrastructure/full-local-data-bootstrap.md, git status --porcelain | grep -Ei 'sewer|manhole|trash'",
+      "exit_code": 0,
+      "result": "only administrative_districts.py, rodent_reports.py, stormwater_pipelines.py; migrations end at 0006_rodent_reports_immutability.py; doc lines 123/131/133 record candidates as assessment-only; no candidate-layer path in git status",
+      "reference": "/tmp/qa-full-local/12-candidate.txt"
+    },
+    {
+      "id": "V-TEARDOWN",
+      "command": "test -z \"$(lsof -ti tcp:8001 -sTCP:LISTEN; lsof -ti tcp:3081 -sTCP:LISTEN)\" && docker ps --filter name=ratsight-full-local --format '{{.Names}} {{.Status}}' && docker volume inspect infra_ratsight-postgres-data --format '{{.CreatedAt}}'",
+      "exit_code": 0,
+      "result": "ports 8001 and 3081 free after killing the QA and lead app-tier processes; profile container ratsight-full-local-postgres-1 still Up (healthy) on 54330 with 12/19747/0 rows; shared infra_ratsight-postgres-data CreatedAt 2026-10-15T16:34:38Z unchanged; apps/web/tsconfig.json reverted",
+      "reference": "/tmp/qa-full-local/14-teardown.txt"
+    }
+  ],
+  "engineering": [
+    {
+      "requirement": "full-local-bootstrap#Persistent project-scoped profile",
+      "status": "VERIFIED",
+      "implementation": [
+        "infra/docker-compose.full-local.yml",
+        "scripts/data_bootstrap.sh"
+      ],
+      "tests": [
+        "scripts/tests/test_data_bootstrap_script.py"
+      ],
+      "verification": [
+        "V-UP",
+        "V-RESTART",
+        "V-RECREATE"
+      ]
+    },
+    {
+      "requirement": "full-local-bootstrap#Pinned inventory",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/data_bootstrap.sh"
+      ],
+      "tests": [
+        "scripts/tests/test_data_bootstrap_script.py"
+      ],
+      "verification": [
+        "V-STATUS",
+        "V-UP",
+        "V-RERUN"
+      ]
+    },
+    {
+      "requirement": "full-local-bootstrap#Explicit lifecycle status and teardown",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/data_bootstrap.sh",
+        "Makefile"
+      ],
+      "tests": [
+        "scripts/tests/test_data_bootstrap_script.py"
+      ],
+      "verification": [
+        "V-STATUS",
+        "V-PURGE",
+        "V-RECREATE",
+        "V-PURGREJECT"
+      ]
+    },
+    {
+      "requirement": "full-local-bootstrap#Pinned verified sources",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/data_bootstrap.sh"
+      ],
+      "tests": [
+        "scripts/tests/test_data_bootstrap_script.py"
+      ],
+      "verification": [
+        "V-MISMATCH",
+        "V-SECOND",
+        "V-INSPECT",
+        "V-API"
+      ]
+    },
+    {
+      "requirement": "full-local-bootstrap#Optional synthetic demo",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/data_bootstrap.sh"
+      ],
+      "tests": [
+        "scripts/tests/test_data_bootstrap_script.py"
+      ],
+      "verification": [
+        "V-SYNTH",
+        "V-SYNTHUI",
+        "V-RECREATE"
+      ]
+    },
+    {
+      "requirement": "full-local-bootstrap#Populated dashboard semantics",
+      "status": "PARTIALLY_VERIFIED",
+      "gap": "Populated reference layers, bounded queries, pan re-query, truncation, provenance, synthetic labelling, the corrected viewport-suppressed context line, and an independent Municipal Analyst browser pass are verified (V-API, V-BROWSER, V-BROWSER2, V-MUNI). Not verified: the storage-empty, service-error and unknown-state renderings, because no empty profile was exercised.",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "V-BROWSER",
+        "V-BROWSER2",
+        "V-MUNI",
+        "V-VITEST",
+        "V-BUILD"
+      ]
+    },
+    {
+      "requirement": "full-local-bootstrap#Candidate assessment boundary",
+      "status": "PARTIALLY_VERIFIED",
+      "implementation": [
+        "docs/infrastructure/full-local-data-bootstrap.md"
+      ],
+      "tests": [],
+      "verification": [
+        "V-CANDIDATE"
+      ],
+      "gap": "Verified by inspection only (V-CANDIDATE): no candidate importer, migration, or code path exists and the doc records both candidates as assessment-only. No automated test asserts that absence."
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "reason": "This change adds local runtime bootstrap and reference-layer presentation only. It introduces no model, parameter, biological constant, or inference claim: 12 districts and 19,747 pipelines are an inventory of pinned source records, not evidence of currentness, completeness, connectivity, or rodent movement, and the UI and inventory carry UNVERIFIED and reference-only limits (V-STATUS, V-BROWSER, AR-FLD-003).",
+    "claims": []
+  },
+  "approval": null
+}

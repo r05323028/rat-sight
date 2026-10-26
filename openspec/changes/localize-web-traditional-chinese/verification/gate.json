@@ -1,0 +1,157 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS",
+      "findings": [
+        {
+          "id": "AR-L10N-001",
+          "severity": "MAJOR",
+          "status": "RESOLVED"
+        },
+        {
+          "id": "AR-L10N-002",
+          "severity": "MINOR",
+          "status": "RESOLVED",
+          "note": "reviewer severity MEDIUM"
+        }
+      ]
+    },
+    "code": {
+      "decision": "PASS",
+      "findings": [
+        {
+          "id": "L10N-CR-001",
+          "severity": "MINOR",
+          "status": "RESOLVED",
+          "note": "reviewer severity MEDIUM"
+        }
+      ]
+    }
+  },
+  "verification": [
+    {
+      "id": "V-UNIT",
+      "command": "cd apps/web && npm test -- src/components/dashboard.test.tsx src/components/map-view.test.tsx src/lib/api.test.ts",
+      "exit_code": 0,
+      "result": "3 files / 58 tests passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-TYPE",
+      "command": "cd apps/web && npm run typecheck",
+      "exit_code": 0,
+      "result": "TypeScript passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-LINT",
+      "command": "cd apps/web && npm run lint",
+      "exit_code": 0,
+      "result": "ESLint passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-BUILD",
+      "command": "cd apps/web && npm run build",
+      "exit_code": 0,
+      "result": "Next.js 16.4.2 build passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-E2E",
+      "command": "cd apps/web && corepack pnpm exec playwright test e2e/dashboard.spec.ts --reporter=line",
+      "exit_code": 0,
+      "result": "5/5 passed (33.4 s), including localized map-control names",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-BROWSER",
+      "command": "headless Chromium against the production build at http://127.0.0.1:3002 (live API http://127.0.0.1:8000)",
+      "exit_code": 0,
+      "result": "PASS: lang=zh-Hant, zh title, glossed tokens, Chinese layer copy from English API payload, preview 可重現執行完成 · 種子 42, localized map controls, zero console errors",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-OPEN",
+      "command": "openspec validate localize-web-traditional-chinese --strict",
+      "exit_code": 0,
+      "result": "change valid",
+      "reference": "verification/qa.md"
+    }
+  ],
+  "engineering": [
+    {
+      "requirement": "web-localization#Traditional Chinese interface copy",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/app/layout.tsx"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/src/components/map-view.test.tsx",
+        "apps/web/e2e/dashboard.spec.ts"
+      ],
+      "verification": [
+        "V-UNIT",
+        "V-TYPE",
+        "V-LINT",
+        "V-BUILD",
+        "V-E2E",
+        "V-BROWSER"
+      ]
+    },
+    {
+      "requirement": "web-localization#Canonical scientific tokens preserved",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "V-UNIT",
+        "V-BROWSER"
+      ]
+    },
+    {
+      "requirement": "web-localization#Machine-readable values remain verbatim",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/e2e/real-rodent-report.spec.ts"
+      ],
+      "verification": [
+        "V-UNIT",
+        "V-E2E",
+        "V-BROWSER"
+      ]
+    },
+    {
+      "requirement": "web-localization#Traditional Chinese document metadata",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/app/layout.tsx"
+      ],
+      "tests": [
+        "apps/web/e2e/dashboard.spec.ts"
+      ],
+      "verification": [
+        "V-E2E",
+        "V-BROWSER"
+      ]
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "claims": [],
+    "reason": "This change only localizes web interface copy and metadata; it introduces no scientific claim, model, parameter, or dataset."
+  },
+  "approval": null
+}

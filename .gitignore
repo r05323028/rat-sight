@@ -31,3 +31,11 @@ __pycache__/
 # Local data / database volumes
 .DS_Store
 *.log
+# Vendored impeccable skill installs (tool state, not project source)
+.agents/skills/impeccable/
+.github/skills/impeccable/
+.github/agents/impeccable-*.agent.md
+.github/hooks/impeccable.json
+.pi/skills/impeccable/
+apps/web/.impeccable/
+.codex/hooks.json

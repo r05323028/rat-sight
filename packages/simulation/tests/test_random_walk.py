@@ -53,3 +53,28 @@ def test_missing_transitions_fail_explicitly() -> None:
     graph.add_node("isolated")
     with pytest.raises(ValueError, match="no eligible outgoing edges"):
         edge_transition_probabilities(graph, "isolated")
+
+
+def test_dead_end_terminates_walk_at_sink() -> None:
+    graph = nx.MultiDiGraph()
+    graph.add_edge("start", "sink", edge_id="start-sink", movement_weight=1.0)
+
+    result = run_weighted_random_walk(graph, walkers=1, steps=4, seed=0, start_node="start")
+
+    assert result.trajectories == [[("start", "sink", "start-sink")]]
+    assert result.terminated_early == [True]
+    assert result.node_visits == {"start": 1, "sink": 1}
+
+
+def test_isolated_origin_returns_empty_trajectory() -> None:
+    graph = nx.MultiDiGraph()
+    graph.add_node("origin")
+
+    result = run_weighted_random_walk(graph, walkers=1, steps=4, seed=0, start_node="origin")
+
+    assert result.trajectories == [[]]
+    assert result.terminated_early == [True]
+    assert result.node_visits == {"origin": 1}
+    assert result.node_probabilities == {"origin": 1.0}
+    assert result.edge_visits == {}
+    assert result.edge_probabilities == {}

@@ -54,6 +54,7 @@ vi.mock("maplibre-gl", () => ({
       return this;
     });
     setFilter = vi.fn();
+    fitBounds = vi.fn();
     getBounds = () => ({
       getWest: () => 121.5,
       getSouth: () => 24.98,
@@ -240,6 +241,8 @@ type MapViewProps = {
   showRodentReports?: boolean;
   selectedReportId?: string | null;
   onSelectReport?: (properties: unknown) => void;
+  onSelectTrajectory?: (trajectoryId: number) => void;
+  outputMode?: "aggregate" | "trajectory";
   onBoundsChange?: (bbox: [number, number, number, number]) => void;
 };
 
@@ -258,6 +261,8 @@ function mapElement({
   showRodentReports = false,
   selectedReportId = null,
   onSelectReport = vi.fn(),
+  onSelectTrajectory = vi.fn(),
+  outputMode = "aggregate",
   onBoundsChange = vi.fn(),
 }: MapViewProps = {}) {
   return (
@@ -276,6 +281,8 @@ function mapElement({
       showRodentReports={showRodentReports}
       selectedReportId={selectedReportId}
       onSelectReport={onSelectReport}
+      onSelectTrajectory={onSelectTrajectory}
+      outputMode={outputMode}
       onBoundsChange={onBoundsChange}
     />
   );
@@ -290,12 +297,53 @@ afterEach(() => {
 describe("MapView", () => {
   it("initializes an interactive MapLibre map with configured basemap and attribution", () => {
     render(mapElement());
-    expect(screen.getByRole("region", { name: "Interactive GIS map" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toBeInTheDocument();
     expect(h.mapConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         style: expect.stringContaining("style.json"),
         center: [121.5654, 25.033],
         attributionControl: {},
+      }),
+    );
+  });
+
+  it("renders API edge geometry without rebuilding node-to-node lines", () => {
+    const networkPreview = {
+      ...preview,
+      edges: [
+        {
+          ...preview.edges[0],
+          geometry: {
+            type: "LineString" as const,
+            coordinates: [
+              [121.55, 25.02] as [number, number],
+              [121.56, 25.04] as [number, number],
+              [121.58, 25.06] as [number, number],
+            ],
+          },
+          source_id: "osm-way-1",
+        },
+      ],
+    };
+    render(mapElement({ preview: networkPreview, showSimulatedPaths: true }));
+    const map = h.latest.current as { addSource: ReturnType<typeof vi.fn> };
+    expect(map.addSource).toHaveBeenCalledWith(
+      "ratsight-simulated-edges",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          features: [
+            expect.objectContaining({
+              properties: expect.objectContaining({ source_id: "osm-way-1" }),
+              geometry: networkPreview.edges[0].geometry,
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(map.addSource).toHaveBeenCalledWith(
+      "ratsight-network-reference",
+      expect.objectContaining({
+        data: expect.objectContaining({ features: expect.any(Array) }),
       }),
     );
   });
@@ -313,6 +361,93 @@ describe("MapView", () => {
         data: { type: "FeatureCollection", features: [] },
       }),
     );
+  });
+
+  it("dashes geometry-less schematic edges instead of drawing them as road lines", () => {
+    render(mapElement({ preview, showSimulatedPaths: true }));
+    const map = h.latest.current as {
+      addSource: ReturnType<typeof vi.fn>;
+      addLayer: ReturnType<typeof vi.fn>;
+    };
+    // The fixture graph has no edge geometry, so its single visited edge is schematic.
+    expect(map.addSource).toHaveBeenCalledWith(
+      "ratsight-simulated-edges",
+      expect.objectContaining({
+        data: expect.objectContaining({
+          features: [
+            expect.objectContaining({
+              properties: expect.objectContaining({ schematic: true }),
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "ratsight-simulated-edges-schematic",
+        type: "line",
+        filter: ["==", ["get", "schematic"], true],
+        paint: expect.objectContaining({ "line-dasharray": [1.5, 1.5] }),
+      }),
+    );
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "ratsight-simulated-edges-line",
+        filter: ["!=", ["get", "schematic"], true],
+      }),
+    );
+  });
+
+  it("fits the map to the simulated network extent after a preview", () => {
+    render(mapElement({ preview, showSimulatedPaths: true }));
+    const map = h.latest.current as { fitBounds: ReturnType<typeof vi.fn> };
+    expect(map.fitBounds).toHaveBeenCalledWith(
+      [
+        [121.55, 25.02],
+        [121.58, 25.06],
+      ],
+      { padding: 56, duration: 500 },
+    );
+  });
+
+  it("selects a trajectory when its map path is clicked", () => {
+    const onSelectTrajectory = vi.fn();
+    const trajectoryPreview: SimulationPreview = {
+      ...preview,
+      trajectories: [
+        {
+          walker_id: 7,
+          classification: "SIMULATED",
+          edges: [
+            {
+              source: "a",
+              target: "b",
+              edge_id: "a-b",
+              classification: "SIMULATED",
+              geometry: [
+                [121.55, 25.02],
+                [121.58, 25.06],
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    render(
+      mapElement({
+        preview: trajectoryPreview,
+        showSimulatedPaths: true,
+        outputMode: "trajectory",
+        onSelectTrajectory,
+      }),
+    );
+    const map = h.latest.current as { handlers: Record<string, HandlerEntry[]> };
+    const click = map.handlers.click.find(
+      (entry) => entry.layerId === "ratsight-simulated-edges-hit",
+    );
+    expect(click).toBeDefined();
+    click!.handler({ features: [{ properties: { trajectory_id: 7 } }] });
+    expect(onSelectTrajectory).toHaveBeenCalledWith(7);
   });
 
   it("adds the administrative source and fill/outline layers after style load", () => {
@@ -417,6 +552,97 @@ describe("MapView", () => {
     ]);
   });
 
+  it("pans the map to a district selected outside the viewport, once per selection", () => {
+    const outside: AdministrativeDistricts = {
+      ...boundaries,
+      features: [
+        {
+          ...boundaries.features[0],
+          id: "63000120",
+          geometry: {
+            type: "Polygon",
+            coordinates: [
+              [
+                [121.0, 24.5],
+                [121.05, 24.5],
+                [121.05, 24.55],
+                [121.0, 24.5],
+              ],
+            ],
+          },
+          properties: { ...boundaries.features[0].properties, district_id: "63000120" },
+        },
+      ],
+    };
+    const { rerender } = render(
+      mapElement({ boundaries: outside, showBoundaries: true, selectedDistrictId: "63000120" }),
+    );
+    const map = h.latest.current as { fitBounds: ReturnType<typeof vi.fn> };
+    expect(map.fitBounds).toHaveBeenCalledWith(
+      [
+        [121.0, 24.5],
+        [121.05, 24.55],
+      ],
+      { padding: 40, duration: 500 },
+    );
+    rerender(
+      mapElement({ boundaries: outside, showBoundaries: true, selectedDistrictId: "63000120" }),
+    );
+    expect(map.fitBounds).toHaveBeenCalledTimes(1);
+  });
+
+  it("pans without animation when the user prefers reduced motion", () => {
+    const outside: AdministrativeDistricts = {
+      ...boundaries,
+      features: [
+        {
+          ...boundaries.features[0],
+          id: "63000120",
+          geometry: {
+            type: "Polygon",
+            coordinates: [
+              [
+                [121.0, 24.5],
+                [121.05, 24.5],
+                [121.05, 24.55],
+                [121.0, 24.5],
+              ],
+            ],
+          },
+          properties: { ...boundaries.features[0].properties, district_id: "63000120" },
+        },
+      ],
+    };
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    try {
+      render(
+        mapElement({ boundaries: outside, showBoundaries: true, selectedDistrictId: "63000120" }),
+      );
+      const map = h.latest.current as { fitBounds: ReturnType<typeof vi.fn> };
+      expect(map.fitBounds).toHaveBeenCalledWith(
+        [
+          [121.0, 24.5],
+          [121.05, 24.55],
+        ],
+        { padding: 40, duration: 0 },
+      );
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
+  it("leaves the camera alone for a district already in view", () => {
+    render(mapElement({ boundaries, showBoundaries: true, selectedDistrictId: "63000010" }));
+    const map = h.latest.current as { fitBounds: ReturnType<typeof vi.fn> };
+    expect(map.fitBounds).not.toHaveBeenCalled();
+  });
+
   it("removes stale boundary layers when the collection becomes empty", () => {
     const { rerender } = render(mapElement({ boundaries, showBoundaries: true }));
     const map = h.latest.current as {
@@ -499,7 +725,7 @@ describe("MapView", () => {
 
   it("adds the rodent report source and point/highlight layers", () => {
     render(mapElement({ rodentReports, showRodentReports: true }));
-    expect(screen.getByRole("region", { name: "Interactive GIS map" })).toHaveAttribute(
+    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
       "data-rodent-points",
       "visible",
     );
@@ -547,7 +773,7 @@ describe("MapView", () => {
 
   it("marks rodent points hidden when the layer is disabled", () => {
     render(mapElement({ rodentReports, showRodentReports: false }));
-    expect(screen.getByRole("region", { name: "Interactive GIS map" })).toHaveAttribute(
+    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
       "data-rodent-points",
       "hidden",
     );

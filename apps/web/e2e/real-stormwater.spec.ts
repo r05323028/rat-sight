@@ -15,7 +15,7 @@ test("renders and inspects stormwater data from the running FastAPI API", async 
   expect(body.data_class).toBe("INFRASTRUCTURE_REFERENCE");
   expect(body.provenance.z_handling).toBe("dropped");
   expect(body.features[0].geometry.type).toBe("LineString");
-  const toggle = page.getByLabel("Stormwater pipelines");
+  const toggle = page.getByLabel("雨水下水道管線");
   await expect(toggle).toBeEnabled();
   await toggle.click();
   await expect(toggle).toBeChecked();
@@ -24,7 +24,7 @@ test("renders and inspects stormwater data from the running FastAPI API", async 
   ).toBeVisible();
   await expect(page.getByText("Publisher reference-only warning")).toBeVisible();
   await expect(page.getByText("Not verified physical connectivity.")).toBeVisible();
-  const inspection = page.getByRole("region", { name: "Stormwater pipeline inspection" });
+  const inspection = page.getByRole("region", { name: "雨水下水道管線檢視" });
   const firstPipeline = inspection.getByRole("list").getByRole("button").first();
   await expect(firstPipeline).toBeVisible();
   await firstPipeline.click();

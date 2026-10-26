@@ -4,3 +4,5 @@ RR-0002,nuisance_report,2026-10-02T12:30:00Z,121.5512,25.0478,synthetic_point,un
 RR-0003,service_request,2026-10-03T18:45:00Z,121.5654,25.0330,synthetic_point,unreviewed,not_assessed,none_reported
 RR-0004,unknown,2026-10-04T23:05:00Z,121.5100,25.0600,synthetic_point,unreviewed,not_assessed,none_reported
 RR-0005,sighting_report,2026-10-05T06:00:00Z,121.5800,25.0200,synthetic_point,unreviewed,not_assessed,none_reported
+RR-0006,sighting_report,2026-10-06T09:20:00Z,121.5300,25.0300,synthetic_point,unreviewed,not_assessed,none_reported
+RR-0007,nuisance_report,2026-10-07T14:10:00Z,121.5310,25.0290,synthetic_point,unreviewed,not_assessed,none_reported

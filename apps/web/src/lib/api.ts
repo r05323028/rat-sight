@@ -11,6 +11,28 @@ export type Layer = {
   message: string;
 };
 
+export type SimulationLineString = {
+  type: "LineString";
+  coordinates: [number, number][];
+};
+
+export type SimulationTrajectoryStep = {
+  source: string;
+  target: string;
+  edge_id: string;
+  geometry: [number, number][];
+  classification: "SIMULATED";
+  // Zero-based position in the trajectory; callers fall back to array order when absent.
+  step_index?: number;
+};
+
+export type SimulationTrajectory = {
+  walker_id: number;
+  edges: SimulationTrajectoryStep[];
+  terminated_early?: boolean;
+  classification: "SIMULATED";
+};
+
 export type SimulationPreview = {
   simulation_status: "completed";
   classification: "SIMULATED";
@@ -23,15 +45,33 @@ export type SimulationPreview = {
     random_seed: number;
     movement_model: string;
     intervention_scenario: string;
+    output_mode?: "aggregate" | "trajectory";
   };
   provenance: {
     classification: "SIMULATED";
-    source_type: "synthetic_fixture";
+    source_type: "synthetic_fixture" | "osm_surface_network";
     source_id: string;
     source_crs: "EPSG:4326";
+    source_sha256?: string;
+    source_url?: string;
+    resource_version?: string;
+    license?: string;
+    attribution?: string;
+    coverage?: string;
     note: string;
+    network_type?: "SCHEMATIC" | "SOURCE_NETWORK" | "REFERENCE";
   };
   assumptions: string[];
+  // Synthetic model input echoed by the API; `selection` separates the deterministic
+  // default origin from one the analyst chose.
+  origin?: {
+    node_id: string;
+    coordinates: [number, number];
+    classification: "SIMULATED";
+    selection: "default" | "user";
+    note?: string;
+  };
+  origin_node_id?: string;
   nodes: {
     id: string;
     coordinates: [number, number];
@@ -39,6 +79,8 @@ export type SimulationPreview = {
     probability: number;
     classification: "SIMULATED";
   }[];
+  trajectory_count?: number;
+  trajectory_truncated?: boolean;
   edges: {
     source: string;
     target: string;
@@ -47,7 +89,10 @@ export type SimulationPreview = {
     visits: number;
     probability: number;
     classification: "SIMULATED";
+    geometry?: SimulationLineString;
+    source_id?: string;
   }[];
+  trajectories?: SimulationTrajectory[];
 };
 
 export type ProvenanceProcessing = {
@@ -133,6 +178,13 @@ export async function fetchLayers(): Promise<Layer[]> {
   return response.json() as Promise<Layer[]>;
 }
 
+const SOURCE_NETWORK_UNAVAILABLE_PREFIX = "來源網路無法使用：";
+
+// Only the API's own code means "source network missing"; other failures stay generic.
+export function isSourceNetworkUnavailable(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith(SOURCE_NETWORK_UNAVAILABLE_PREFIX);
+}
+
 export async function requestPreview(input: {
   study_area: string;
   duration_steps: number;
@@ -140,13 +192,28 @@ export async function requestPreview(input: {
   random_seed: number;
   movement_model: string;
   intervention_scenario: string;
+  origin_node_id?: string;
 }): Promise<SimulationPreview> {
   const response = await fetch(`${API_BASE_URL}/api/v1/simulations/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (!response.ok) throw new Error(`Simulation preview failed (${response.status})`);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      detail?: { code?: string; message?: string; provisioning?: string };
+    } | null;
+    const detail = payload?.detail;
+    throw new Error(
+      detail?.code === "SOURCE_NETWORK_UNAVAILABLE"
+        ? `${SOURCE_NETWORK_UNAVAILABLE_PREFIX}${detail.message ?? "未知錯誤"} ${
+            detail.provisioning ?? ""
+          }`
+        : detail?.code === "ORIGIN_NODE_NOT_IN_GRAPH"
+          ? `合成起點不在模型網路內：${detail.message ?? "未知錯誤"}`
+          : `Simulation preview failed (${response.status})`,
+    );
+  }
   return response.json() as Promise<SimulationPreview>;
 }
 

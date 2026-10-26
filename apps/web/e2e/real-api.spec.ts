@@ -27,7 +27,7 @@ test("renders administrative data obtained from the running FastAPI API", async 
   expect(latitude).toBeLessThanOrEqual(90);
   const districtButton = page.getByRole("button", { name: "測試行政區" });
   await expect(districtButton).toBeVisible();
-  const boundaryToggle = page.getByLabel("Administrative districts");
+  const boundaryToggle = page.getByLabel("行政區");
   await expect(boundaryToggle).toBeEnabled();
   await boundaryToggle.click();
   await expect(boundaryToggle).toBeChecked();

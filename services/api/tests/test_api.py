@@ -52,7 +52,12 @@ async def test_models_catalog_marks_preview_as_demo(client: AsyncClient) -> None
 async def test_preview_is_deterministic_and_carries_provenance(
     client: AsyncClient,
 ) -> None:
-    payload = {"walkers": 12, "duration_steps": 6, "random_seed": 99}
+    payload = {
+        "study_area": "taipei_synthetic_demo",
+        "walkers": 12,
+        "duration_steps": 6,
+        "random_seed": 99,
+    }
     first = await client.post("/api/v1/simulations/preview", json=payload)
     second = await client.post("/api/v1/simulations/preview", json=payload)
     assert first.status_code == 200
@@ -65,6 +70,38 @@ async def test_preview_is_deterministic_and_carries_provenance(
     assert result["assumptions"]
     assert sum(node["probability"] for node in result["nodes"]) == pytest.approx(1.0)
     assert sum(edge["probability"] for edge in result["edges"]) == pytest.approx(1.0)
+
+
+@pytest.mark.asyncio
+async def test_preview_defaults_to_the_pinned_osm_network(client: AsyncClient) -> None:
+    response = await client.post("/api/v1/simulations/preview", json={})
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["parameters"]["study_area"] == "taipei_osm_songshan"
+    assert result["provenance"]["source_type"] == "osm_surface_network"
+
+
+@pytest.mark.asyncio
+async def test_preview_reports_a_missing_osm_source_instead_of_falling_back(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing_source() -> None:
+        raise FileNotFoundError(
+            "configured OSM source is absent: /nonexistent/taipei-songshan-20261023.osm"
+        )
+
+    monkeypatch.setattr(
+        "ratsight_api.application.simulation_preview.load_osm_surface_graph",
+        missing_source,
+    )
+    response = await client.post("/api/v1/simulations/preview", json={})
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["code"] == "SOURCE_NETWORK_UNAVAILABLE"
+    assert detail["provisioning"]
 
 
 @pytest.mark.asyncio

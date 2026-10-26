@@ -49,7 +49,8 @@ class ModelCatalogItem(BaseModel):
 class SimulationPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    study_area: Literal["taipei_synthetic_demo"] = "taipei_synthetic_demo"
+    study_area: Literal["taipei_synthetic_demo", "taipei_osm_songshan"] = "taipei_osm_songshan"
+    origin_node_id: str | None = Field(default=None, min_length=1)
     duration_steps: int = Field(default=12, ge=1, le=100)
     walkers: int = Field(default=24, ge=1, le=1000)
     random_seed: int = Field(default=42, ge=0, le=18_446_744_073_709_551_615)
@@ -59,6 +60,7 @@ class SimulationPreviewRequest(BaseModel):
 
 class PreviewParameters(BaseModel):
     study_area: str
+    origin_node_id: str
     duration_steps: int
     walkers: int
     random_seed: int
@@ -68,10 +70,23 @@ class PreviewParameters(BaseModel):
 
 class SimulationProvenance(BaseModel):
     classification: Literal["SIMULATED"]
-    source_type: Literal["synthetic_fixture"]
+    source_type: Literal["synthetic_fixture", "osm_surface_network"]
     source_id: str
     source_crs: Literal["EPSG:4326"]
+    source_sha256: str | None = None
+    source_url: str | None = None
+    resource_version: str | None = None
+    license: str | None = None
+    attribution: str | None = None
+    coverage: str | None = None
     note: str
+
+    @field_validator("source_sha256")
+    @classmethod
+    def _sha256_is_valid(cls, value: str | None) -> str | None:
+        if value is not None and re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("source_sha256 must be lowercase 64-character hex")
+        return value
 
 
 class NodeVisit(BaseModel):
@@ -82,14 +97,47 @@ class NodeVisit(BaseModel):
     classification: Literal["SIMULATED"]
 
 
+class SimulationLineString(BaseModel):
+    type: Literal["LineString"] = "LineString"
+    coordinates: list[tuple[float, float]]
+
+
 class EdgeVisit(BaseModel):
     source: str
     target: str
     edge_id: str
+    source_id: str | None = None
+    geometry: SimulationLineString | None = None
     movement_weight: float
     visits: int
     probability: float
     classification: Literal["SIMULATED"]
+
+
+class TrajectoryStep(BaseModel):
+    source: str
+    target: str
+    edge_id: str
+    step_index: int = Field(ge=0)
+    geometry: list[tuple[float, float]]
+    classification: Literal["SIMULATED"]
+
+
+class SimulationTrajectory(BaseModel):
+    walker_id: int
+    edges: list[TrajectoryStep]
+    terminated_early: bool = False
+    classification: Literal["SIMULATED"]
+
+
+class PreviewOrigin(BaseModel):
+    """Resolved walk origin: a synthetic model input, never an observed animal origin."""
+
+    node_id: str
+    coordinates: tuple[float, float]
+    selection: Literal["default", "user"]
+    classification: Literal["SIMULATED"]
+    note: str
 
 
 class SimulationPreviewResponse(BaseModel):
@@ -97,11 +145,15 @@ class SimulationPreviewResponse(BaseModel):
     classification: Literal["SIMULATED"]
     model_id: str
     model_version: str
+    origin: PreviewOrigin
     parameters: PreviewParameters
     provenance: SimulationProvenance
     assumptions: list[str]
     nodes: list[NodeVisit]
     edges: list[EdgeVisit]
+    trajectories: list[SimulationTrajectory]
+    trajectory_count: int = 0
+    trajectory_truncated: bool = False
 
 
 # --- Administrative reference boundaries -------------------------------------

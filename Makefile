@@ -1,10 +1,11 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke rodent-report-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts import-stormwater import-rodent-reports
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke rodent-report-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts import-stormwater import-rodent-reports data-bootstrap
 
 PNPM ?= corepack pnpm
 
 # CHANGE=<name> selects the OpenSpec change for the gate and archive targets.
 # With no value the gate falls back to the single active change.
 CHANGE ?=
+PROFILE ?= full-local
 
 install: install-js install-py
 
@@ -31,6 +32,11 @@ import-stormwater:
 
 import-rodent-reports:
 	uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports $(ARGS)
+
+# Persistent pinned-reference profile in its own Compose project/volume.
+# ARGS accepts: up (default) | status | down, plus --inspect-only, --synthetic, --purge.
+data-bootstrap:
+	PROFILE=$(PROFILE) bash scripts/data_bootstrap.sh $(ARGS)
 
 api:
 	uv run --package ratsight-api uvicorn ratsight_api.main:app --reload
@@ -73,6 +79,7 @@ build:
 
 validate:
 	bash -n scripts/setup-pi-seats.sh
+	bash -n scripts/data_bootstrap.sh
 	bash scripts/setup-pi-seats.sh --dry-run
 	rig spec validate --json rig.yaml
 	openspec schema validate evidence-driven

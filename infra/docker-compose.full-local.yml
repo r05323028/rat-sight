@@ -1,0 +1,13 @@
+# Persistent "full-local" data profile overlay.
+# Always used together with the base file and its own project name, e.g.
+#   docker compose -p ratsight-full-local -f infra/docker-compose.yml \
+#     -f infra/docker-compose.full-local.yml up -d --wait postgres
+# Keeps the shared `infra` project and its volume untouched.
+---
+services:
+  postgres:
+    volumes:
+      - ratsight-full-local-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  ratsight-full-local-postgres-data:

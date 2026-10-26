@@ -66,6 +66,14 @@ const PREVIEW_RESPONSE = {
     random_seed: 42,
     movement_model: "weighted_random_walk",
     intervention_scenario: "baseline",
+    origin_node_id: "a",
+  },
+  origin: {
+    node_id: "a",
+    coordinates: [121.55, 25.02],
+    classification: "SIMULATED",
+    selection: "default",
+    note: "Synthetic model input; not an observed or reported animal origin.",
   },
   provenance: {
     classification: "SIMULATED",
@@ -75,8 +83,43 @@ const PREVIEW_RESPONSE = {
     note: "synthetic only",
   },
   assumptions: ["synthetic fixture"],
-  nodes: [],
+  nodes: [
+    {
+      id: "a",
+      coordinates: [121.55, 25.02],
+      visits: 1,
+      probability: 0.5,
+      classification: "SIMULATED",
+    },
+    {
+      id: "b",
+      coordinates: [121.56, 25.03],
+      visits: 1,
+      probability: 0.5,
+      classification: "SIMULATED",
+    },
+  ],
   edges: [],
+  trajectories: [
+    {
+      walker_id: 1,
+      classification: "SIMULATED",
+      edges: [
+        {
+          source: "a",
+          target: "b",
+          edge_id: "e1",
+          step_index: 0,
+          geometry: [
+            [121.55, 25.02],
+            [121.56, 25.03],
+          ],
+          classification: "SIMULATED",
+        },
+      ],
+    },
+  ],
+  trajectory_count: 1,
 };
 
 const EMPTY_BOUNDARIES = {
@@ -253,9 +296,25 @@ async function mockDashboardServices(page: import("@playwright/test").Page, boun
     route.fulfill({ json: { version: 8, sources: {}, layers: [] } }),
   );
   await page.route("**/api/v1/layers", (route) => route.fulfill({ json: LAYERS_RESPONSE }));
-  await page.route("**/api/v1/simulations/preview", (route) =>
-    route.fulfill({ json: PREVIEW_RESPONSE }),
-  );
+  await page.route("**/api/v1/simulations/preview", (route) => {
+    const requested = (route.request().postDataJSON() as { origin_node_id?: string } | null)
+      ?.origin_node_id;
+    const node = PREVIEW_RESPONSE.nodes.find((candidate) => candidate.id === requested);
+    route.fulfill({
+      json: requested
+        ? {
+            ...PREVIEW_RESPONSE,
+            parameters: { ...PREVIEW_RESPONSE.parameters, origin_node_id: requested },
+            origin: {
+              ...PREVIEW_RESPONSE.origin,
+              node_id: requested,
+              coordinates: node?.coordinates ?? PREVIEW_RESPONSE.origin.coordinates,
+              selection: "user",
+            },
+          }
+        : PREVIEW_RESPONSE,
+    });
+  });
   await page.route("**/api/v1/administrative-districts", (route) =>
     route.fulfill({ json: boundaries }),
   );
@@ -271,33 +330,84 @@ test("dashboard renders controls, simulation, and the administrative toggle", as
   await mockDashboardServices(page, AVAILABLE_BOUNDARIES);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "見光鼠" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Interactive GIS map" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Interactive GIS map" })).toHaveAttribute(
+  await expect(page.getByRole("region", { name: "互動式 GIS 地圖" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
     "data-map-ready",
     "true",
   );
-  await expect(page.getByLabel("Duration · steps")).toBeVisible();
-  await expect(page.getByLabel("Rodent observations")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "開始模擬" })).toBeVisible();
+  await expect(page.getByLabel("模擬長度 · 步數")).toBeHidden();
+  await page.getByText(/進階設定 ·/).click();
+  await expect(page.getByLabel("模擬長度 · 步數")).toBeVisible();
+  await expect(page.getByRole("button", { name: "放大地圖" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "縮小地圖" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "重設地圖方向" })).toBeVisible();
+  await expect(
+    page.locator(".layer-row", { hasText: "鼠類觀測" }).getByText("未載入", { exact: true }),
+  ).toBeVisible();
 
-  const boundaryToggle = page.getByLabel("Administrative districts");
+  const boundaryToggle = page.getByLabel("行政區", { exact: true });
   await expect(boundaryToggle).toBeEnabled();
   await boundaryToggle.click();
   await expect(boundaryToggle).toBeChecked();
 
-  await page.getByRole("button", { name: "Run synthetic preview" }).click();
-  await expect(page.getByRole("status")).toContainText("Reproducible run complete · seed 42");
+  await page.getByRole("button", { name: "開始模擬" }).click();
+  await expect(page.getByRole("status")).toContainText("可重現執行完成 · 種子 42");
+  await page.getByText("模擬來源與版本").click();
   await expect(page.getByText("ratsight-synthetic-graph-v1")).toBeVisible();
+
+  await page.getByLabel("輸出模式").selectOption("trajectory");
+  await expect(page.getByLabel("模擬摘要")).toContainText("1 條合成軌跡（SIMULATED）");
+  await expect(page.getByLabel("模擬摘要")).not.toContainText("節點造訪");
+  await expect(page.getByLabel("模擬移動路徑")).toBeChecked();
+  await expect(page.locator(".analysis-row", { hasText: "合成起點" })).toContainText(
+    "a · 25.02000, 121.55000 · 預設固定起點 · SIMULATED",
+  );
+  // Playback walks the returned steps; it is not elapsed time.
+  await expect(page.getByText("步驟 0 / 1")).toBeVisible();
+  await page.getByRole("button", { name: "下一步" }).click();
+  await expect(page.getByText("步驟 1 / 1")).toBeVisible();
+  await expect(page.getByRole("button", { name: /步驟 1（step_index 0）/ })).toHaveAttribute(
+    "aria-current",
+    "step",
+  );
+
+  // The fitted preview extent puts the trajectory through the map centre, so a
+  // plain coordinate click must reach the path instead of the basemap.
+  if ((page.viewportSize()?.width ?? 0) >= 900) {
+    const canvasBox = await page.locator(".maplibregl-canvas").boundingBox();
+    await page.mouse.click(
+      canvasBox!.x + canvasBox!.width / 2,
+      canvasBox!.y + canvasBox!.height / 2,
+    );
+    await expect(page.locator(".map-selection")).toContainText("模擬軌跡 #1");
+    await expect(page.locator(".map-selection")).toContainText("SIMULATED");
+  }
+
+  // Choosing a returned network node is sent to the API and disclosed as user-selected.
+  const originSelect = page.getByLabel("合成起點節點");
+  if (!(await originSelect.isVisible())) {
+    await page.locator("details.advanced-settings > summary").click();
+  }
+  await expect(originSelect).toBeVisible();
+  await originSelect.selectOption("b");
+  await expect(page.locator(".analysis-row", { hasText: "合成起點" })).toContainText(
+    "已選擇，尚未以此外起點執行",
+  );
+  await page.getByRole("button", { name: "開始模擬" }).click();
+  await expect(page.getByRole("status")).toContainText("可重現執行完成");
+  await expect(page.locator(".analysis-row", { hasText: "合成起點" })).toContainText(
+    "b · 25.03000, 121.56000 · 使用者選擇 · SIMULATED",
+  );
 });
 
 test("dashboard reports the empty administrative boundary state honestly", async ({ page }) => {
   await mockDashboardServices(page, EMPTY_BOUNDARIES);
   await page.goto("/");
   await expect(
-    page
-      .getByRole("region", { name: "Administrative reference inspection" })
-      .getByText("No boundaries imported"),
+    page.getByRole("region", { name: "行政區參考檢視" }).getByText("尚未匯入邊界"),
   ).toBeVisible();
-  await expect(page.getByLabel("Administrative districts")).toBeDisabled();
+  await expect(page.getByLabel("行政區", { exact: true })).toBeDisabled();
 });
 
 test("selects a district through the keyboard-accessible list and shows provenance", async ({
@@ -311,6 +421,7 @@ test("selects a district through the keyboard-accessible list and shows provenan
   await page.keyboard.press("Enter");
   await expect(districtButton).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("63000010")).toBeVisible();
+  await page.getByText("行政區來源、授權與現勢性").click();
   const sourceLink = page.getByRole("link", { name: "https://data.taipei/example" });
   await expect(sourceLink).toBeVisible();
   await expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
@@ -320,10 +431,11 @@ test("selects a district through the keyboard-accessible list and shows provenan
 test("enables the stormwater reference layer and shows its provenance", async ({ page }) => {
   await mockDashboardServices(page, AVAILABLE_BOUNDARIES);
   await page.goto("/");
-  const toggle = page.getByLabel("Stormwater pipelines");
+  const toggle = page.getByLabel("雨水下水道管線", { exact: true });
   await expect(toggle).toBeEnabled();
   await toggle.click();
   await expect(toggle).toBeChecked();
+  await page.getByText("雨水下水道來源、授權與現勢性").click();
   const sourceLink = page.getByRole("link", {
     name: "https://data.taipei/stormwater",
     exact: true,
@@ -331,21 +443,20 @@ test("enables the stormwater reference layer and shows its provenance", async ({
   await expect(sourceLink).toBeVisible();
   await expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
   await expect(page.getByText("臺北市政府工務局")).toBeVisible();
-  await expect(page.getByText(/Publisher reference-only warning/)).toBeVisible();
+  await expect(page.getByText(/發布機關僅供參考警示/)).toBeVisible();
 });
 
 test("enables the rodent report layer and shows synthetic provenance", async ({ page }) => {
   await mockDashboardServices(page, AVAILABLE_BOUNDARIES);
   await page.goto("/");
-  const toggle = page.getByLabel("Rodent reports");
+  const toggle = page.getByLabel("鼠類回報", { exact: true });
   await expect(toggle).toBeEnabled();
   await toggle.click();
   await expect(toggle).toBeChecked();
-  await expect(
-    page.getByText(/Not verified observations, prevalence, population, movement, or risk evidence/),
-  ).toBeVisible();
+  await expect(page.getByText(/非經查證的觀測、盛行率、族群、移動或風險證據/)).toBeVisible();
   const report = page.getByRole("button", { name: "report-1" });
   await report.click();
   await expect(report).toHaveAttribute("aria-pressed", "true");
+  await page.getByText("鼠類回報來源、授權與現勢性").click();
   await expect(page.getByText("RatSight synthetic report fixture")).toBeVisible();
 });

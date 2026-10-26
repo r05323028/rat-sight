@@ -62,16 +62,14 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
   expect(first.properties.source_record_id).toBeUndefined();
   expect(Object.keys(first.properties).sort()).toEqual(PUBLIC_PROPERTY_KEYS);
 
-  const panel = page.getByRole("region", { name: "Rodent report inspection" });
-  const toggle = page.getByLabel("Rodent reports");
+  const panel = page.getByRole("region", { name: "鼠類回報檢視" });
+  const toggle = page.getByLabel("鼠類回報");
   await expect(toggle).toBeEnabled();
   await toggle.click();
   await expect(toggle).toBeChecked();
   await expect(panel.getByText("RODENT_REPORT · SIMULATED")).toBeVisible();
   await expect(
-    panel.getByText(
-      "Synthetic report-shaped fixtures. Not verified observations, prevalence, population, movement, or risk evidence.",
-    ),
+    panel.getByText("合成回報格式的測試資料。非經查證的觀測、盛行率、族群、移動或風險證據。"),
   ).toBeVisible();
   await expect(panel.getByText("synthetic_fixture", { exact: true })).toBeVisible();
 
@@ -87,7 +85,7 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
   await expect(panel.getByText("Reported at")).toBeVisible();
 
   // Click an actual MapLibre point: RR-0003 sits at the map center.
-  const mapRegion = page.getByRole("region", { name: "Interactive GIS map" });
+  const mapRegion = page.getByRole("region", { name: "互動式 GIS 地圖" });
   await expect(mapRegion).toHaveAttribute("data-rodent-points", "visible");
   const canvas = page.locator(".maplibregl-canvas");
   const box = await canvas.boundingBox();
@@ -112,7 +110,7 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
       response.url().includes("reported_from=2026-10-10T00%3A00%3A00Z") &&
       response.status() === 200,
   );
-  await panel.getByLabel("Reported from (Asia/Taipei, inclusive)").fill("2026-10-10T08:00");
+  await panel.getByLabel("回報起時間（Asia/Taipei，含端點）").fill("2026-10-10T08:00");
   const filteredBody = await (await filtered).json();
   expect(filteredBody.data_state).toBe("available");
   expect(filteredBody.feature_count).toBe(0);
@@ -132,7 +130,7 @@ test("renders, filters, selects, and inspects rodent reports from the running Fa
       response.url().includes("reported_from=2026-10-01T00%3A00%3A00Z") &&
       response.status() === 200,
   );
-  await panel.getByLabel("Reported from (Asia/Taipei, inclusive)").fill("2026-10-01T08:00");
+  await panel.getByLabel("回報起時間（Asia/Taipei，含端點）").fill("2026-10-01T08:00");
   const restoredBody = await (await restored).json();
   expect(restoredBody.feature_count).toBe(5);
   await expect(panel.getByRole("button", { name: "RR-0002" })).toBeVisible();
@@ -152,8 +150,8 @@ test("reports an empty rodent report store without fabricated points", async ({ 
   expect(body.feature_count).toBe(0);
   expect(body.provenance).toBeNull();
 
-  const panel = page.getByRole("region", { name: "Rodent report inspection" });
-  await expect(panel.getByText("No synthetic rodent reports have been imported.")).toBeVisible();
-  await expect(page.getByLabel("Rodent reports")).toBeDisabled();
+  const panel = page.getByRole("region", { name: "鼠類回報檢視" });
+  await expect(panel.getByText("尚未匯入合成鼠類回報。")).toBeVisible();
+  await expect(page.getByLabel("鼠類回報")).toBeDisabled();
   await expect(panel.getByRole("list")).toHaveCount(0);
 });
