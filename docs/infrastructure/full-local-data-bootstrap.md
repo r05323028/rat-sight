@@ -14,10 +14,12 @@ official importers:
 |---|---|---|---|
 | `administrative_districts` | dataset `121199`, version `20220915`, SHA-256 `77bcc347b503b8ff8a43f7e1afaaedb18877a6222282587b145adaba69afd2d9` | 12 | `ADMINISTRATIVE_REFERENCE` / `UNVERIFIED` |
 | `stormwater_pipelines` | dataset `97b82d58-faba-4ee4-9488-dd5d04a79efd`, resource `5240223d-5187-454e-b323-63443a195639`, version `2026-02-23T17:10:41Z`, SHA-256 `5d2ea04f7d032d21b07066310e80eb64a34ce8916b4a0c786b10948aeb4e10e4` | 19,747 | `INFRASTRUCTURE_REFERENCE` / `UNVERIFIED` |
+| `citizen_report_cells` (opt-in) | no pinned export; the content hash is recorded per import (observed: `eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b`) | 91 suppressed cells / 319 reports | `CITIZEN_REPORT_AGGREGATE` / `UNVERIFIED` |
 
 Evidence: `docs/evidence/taipei-district-boundaries-2026-10-15.md`,
 `docs/evidence/taipei-stormwater-network-2026-10-16.md`,
-`docs/evidence/taipei-stormwater-acceptance-2026-10-16.md`.
+`docs/evidence/taipei-stormwater-acceptance-2026-10-16.md`,
+`docs/evidence/ratdar-reuse-claim-2026-10-26.md`.
 
 The shared development database (`infra` project, port 54329, volume
 `infra_ratsight-postgres-data`) is never started, migrated, written, or deleted by this
@@ -32,6 +34,7 @@ make data-bootstrap ARGS=status          # container state, counts, provenance, 
 make data-bootstrap ARGS=down            # stop containers, keep data
 make data-bootstrap ARGS="down --purge"  # explicitly recreate from empty (destructive)
 make data-bootstrap ARGS=--synthetic     # additionally load the SYNTHETIC rodent fixture
+make data-bootstrap ARGS="up --citizen-reports"  # suppressed 250 m citizen counts (never downloads)
 ```
 
 `PROFILE=full-local` is the only supported profile; anything else exits `2`.
@@ -50,9 +53,16 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/ratsight/full-local/
   stormwater-5240223d-2026-02-23.xml
 ```
 
+The default simulation study area also needs the pinned OSM surface extract at
+`${XDG_DATA_HOME:-$HOME/.local/share}/ratsight/network/taipei-songshan-20261023.osm`
+(SHA-256 `faae4ffd1bd42e57871bdedbfdcc6e82b3324a458db95034d4ec40f0a019e67e`). This profile
+does not download it: provision it with `scripts/fetch_taipei_osm_source.sh` (see
+`docs/infrastructure/taipei-osm-network-source.md`). Without it the default preview returns
+`503 SOURCE_NETWORK_UNAVAILABLE` instead of falling back to the schematic graph.
+
 Overrides: `RATSIGHT_FULL_LOCAL_DATA_DIR`, `RATSIGHT_DISTRICTS_ARCHIVE`,
-`RATSIGHT_STORMWATER_SOURCE`. The base data directory is also honoured by
-`data/raw/README.md`.
+`RATSIGHT_STORMWATER_SOURCE`, `RATSIGHT_CITIZEN_REPORT_SOURCE`. The base data directory is
+also honoured by `data/raw/README.md`.
 
 If a file is missing, `up` downloads only the two documented verified URLs, verifies the
 exact pinned SHA-256, and aborts before any import on mismatch (`*.part` is removed). It
@@ -71,7 +81,9 @@ Rerunning the same command with unchanged sources is a no-op by design:
   a different archive hash for an existing version is a conflict (exit `3`), and
   deletions are never implicit;
 - stormwater: same identity set and content → `unchanged`; any changed record or
-  identity set for an existing version is a conflict (exit `3`), never an overwrite.
+  identity set for an existing version is a conflict (exit `3`), never an overwrite;
+- citizen aggregates: an identical content hash reuses the stored version, so re-running on
+  the same export inserts `0` rows and adds no new version.
 
 The bootstrap never truncates, resets, or replaces data. To start over, recreate the
 volume explicitly with `ARGS="down --purge"`, then `make data-bootstrap`.
@@ -99,12 +111,29 @@ NEXT_PUBLIC_API_URL="http://127.0.0.1:8000" corepack pnpm --filter @ratsight/web
 Port 3080 avoids the listeners (for example a proxy on 3000) that commonly occupy the
 default Web port; the bootstrap never inspects or stops processes it did not start.
 
+The repository `.env` ships `DATABASE_URL` on port 54330 (this profile) so `make api` and
+`uvicorn --reload` reach the populated database without an extra export; the shared `infra`
+profile on 54329 starts empty and lacks the citizen-aggregate table until migrated.
+
 ## Optional synthetic layer
 
 `--synthetic` imports the immutable committed rodent-report fixture. It stays
 `RODENT_REPORT` / `SIMULATED`, and the default profile leaves `rodent_reports` empty so
 simulated rodent movement is never mistaken for observation. See
 `docs/infrastructure/rodent-reports-import.md`.
+
+## Optional citizen-report aggregate layer
+
+`--citizen-reports` imports a public citizen-report export into **suppressed 250 m cell
+counts only**: no coordinates finer than the cell, no free text, no photo links, no
+per-report rows. Optional fields present in the export (地點, 說明, 照片網址) are dropped by
+the importer and never reach the database. Cells with fewer than 3 reports are excluded
+entirely, so absence means "suppressed or unreported", not zero.
+
+The layer stays `CITIZEN_REPORT_AGGREGATE` / `UNVERIFIED` and is never a simulation input.
+Reuse terms for the export are **unverified** (owner assertion recorded in
+`docs/evidence/ratdar-reuse-claim-2026-10-26.md`), which is why the import is opt-in and the
+source file stays outside Git (`data/raw/*` is ignored).
 
 ## Reading the inventory
 

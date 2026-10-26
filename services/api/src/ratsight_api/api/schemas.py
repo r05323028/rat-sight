@@ -123,11 +123,28 @@ class TrajectoryStep(BaseModel):
     classification: Literal["SIMULATED"]
 
 
+TerminationReason = Literal["completed", "dead_end", "no_eligible_transition"]
+
+
 class SimulationTrajectory(BaseModel):
     walker_id: int
     edges: list[TrajectoryStep]
     terminated_early: bool = False
+    termination_reason: TerminationReason = "completed"
     classification: Literal["SIMULATED"]
+
+
+class SimulationReachability(BaseModel):
+    """Directed graph topology from the resolved origin; not habitat or movement evidence."""
+
+    origin_node_id: str
+    reachable_nodes: int
+    total_nodes: int
+    reachable_edges: int
+    total_edges: int
+    component_count: int
+    classification: Literal["SIMULATED"]
+    note: str
 
 
 class PreviewOrigin(BaseModel):
@@ -146,6 +163,7 @@ class SimulationPreviewResponse(BaseModel):
     model_id: str
     model_version: str
     origin: PreviewOrigin
+    reachability: SimulationReachability
     parameters: PreviewParameters
     provenance: SimulationProvenance
     assumptions: list[str]
@@ -556,4 +574,112 @@ class RodentReportResponse(BaseModel):
     bbox: tuple[float, float, float, float] | None = None
     reported_from: str | None = None
     reported_to: str | None = None
+    truncated: bool = False
+
+
+# --- Aggregated public citizen reports ---------------------------------------
+# Counts of third-party citizen reports, coarsened to a 100 m grid and month
+# buckets with small-cell suppression. UNVERIFIED, never observation-grade.
+
+CitizenReportDataClass = Literal["CITIZEN_REPORT_AGGREGATE"]
+
+
+class CitizenReportProcessing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str = Field(min_length=1)
+    tool_version: str = Field(min_length=1)
+    steps: list[str] = Field(min_length=1)
+
+    @field_validator("steps")
+    @classmethod
+    def _steps_are_non_empty(cls, value: list[str]) -> list[str]:
+        if any(not step.strip() for step in value):
+            raise ValueError("processing steps must be non-empty strings")
+        return value
+
+
+class CitizenReportAggregation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cell_size_meters: int = Field(gt=0)
+    month_timezone_assumption: str = Field(min_length=1)
+    suppression_minimum: int = Field(ge=1)
+    dropped_fields: list[str] = Field(min_length=1)
+
+
+class CitizenReportCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    parsed: int = Field(ge=0)
+    used: int = Field(ge=0)
+    invalid_coordinates: int = Field(ge=0)
+    suppressed_records: int = Field(ge=0)
+    suppressed_cells: int = Field(ge=0)
+
+
+class CitizenReportUncertainty(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    currentness: str = Field(min_length=1)
+    note: str = Field(min_length=1)
+
+
+class CitizenReportProvenanceV1(BaseModel):
+    """Provenance for an aggregated third-party citizen-report export."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: ProvenanceSchemaVersion = "1"
+    source_kind: Literal["public_citizen_report_export"]
+    dataset_id: str
+    resource_version: str
+    retrieved_at: str
+    content_sha256: str
+    source_url: str = Field(min_length=1)
+    license: str = Field(min_length=1)
+    attribution: str = Field(min_length=1)
+    source_crs: Literal["EPSG:4326"] = "EPSG:4326"
+    target_crs: Literal["EPSG:4326"] = "EPSG:4326"
+    processing: CitizenReportProcessing
+    aggregation: CitizenReportAggregation
+    counts: CitizenReportCounts
+    synthetic: Literal[False] = False
+    uncertainty: CitizenReportUncertainty
+
+
+class CitizenReportCellPolygon(BaseModel):
+    type: Literal["Polygon"] = "Polygon"
+    coordinates: list[list[list[float]]]
+
+
+class CitizenReportCellProperties(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cell_id: str = Field(min_length=1)
+    month: str = Field(min_length=1)
+    report_type: str = Field(min_length=1)
+    count: int = Field(ge=0)
+    data_class: CitizenReportDataClass = "CITIZEN_REPORT_AGGREGATE"
+    classification: Literal["UNVERIFIED"] = "UNVERIFIED"
+    attribution: str = Field(min_length=1)
+
+
+class CitizenReportCellFeature(BaseModel):
+    type: Literal["Feature"] = "Feature"
+    id: str
+    geometry: CitizenReportCellPolygon
+    properties: CitizenReportCellProperties
+
+
+class CitizenReportAggregateResponse(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: list[CitizenReportCellFeature]
+    data_state: Literal["empty", "available"]
+    data_class: CitizenReportDataClass = "CITIZEN_REPORT_AGGREGATE"
+    classification: Literal["UNVERIFIED"] = "UNVERIFIED"
+    notice: str = Field(min_length=1)
+    provenance: CitizenReportProvenanceV1 | None = None
+    feature_count: int = Field(ge=0)
+    bbox: tuple[float, float, float, float] | None = None
     truncated: bool = False

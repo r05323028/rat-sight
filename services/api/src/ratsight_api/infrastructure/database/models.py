@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Identity,
     Index,
+    Integer,
     String,
     UniqueConstraint,
     func,
@@ -214,6 +215,72 @@ class RodentReport(Base):
     review_status: Mapped[str] = mapped_column(String(32), nullable=False)
     municipal_status: Mapped[str] = mapped_column(String(32), nullable=False)
     action_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    geometry: Mapped[Any] = mapped_column(
+        Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=False), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class CitizenReportCell(Base):
+    """Suppressed 250 m aggregate of third-party citizen reports.
+
+    One row counts citizen reports in a grid cell, wall-clock month, and coarse
+    report type. These are UNVERIFIED citizen reports, not observations,
+    prevalence, population, movement, or disease-risk evidence, and they are
+    never a simulation input.
+    """
+
+    __tablename__ = "citizen_report_cells"
+    __table_args__ = (
+        CheckConstraint(
+            "classification = 'UNVERIFIED'",
+            name="ck_citizen_report_cells_classification",
+        ),
+        CheckConstraint(
+            "data_class = 'CITIZEN_REPORT_AGGREGATE'",
+            name="ck_citizen_report_cells_data_class",
+        ),
+        CheckConstraint(
+            "report_count >= 3",
+            name="ck_citizen_report_cells_minimum",
+        ),
+        CheckConstraint(
+            "GeometryType(geometry) IN ('POLYGON', 'MULTIPOLYGON') AND NOT ST_IsEmpty(geometry)",
+            name="ck_citizen_report_cells_geometry",
+        ),
+        UniqueConstraint(
+            "dataset_id",
+            "resource_version",
+            "cell_id",
+            "month",
+            "report_type",
+            name="uq_citizen_report_cells_key",
+        ),
+        Index("idx_citizen_report_cells_geometry", "geometry", postgresql_using="gist"),
+        Index(
+            "idx_citizen_report_cells_version_month",
+            "dataset_id",
+            "resource_version",
+            "month",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    data_class: Mapped[str] = mapped_column(String(32), nullable=False)
+    classification: Mapped[str] = mapped_column(String(16), nullable=False)
+    cell_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    month: Mapped[str] = mapped_column(String(7), nullable=False)
+    report_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    report_count: Mapped[int] = mapped_column(Integer, nullable=False)
     provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     geometry: Mapped[Any] = mapped_column(
         Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=False), nullable=False

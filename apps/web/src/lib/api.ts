@@ -30,6 +30,8 @@ export type SimulationTrajectory = {
   walker_id: number;
   edges: SimulationTrajectoryStep[];
   terminated_early?: boolean;
+  // Additive backend diagnosis; absent on older API builds, so treat absence as unknown.
+  termination_reason?: "completed" | "dead_end" | "no_eligible_transition";
   classification: "SIMULATED";
 };
 
@@ -72,6 +74,17 @@ export type SimulationPreview = {
     note?: string;
   };
   origin_node_id?: string;
+  /** Server-side counts over the returned graph; follows the resolved origin. */
+  reachability?: {
+    origin_node_id: string;
+    reachable_nodes: number;
+    total_nodes: number;
+    reachable_edges: number;
+    total_edges: number;
+    component_count: number;
+    classification: "SIMULATED";
+    note: string;
+  };
   nodes: {
     id: string;
     coordinates: [number, number];
@@ -376,6 +389,84 @@ export type RodentReportFilters = {
   reportedFrom?: string | null;
   reportedTo?: string | null;
 };
+
+// Citizen-report aggregates are derived from a public citizen export: 250 m cell
+// counts per month, with small cells suppressed. They are UNVERIFIED citizen
+// reports, never observations, and never a simulation input.
+export type CitizenReportCellGeometry = { type: "Polygon"; coordinates: number[][][] };
+
+export type CitizenReportCellProperties = {
+  cell_id: string;
+  month: string;
+  report_type: "sighting" | "bait_station" | "other";
+  count: number;
+  data_class: "CITIZEN_REPORT_AGGREGATE";
+  classification: "UNVERIFIED";
+  attribution: string;
+};
+
+export type CitizenReportAggregation = {
+  cell_size_meters: number;
+  month_timezone_assumption: string;
+  suppression_minimum: number;
+  dropped_fields: string[];
+};
+
+export type CitizenReportCounts = {
+  parsed: number;
+  used: number;
+  invalid_coordinates: number;
+  suppressed_records: number;
+  suppressed_cells: number;
+};
+
+export type CitizenReportAggregateProvenance = {
+  schema_version: "1";
+  source_kind: "public_citizen_report_export";
+  dataset_id: string;
+  resource_version: string;
+  retrieved_at: string;
+  content_sha256: string;
+  source_url: string;
+  license: string;
+  attribution: string;
+  source_crs: "EPSG:4326";
+  target_crs: "EPSG:4326";
+  processing: ProvenanceProcessing;
+  aggregation: CitizenReportAggregation;
+  counts: CitizenReportCounts;
+  synthetic: false;
+  uncertainty: ProvenanceUncertainty;
+};
+
+export type CitizenReportAggregates = ReferenceFeatureCollection<
+  CitizenReportCellGeometry,
+  CitizenReportCellProperties,
+  "CITIZEN_REPORT_AGGREGATE",
+  CitizenReportAggregateProvenance
+> & {
+  classification: "UNVERIFIED";
+  notice: string;
+  feature_count: number;
+  bbox: Bbox | null;
+  truncated: boolean;
+};
+
+export async function fetchCitizenReportAggregates(
+  filters: { bbox?: Bbox; months?: string } = {},
+): Promise<CitizenReportAggregates> {
+  const params = new URLSearchParams();
+  if (filters.bbox) params.set("bbox", filters.bbox.join(","));
+  if (filters.months) params.set("months", filters.months);
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/citizen-report-aggregates${query ? `?${query}` : ""}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Citizen report aggregates request failed (${response.status})`);
+  }
+  return response.json() as Promise<CitizenReportAggregates>;
+}
 
 // Asia/Taipei has been a fixed UTC+08:00 offset since 1979, so the conversion is
 // plain arithmetic: no machine timezone, DST rule, or locale can change it.

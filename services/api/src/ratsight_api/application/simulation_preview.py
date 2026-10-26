@@ -1,6 +1,10 @@
 from ratsight_api.api.schemas import SimulationPreviewRequest
 from ratsight_geo.osm import load_osm_surface_graph
-from ratsight_simulation.graph.network import SYNTHETIC_FIXTURE_ID, create_synthetic_graph
+from ratsight_simulation.graph.network import (
+    SYNTHETIC_FIXTURE_ID,
+    create_synthetic_graph,
+    reachability_summary,
+)
 from ratsight_simulation.models.metadata import MODEL_ID, MODEL_VERSION
 from ratsight_simulation.movement.random_walk import run_weighted_random_walk
 
@@ -113,6 +117,7 @@ def preview_simulation(request: SimulationPreviewRequest) -> dict[str, object]:
                 for step_index, (source, target, edge_id) in enumerate(trajectory)
             ],
             "terminated_early": statistics.terminated_early[walker_id],
+            "termination_reason": statistics.termination_reasons[walker_id],
             "classification": "SIMULATED",
         }
         for walker_id, trajectory in enumerate(statistics.trajectories[:100])
@@ -128,6 +133,14 @@ def preview_simulation(request: SimulationPreviewRequest) -> dict[str, object]:
             "selection": "user" if requested_origin is not None else "default",
             "classification": "SIMULATED",
             "note": "Synthetic model input; not an observed or reported animal origin.",
+        },
+        "reachability": {
+            **reachability_summary(graph, start_node),
+            "classification": "SIMULATED",
+            "note": (
+                "Directed graph topology from the resolved origin; it is not habitat, "
+                "food, sewer, or movement evidence."
+            ),
         },
         "parameters": {
             "study_area": request.study_area,

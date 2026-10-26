@@ -2,9 +2,9 @@
 
 ## Automated checks
 
-- `uv run pytest services/api packages/geo packages/simulation -q` → **163 passed**.
+- `uv run pytest services/api packages/geo packages/simulation -q` → **171 passed**.
 - Public route regression sends `{}` to `/api/v1/simulations/preview`; response defaults to `taipei_osm_songshan` with `osm_surface_network` provenance (supersedes the earlier synthetic-default assertion, reversed 2026-10-26). The explicit `taipei_synthetic_demo` request still returns `synthetic_fixture`, and a missing extract returns 503 `SOURCE_NETWORK_UNAVAILABLE`.
-- `cd apps/web && npm test` → **79 passed**.
+- `cd apps/web && npm test` → **87 passed**.
 - `cd apps/web && npm run typecheck`, `cd apps/web && npm run lint`, Ruff on affected Python packages, and targeted Prettier checks for Dashboard files → clean.
 - Workspace-wide `cd apps/web && npm run format:check` still reports 12 files outside this task (`.impeccable` artifacts, `DESIGN.md`, `tsconfig.json`).
 - `npx playwright test e2e/dashboard.spec.ts` with isolated mocked services → **10 passed** (desktop/mobile).
@@ -32,6 +32,7 @@ QA used disposable databases and API/web pairs, without touching shared database
 - **F1 pre-existing:** stormwater list accessible names do not start with visible segment IDs; axe reports `label-content-name-mismatch`. Not caused by origin/playback.
 - **F2 resolved:** playback trajectory select was below 24px at mobile width; CSS now gives it a 44px minimum height.
 - Failed preview runs now clear prior trajectory output, preventing stale results after an origin error.
+- Preview now reports topology reachability and explicit termination reasons; UI distinguishes disconnected/unsampled graph areas without biological inference.
 - Screen reader, hardware touch, forced-colors, 200% zoom, and pixel-level trajectory alignment remain unverified.
 - One playback unit probe was flaky once in nine runs; no reproduction. Follow-up may replace timer reliance with fake-clock assertions.
 

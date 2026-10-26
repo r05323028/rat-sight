@@ -101,3 +101,43 @@ def test_trajectory_steps_carry_zero_based_step_index() -> None:
     )
     for trajectory in response.trajectories:
         assert [step.step_index for step in trajectory.edges] == list(range(len(trajectory.edges)))
+
+
+def test_reachability_reports_directed_topology_from_the_origin() -> None:
+    response = SimulationPreviewResponse.model_validate(
+        preview_simulation(SimulationPreviewRequest(walkers=2, duration_steps=3))
+    )
+    reachability = response.reachability
+    assert reachability.classification == "SIMULATED"
+    assert reachability.origin_node_id == response.origin.node_id
+    assert reachability.total_nodes == len(response.nodes)
+    assert reachability.total_edges == len(response.edges)
+    assert 0 < reachability.reachable_nodes <= reachability.total_nodes
+    assert reachability.component_count >= 1
+    assert "not habitat" in reachability.note
+
+
+def test_reachability_follows_a_user_selected_origin() -> None:
+    default = SimulationPreviewResponse.model_validate(
+        preview_simulation(SimulationPreviewRequest(walkers=1, duration_steps=2))
+    )
+    chosen = next(node.id for node in default.nodes if node.id != default.origin.node_id)
+    response = SimulationPreviewResponse.model_validate(
+        preview_simulation(
+            SimulationPreviewRequest(walkers=1, duration_steps=2, origin_node_id=chosen)
+        )
+    )
+    assert response.reachability.origin_node_id == chosen
+
+
+def test_termination_reason_is_consistent_with_terminated_early() -> None:
+    response = SimulationPreviewResponse.model_validate(
+        preview_simulation(SimulationPreviewRequest(walkers=3, duration_steps=3))
+    )
+    for trajectory in response.trajectories:
+        assert trajectory.termination_reason in {
+            "completed",
+            "dead_end",
+            "no_eligible_transition",
+        }
+        assert trajectory.terminated_early is (trajectory.termination_reason != "completed")

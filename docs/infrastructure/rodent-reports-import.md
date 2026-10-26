@@ -18,8 +18,10 @@ simulation or infrastructure topology.
 
 - Path: `services/api/tests/fixtures/rodent_reports/synthetic_reports.csv`
 - dataset ID: `00000000-0000-4000-8000-000000000002`
-- resource version: `2026-10-17T00:00:00Z`
-- content SHA-256: `611b8f66f023f96b745fd0bd7b01943629400bf837ad45283bde5b835505080d`
+- resource version: `2026-10-26T17:22:26Z`
+- content SHA-256: `b28305e75e02d88a0a18f5455ce2a8e26c6db47ab657e621cb3d63f39a84655d`
+- records: 160 (`scripts/generate_synthetic_rodent_reports.py`, seed `20261026`)
+- shape: coarse report-type/month/time-of-day aggregates only; no citizen record reproduced
 - manifest: `services/api/tests/fixtures/rodent_reports/README.md`
 
 Columns (exactly, in order): `source_record_id`, `report_type`, `reported_at`,

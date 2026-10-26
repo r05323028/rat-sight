@@ -12,6 +12,7 @@ import {
 import type {
   AdministrativeDistrictGeometry,
   AdministrativeDistrictProperties,
+  CitizenReportAggregates,
   AdministrativeDistricts,
   RodentReportProperties,
   RodentReports,
@@ -53,6 +54,9 @@ const STORMWATER_HIGHLIGHT_LAYER = "ratsight-stormwater-pipelines-highlight";
 const RODENT_REPORT_SOURCE = "ratsight-rodent-reports";
 const RODENT_REPORT_POINT_LAYER = "ratsight-rodent-reports-point";
 const RODENT_REPORT_HIGHLIGHT_LAYER = "ratsight-rodent-reports-highlight";
+const CITIZEN_AGGREGATE_SOURCE = "ratsight-citizen-report-aggregates";
+const CITIZEN_AGGREGATE_FILL_LAYER = "ratsight-citizen-report-aggregates-fill";
+const CITIZEN_AGGREGATE_LINE_LAYER = "ratsight-citizen-report-aggregates-line";
 
 function geometryBounds(
   geometry: AdministrativeDistrictGeometry,
@@ -140,6 +144,8 @@ type MapViewProps = {
   onSelectSegment: (properties: StormwaterProperties) => void;
   rodentReports: RodentReports | null;
   showRodentReports: boolean;
+  citizenAggregates?: CitizenReportAggregates | null;
+  showCitizenAggregates?: boolean;
   selectedReportId: string | null;
   onSelectReport: (properties: RodentReportProperties) => void;
   onSelectTrajectory?: (trajectoryId: number) => void;
@@ -168,6 +174,8 @@ export function MapView({
   onSelectSegment,
   rodentReports,
   showRodentReports,
+  citizenAggregates = null,
+  showCitizenAggregates = false,
   selectedReportId,
   onSelectReport,
   onSelectTrajectory,
@@ -716,6 +724,67 @@ export function MapView({
       unsubscribe();
     };
   }, [selectedSegmentId, stormwater, showStormwater]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const removeCitizenAggregateLayers = () => {
+      if (map.getLayer(CITIZEN_AGGREGATE_LINE_LAYER)) map.removeLayer(CITIZEN_AGGREGATE_LINE_LAYER);
+      if (map.getLayer(CITIZEN_AGGREGATE_FILL_LAYER)) map.removeLayer(CITIZEN_AGGREGATE_FILL_LAYER);
+      if (map.getSource(CITIZEN_AGGREGATE_SOURCE)) map.removeSource(CITIZEN_AGGREGATE_SOURCE);
+    };
+
+    const update = () => {
+      const hasCells = Boolean(citizenAggregates && citizenAggregates.features.length > 0);
+      container.current?.setAttribute(
+        "data-citizen-aggregates",
+        hasCells && showCitizenAggregates ? "visible" : "hidden",
+      );
+      if (!styleReady.current) return;
+      removeCitizenAggregateLayers();
+      if (!citizenAggregates || citizenAggregates.features.length === 0) return;
+      map.addSource(CITIZEN_AGGREGATE_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: citizenAggregates.features },
+      });
+      const beforeId = map.getLayer(SIMULATION_LAYER) ? SIMULATION_LAYER : undefined;
+      const visibility = showCitizenAggregates ? "visible" : "none";
+      map.addLayer(
+        {
+          id: CITIZEN_AGGREGATE_FILL_LAYER,
+          type: "fill",
+          source: CITIZEN_AGGREGATE_SOURCE,
+          layout: { visibility },
+          paint: {
+            "fill-color": "#a3243c",
+            "fill-opacity": 0.18,
+          },
+        },
+        beforeId,
+      );
+      // Cell outlines stay thin and low-contrast: the layer shows counts, not reports.
+      map.addLayer(
+        {
+          id: CITIZEN_AGGREGATE_LINE_LAYER,
+          type: "line",
+          source: CITIZEN_AGGREGATE_SOURCE,
+          layout: { visibility },
+          paint: {
+            "line-color": "#a3243c",
+            "line-width": 1,
+            "line-opacity": 0.55,
+          },
+        },
+        beforeId,
+      );
+    };
+
+    const unsubscribe = onStyled(map, () => styleReady.current, update);
+    return () => {
+      unsubscribe();
+    };
+  }, [citizenAggregates, showCitizenAggregates]);
 
   useEffect(() => {
     const map = mapRef.current;

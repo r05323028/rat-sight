@@ -11,6 +11,7 @@ PROFILE="${PROFILE:-full-local}"
 ACTION="up"
 INSPECT_ONLY=0
 SYNTHETIC=0
+CITIZEN=0
 PURGE=0
 
 for arg in "$@"; do
@@ -18,6 +19,7 @@ for arg in "$@"; do
     up | status | down) ACTION="$arg" ;;
     --inspect-only) INSPECT_ONLY=1 ;;
     --synthetic) SYNTHETIC=1 ;;
+    --citizen-reports) CITIZEN=1 ;;
     --purge) PURGE=1 ;;
     *)
       echo "error: unknown argument: ${arg}" >&2
@@ -56,6 +58,11 @@ STORMWATER_EXPECTED=19747
 
 DISTRICTS_PATH="${RATSIGHT_DISTRICTS_ARCHIVE:-${DATA_DIR}/${DISTRICTS_FILE}}"
 STORMWATER_PATH="${RATSIGHT_STORMWATER_SOURCE:-${DATA_DIR}/${STORMWATER_FILE}}"
+
+# No pinned citizen-report export. Reuse terms for that platform are unverified, so
+# the profile never downloads one: point RATSIGHT_CITIZEN_REPORT_SOURCE at a locally
+# held export and pass --citizen-reports to publish suppressed 250 m counts only.
+CITIZEN_REPORT_PATH="${RATSIGHT_CITIZEN_REPORT_SOURCE:-${DATA_DIR}/citizen-report-export.csv}"
 RETRIEVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Compose interpolation must see these before any `$COMPOSE up`.
@@ -73,6 +80,19 @@ import_stormwater() {
   uv run --package ratsight-api python -m ratsight_api.importers.stormwater_pipelines \
     --source "$STORMWATER_PATH" --archive-sha256 "$STORMWATER_SHA256" \
     --retrieved-at "$RETRIEVED_AT" "$@"
+}
+
+import_citizen_reports() {
+  uv run --package ratsight-api python -m ratsight_api.importers.citizen_report_aggregates \
+    --source "$CITIZEN_REPORT_PATH" "$@"
+}
+
+require_citizen_source() {
+  [[ -f "$CITIZEN_REPORT_PATH" ]] || {
+    echo "error: citizen-report export not found: ${CITIZEN_REPORT_PATH}" >&2
+    echo "       --citizen-reports never downloads citizen data; set RATSIGHT_CITIZEN_REPORT_SOURCE" >&2
+    exit 2
+  }
 }
 
 sha_of() {
@@ -191,6 +211,14 @@ inventory() {
            coalesce(min(dataset_id) || '@' || min(resource_version), '-')
       from rodent_reports
     order by 1"
+  # The aggregate table only exists after migration 0007; older profiles must not
+  # fail the inventory, so its row is emitted separately and only when present.
+  if [[ "$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "select coalesce(to_regclass('public.citizen_report_cells')::text, '')")" == "citizen_report_cells" ]]; then
+    $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -F '|' -c "
+      select 'citizen_report_cells', count(*),
+             coalesce(min(dataset_id) || '@' || min(resource_version), '-')
+        from citizen_report_cells"
+  fi
 }
 
 count_of() {
@@ -215,6 +243,10 @@ commands above. The database follows Docker's restart policy and the volume pers
   make data-bootstrap ARGS=status   # counts, provenance, container state
   make data-bootstrap ARGS=down     # stop the profile, keep data
   make data-bootstrap ARGS="down --purge"  # recreate from empty (explicit, destructive)
+  make data-bootstrap ARGS="up --citizen-reports"  # needs RATSIGHT_CITIZEN_REPORT_SOURCE
+
+Citizen-report aggregates are CITIZEN_REPORT_AGGREGATE/UNVERIFIED: suppressed 250 m
+cell counts with reuse terms still unverified, never observations or a simulation input.
 
 Administrative boundaries are ADMINISTRATIVE_REFERENCE/UNVERIFIED; stormwater is
 INFRASTRUCTURE_REFERENCE/UNVERIFIED and publisher-declared reference-only. Counts
@@ -230,6 +262,10 @@ do_inspect() {
   inspect_sources
   if [[ "$SYNTHETIC" == "1" ]]; then
     uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports --inspect-only
+  fi
+  if [[ "$CITIZEN" == "1" ]]; then
+    require_citizen_source
+    import_citizen_reports --inspect-only
   fi
 }
 
@@ -279,6 +315,17 @@ do_up() {
   if [[ "$SYNTHETIC" == "1" ]]; then
     echo "note: importing the committed SYNTHETIC rodent fixture (opt-in; SIMULATED, not observed)"
     uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports
+  fi
+
+  if [[ "$CITIZEN" == "1" ]]; then
+    require_citizen_source
+    echo "note: importing suppressed CITIZEN_REPORT_AGGREGATE counts from ${CITIZEN_REPORT_PATH} ($(sha_of "$CITIZEN_REPORT_PATH"))"
+    echo "      counts are UNVERIFIED citizen reports: not observations, not prevalence, not a simulation input"
+    import_citizen_reports || {
+      echo "error: citizen-report aggregate import failed (exit $?)" >&2
+      echo "       administrative, stormwater, and rodent layers are unaffected" >&2
+      exit 1
+    }
   fi
 
   local districts stormwater

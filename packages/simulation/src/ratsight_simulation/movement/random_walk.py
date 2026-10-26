@@ -33,6 +33,7 @@ class VisitStatistics:
     edge_probabilities: dict[tuple[str, str, str], float]
     trajectories: list[list[tuple[str, str, str]]]
     terminated_early: list[bool]
+    termination_reasons: list[str]
 
 
 def edge_transition_probabilities(
@@ -79,6 +80,7 @@ def run_weighted_random_walk(
     steps: int = 12,
     seed: int = 42,
     start_node: str = "n0",
+    constraints: Sequence[EdgeConstraint] = (),
 ) -> VisitStatistics:
     """Run Monte Carlo walks; equal graph, parameters and seed yield equal counts."""
     if walkers < 1 or steps < 1 or seed < 0:
@@ -90,6 +92,7 @@ def run_weighted_random_walk(
     edge_visits: dict[tuple[str, str, str], int] = {}
     trajectories: list[list[tuple[str, str, str]]] = []
     terminated_early: list[bool] = []
+    termination_reasons: list[str] = []
     for source, target, key, attributes in graph.edges(keys=True, data=True):
         edge_key = (str(source), str(target), str(attributes.get("edge_id", key)))
         edge_visits[edge_key] = 0
@@ -98,15 +101,17 @@ def run_weighted_random_walk(
         node_visits[current] += 1
         trajectory: list[tuple[str, str, str]] = []
         trajectories.append(trajectory)
-        stopped = False
+        reason = "completed"
         for step in range(steps):
             if graph.out_degree(current) == 0:
-                stopped = True
+                reason = "dead_end"
                 break
             try:
-                transitions = edge_transition_probabilities(graph, current, step=step)
+                transitions = edge_transition_probabilities(
+                    graph, current, step=step, constraints=constraints
+                )
             except NoEligibleTransitionError:
-                stopped = True
+                reason = "no_eligible_transition"
                 break
             selected = transitions[
                 int(random.choice(len(transitions), p=[t.probability for t in transitions]))
@@ -116,7 +121,8 @@ def run_weighted_random_walk(
             trajectory.append(edge_key)
             current = selected.target
             node_visits[current] += 1
-        terminated_early.append(stopped)
+        terminated_early.append(reason != "completed")
+        termination_reasons.append(reason)
     total_node_visits = sum(node_visits.values())
     total_edge_visits = sum(edge_visits.values())
     return VisitStatistics(
@@ -129,4 +135,5 @@ def run_weighted_random_walk(
         },
         trajectories=trajectories,
         terminated_early=terminated_early,
+        termination_reasons=termination_reasons,
     )

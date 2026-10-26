@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   BBOX_MAX_SPAN_DEGREES,
   fetchAdministrativeDistricts,
+  fetchCitizenReportAggregates,
   fetchLayers,
   fetchRodentReports,
   fetchStormwaterPipelines,
@@ -197,6 +198,51 @@ function presetRange(preset: DatePreset, now: Date): { from: string; to: string 
   return { from: `${taipeiDateTimeValue(from).slice(0, 10)}T00:00`, to: taipeiDateTimeValue(now) };
 }
 
+// Derived from the returned graph, not from observation: the API returns every model node (0 visit
+// nodes included) and every model edge, so a BFS from the echoed origin is exact for that payload.
+function reachabilityFromOrigin(
+  preview: SimulationPreview,
+): { total: number; reachable: number; unsampled: number } | null {
+  const origin = preview.origin?.node_id;
+  if (!origin) return null;
+  const outgoing = new Map<string, string[]>();
+  for (const edge of preview.edges) {
+    const targets = outgoing.get(edge.source);
+    if (targets) targets.push(edge.target);
+    else outgoing.set(edge.source, [edge.target]);
+  }
+  const reachable = new Set([origin]);
+  const queue = [origin];
+  while (queue.length > 0) {
+    for (const next of outgoing.get(queue.pop()!) ?? []) {
+      if (!reachable.has(next)) {
+        reachable.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return {
+    total: preview.nodes.length,
+    reachable: reachable.size,
+    unsampled: preview.nodes.filter((node) => reachable.has(node.id) && node.visits === 0).length,
+  };
+}
+
+type TerminationReason = "completed" | "dead_end" | "no_eligible_transition";
+
+const TERMINATION_REASON_LABELS: Record<Exclude<TerminationReason, "completed">, string> = {
+  dead_end: "模型網路死路（無可用出邊）終止",
+  no_eligible_transition: "模型步驟規則下無合格轉移終止",
+};
+
+// `terminated_early` alone merges structural dead ends with step-rule refusals, so the fallback
+// wording must hold for both when an older API omits termination_reason.
+function terminationLabel(reason: TerminationReason | null | undefined): string {
+  return reason && reason !== "completed"
+    ? TERMINATION_REASON_LABELS[reason]
+    : "模型規則下無可用轉移而提前終止";
+}
+
 export function Dashboard() {
   const layersQuery = useQuery({ queryKey: ["layers"], queryFn: fetchLayers });
   const districtsQuery = useQuery({
@@ -226,6 +272,11 @@ export function Dashboard() {
       }),
     enabled: !bboxTooBroad && !rodentRangeInvalid,
   });
+  const citizenAggregateQuery = useQuery({
+    queryKey: ["citizen-report-aggregates", viewportBbox],
+    queryFn: () => fetchCitizenReportAggregates({ bbox: viewportBbox }),
+    enabled: !bboxTooBroad,
+  });
   const [preview, setPreview] = useState<SimulationPreview | null>(null);
   // The pinned OSM extract is the default so simulated paths follow surveyed geometry;
   // the schematic graph stays an explicit choice.
@@ -236,6 +287,7 @@ export function Dashboard() {
   const [showBoundaries, setShowBoundaries] = useState(false);
   const [showStormwater, setShowStormwater] = useState(false);
   const [showRodentReports, setShowRodentReports] = useState(false);
+  const [showCitizenAggregates, setShowCitizenAggregates] = useState(false);
   const [selectedDistrict, setSelectedDistrict] = useState<AdministrativeDistrictProperties | null>(
     null,
   );
@@ -323,6 +375,19 @@ export function Dashboard() {
   const rodentValidationMessage = rodentRangeInvalid
     ? "回報起時間必須早於或等於回報迄時間。"
     : null;
+  const citizenAggregates = citizenAggregateQuery.data ?? null;
+  const citizenAggregateCells = citizenAggregates?.features ?? [];
+  const hasCitizenAggregates =
+    citizenAggregates?.data_state === "available" && citizenAggregateCells.length > 0;
+  // Cell counts are suppressed aggregates, so summing them is a floor on reported
+  // volume, not a report total: every suppressed group is excluded.
+  const citizenAggregateReportCount = citizenAggregateCells.reduce(
+    (total, feature) => total + feature.properties.count,
+    0,
+  );
+  const citizenAggregateMonths = [
+    ...new Set(citizenAggregateCells.map((feature) => feature.properties.month)),
+  ].sort();
   // Imported layers and synthetic preview output are separate groups: a
   // generated fixture is not a missing local dataset.
   const catalogLayers = layers.filter(
@@ -332,13 +397,33 @@ export function Dashboard() {
   const hasNetworkGeometry = Boolean(preview?.edges.some((edge) => edge.geometry));
   const trajectories = preview?.trajectories ?? [];
   const showingTrajectories = outputMode === "trajectory" && trajectories.length > 0;
+  const reachability = preview ? reachabilityFromOrigin(preview) : null;
+  // Server counts are authoritative when present; the BFS only supplies the unsampled count (and
+  // stands in when an older API build omits `reachability`).
+  const reachabilitySummary = preview
+    ? {
+        total: preview.reachability?.total_nodes ?? reachability?.total ?? 0,
+        reachable: preview.reachability?.reachable_nodes ?? reachability?.reachable ?? 0,
+        unsampled: reachability?.unsampled ?? 0,
+        components: preview.reachability?.component_count ?? null,
+      }
+    : null;
+  const terminatedTrajectories = trajectories.filter((trajectory) => trajectory.terminated_early);
+  const terminationReasons = new Set(
+    terminatedTrajectories.map((trajectory) => trajectory.termination_reason),
+  );
+  const sharedTerminationReason =
+    terminatedTrajectories.length > 0 && terminationReasons.size === 1
+      ? (terminatedTrajectories[0].termination_reason ?? null)
+      : null;
   const catalogLayerAvailable = (layer: Layer) =>
     layer.available || (layer.id === "simulated_paths" && preview !== null);
   const availableCatalogLayers = catalogLayers.filter(catalogLayerAvailable);
   const unavailableCatalogLayers = catalogLayers.filter((layer) => !catalogLayerAvailable(layer));
-  // The panel renders four built-in map rows (districts, network reference,
-  // stormwater, rodent reports) plus every catalog entry exactly once.
-  const BUILT_IN_LAYER_ROW_COUNT = 4;
+  // The panel renders five built-in map rows (districts, network reference,
+  // stormwater, rodent reports, citizen-report aggregates) plus every catalog
+  // entry exactly once.
+  const BUILT_IN_LAYER_ROW_COUNT = 5;
   const visibleLayerCount =
     BUILT_IN_LAYER_ROW_COUNT + catalogLayers.length + (simulatedPathsLayer ? 1 : 0);
   const unavailableDatasetSummary = unavailableCatalogLayers
@@ -465,6 +550,16 @@ export function Dashboard() {
                 ? "回傳資料已截斷"
                 : "RODENT_REPORT · SIMULATED（模擬）";
 
+  const citizenAggregateStatus = bboxTooBroad
+    ? "請放大以載入彙整"
+    : citizenAggregateQuery.isPending
+      ? "彙整載入中…"
+      : citizenAggregateQuery.isError
+        ? "公民通報彙整服務無法使用"
+        : citizenAggregates?.data_state === "empty"
+          ? "尚未匯入公民通報彙整"
+          : "CITIZEN_REPORT_AGGREGATE · UNVERIFIED（未驗證）";
+
   return (
     <main className="dashboard-shell">
       <header className="topbar">
@@ -562,6 +657,8 @@ export function Dashboard() {
             showRodentReports={showRodentReports}
             selectedReportId={selectedVisibleReport?.report_id ?? null}
             onSelectReport={setSelectedReport}
+            citizenAggregates={citizenAggregates}
+            showCitizenAggregates={showCitizenAggregates}
             onSelectTrajectory={setSelectedTrajectoryId}
             activeStep={showingTrajectories ? activeStep : null}
             selectedTrajectoryId={playbackTrajectory?.walker_id ?? null}
@@ -582,6 +679,9 @@ export function Dashboard() {
             </span>
             <span className="legend-item">
               <i className="legend-rodent-reports" /> 鼠類回報（SIMULATED · 模擬）
+            </span>
+            <span className="legend-item">
+              <i className="legend-citizen-aggregate" /> 公民通報彙整（250 公尺網格）
             </span>
             <span className="legend-item">
               <i className="legend-simulated" /> 模擬 · 合成測試資料
@@ -759,6 +859,20 @@ export function Dashboard() {
                   onChange={(event) => setShowRodentReports(event.target.checked)}
                 />
               </label>
+              <label className={`layer-row ${hasCitizenAggregates ? "" : "is-unavailable"}`}>
+                <LayerGlyph layerId="citizen-aggregates" />
+                <span className="layer-name">
+                  公民通報彙整
+                  <small>{citizenAggregateStatus}</small>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="公民通報彙整"
+                  disabled={!hasCitizenAggregates}
+                  checked={showCitizenAggregates}
+                  onChange={(event) => setShowCitizenAggregates(event.target.checked)}
+                />
+              </label>
               {availableCatalogLayers.map(renderCatalogLayer)}
             </div>
             {simulatedPathsLayer && (
@@ -871,7 +985,8 @@ export function Dashboard() {
                   <option value="taipei_osm_songshan">臺北松山 · OSM 來源網路</option>
                 </select>
                 <small>
-                  預設使用 bounded OSM surface extract；來源未佈建時明確回報無法使用，不會自動改用示意網路。僅作空間模擬假設，不代表老鼠實際移動。
+                  預設使用 bounded OSM surface
+                  extract；來源未佈建時明確回報無法使用，不會自動改用示意網路。僅作空間模擬假設，不代表老鼠實際移動。
                 </small>
               </div>
               <div className="form-field">
@@ -950,9 +1065,8 @@ export function Dashboard() {
                     ? `API 回傳 ${preview.trajectory_count ?? "多個"} 條軌跡；目前僅繪製前 100 條。`
                     : preview?.trajectories?.length
                       ? `API 已提供軌跡；仍標示為 SIMULATED。${
-                          preview.trajectories.filter((trajectory) => trajectory.terminated_early)
-                            .length
-                        } 條在模型網路死路（無可用出邊）終止；不代表抵達或真實移動。`
+                          terminatedTrajectories.length
+                        } 條${terminationLabel(sharedTerminationReason)}；不代表抵達或真實移動。`
                       : "API 未提供軌跡欄位，僅顯示 aggregate。"}
                 </small>
               </div>
@@ -977,6 +1091,25 @@ export function Dashboard() {
               <span>模型網路邊</span>
               <strong>{preview ? `${preview.edges.length} 條模型邊` : "尚未建模"}</strong>
             </div>
+            <div className="analysis-row">
+              <span>可達節點</span>
+              <strong>
+                {reachabilitySummary
+                  ? `${reachabilitySummary.reachable} / ${reachabilitySummary.total} 個模型節點`
+                  : "尚未建模"}
+              </strong>
+            </div>
+            {reachabilitySummary ? (
+              <p className="inline-note" aria-live="polite">
+                可達性由 API 回傳的模型節點與邊計算（SIMULATED，非觀測或調查）：目前起點下{" "}
+                {reachabilitySummary.total - reachabilitySummary.reachable} 個節點不可達、
+                未被取樣，{reachabilitySummary.unsampled} 個可達節點也未被取樣。
+                {reachabilitySummary.components !== null && reachabilitySummary.components > 1
+                  ? ` 模型網路有 ${reachabilitySummary.components} 個互不相連的分量，部分節點在任何單一起點下都不可達。`
+                  : ""}
+                未取樣或不可達不代表沒有動物、沒有活動，也不代表沒有風險。
+              </p>
+            ) : null}
             <div className="analysis-row">
               <span>風險估計</span>
               <strong>不提供（本模型不估計風險）</strong>
@@ -1028,7 +1161,9 @@ export function Dashboard() {
                         {trajectories.map((trajectory) => (
                           <option key={trajectory.walker_id} value={trajectory.walker_id}>
                             #{trajectory.walker_id} · {trajectory.edges.length} 段
-                            {trajectory.terminated_early ? " · 死路終止" : ""}
+                            {trajectory.terminated_early
+                              ? ` · ${terminationLabel(trajectory.termination_reason)}`
+                              : ""}
                           </option>
                         ))}
                       </select>
@@ -1115,7 +1250,9 @@ export function Dashboard() {
                         ? ` API 回傳 ${preview.trajectory_count ?? "多個"} 條，僅提供前 ${trajectories.length} 條可播放。`
                         : ""}
                       {playbackTrajectory?.terminated_early
-                        ? " 此合成代理在模型網路死路終止（無可用出邊）：那是圖論終止原因，不代表抵達目的地或真實移動。"
+                        ? ` 此合成代理${terminationLabel(
+                            playbackTrajectory.termination_reason,
+                          )}：那是圖論或模型規則的終止原因，不代表抵達目的地或真實移動，也不代表該處沒有動物。`
                         : ""}
                     </p>
                   </div>
@@ -1594,6 +1731,99 @@ export function Dashboard() {
                   <strong>{activeRodentReports.provenance.uncertainty.currentness}</strong>
                 </div>
               </details>
+            )}
+          </section>
+
+          <section
+            className="panel citizen-aggregate-panel"
+            id="panel-citizen-aggregates"
+            aria-label="公民通報彙整檢視"
+          >
+            <div className="panel-heading">
+              <div>
+                <h3>公民通報彙整</h3>
+              </div>
+              <span className="classification-badge">UNVERIFIED · 未驗證</span>
+            </div>
+            {hasCitizenAggregates ? (
+              <>
+                <p className="reference-label">{citizenAggregateStatus}</p>
+                <p className="inline-note" aria-live="polite">
+                  目前視圖回傳 {citizenAggregateCells.length} 個{" "}
+                  {citizenAggregates?.provenance?.aggregation.cell_size_meters ?? 250} 公尺網格、
+                  {citizenAggregateReportCount} 筆已發布的通報計數
+                  {citizenAggregateMonths.length > 0
+                    ? `，涵蓋 ${citizenAggregateMonths.join("、")}`
+                    : ""}
+                  。每格每月每類型至少{" "}
+                  {citizenAggregates?.provenance?.aggregation.suppression_minimum ?? 3}{" "}
+                  筆才發布；未達門檻的網格與類型不顯示，因此計數是下限而非通報總數。
+                  {citizenAggregates?.truncated
+                    ? " 已達回傳上限：除這些網格外仍有符合條件的資料，且不宣稱精確總數。"
+                    : ""}
+                </p>
+                <p className="reference-note">
+                  公民自願通報的彙整計數，未經平台或市政驗證。不是鼠類觀測、盛行率、族群、移動或風險估計，也不作為模擬輸入。
+                </p>
+                {citizenAggregates?.provenance && (
+                  <details className="provenance-details">
+                    <summary>來源、授權、精度與抑制</summary>
+                    <div className="provenance-block" aria-label="公民通報彙整來源出處">
+                      <span>來源 URL</span>
+                      {isSafeExternalUrl(citizenAggregates.provenance.source_url) ? (
+                        <a
+                          href={citizenAggregates.provenance.source_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {citizenAggregates.provenance.source_url}
+                        </a>
+                      ) : (
+                        <strong>{citizenAggregates.provenance.source_url}</strong>
+                      )}
+                      <span>姓名標示</span>
+                      <strong>{citizenAggregates.provenance.attribution}</strong>
+                      <span>授權／再利用</span>
+                      <strong>{citizenAggregates.provenance.license}</strong>
+                      <span>資料集版本</span>
+                      <strong>{citizenAggregates.provenance.resource_version}</strong>
+                      <span>內容 SHA-256</span>
+                      <strong>{citizenAggregates.provenance.content_sha256}</strong>
+                      <span>網格大小</span>
+                      <strong>
+                        {citizenAggregates.provenance.aggregation.cell_size_meters} 公尺
+                      </strong>
+                      <span>抑制門檻</span>
+                      <strong>
+                        每格每月每類型至少{" "}
+                        {citizenAggregates.provenance.aggregation.suppression_minimum} 筆
+                      </strong>
+                      <span>未匯入欄位</span>
+                      <strong>
+                        {citizenAggregates.provenance.aggregation.dropped_fields.join("、")}
+                      </strong>
+                      <span>處理計數</span>
+                      <strong>
+                        解析 {citizenAggregates.provenance.counts.parsed} 筆 · 採用{" "}
+                        {citizenAggregates.provenance.counts.used} 筆 · 抑制{" "}
+                        {citizenAggregates.provenance.counts.suppressed_records} 筆 /{" "}
+                        {citizenAggregates.provenance.counts.suppressed_cells} 格
+                      </strong>
+                      <span>月份假設</span>
+                      <strong>{citizenAggregates.provenance.aggregation.month_timezone_assumption}</strong>
+                      <span>現勢性</span>
+                      <strong>{citizenAggregates.provenance.uncertainty.currentness}</strong>
+                    </div>
+                  </details>
+                )}
+              </>
+            ) : (
+              <p className="inline-note" aria-live="polite">
+                {citizenAggregateStatus}
+                {citizenAggregates?.data_state === "empty"
+                  ? "：資料庫尚未匯入公民通報彙整；不以其他資料代替。"
+                  : "：未取得彙整資料；不顯示代替資料。"}
+              </p>
             )}
           </section>
         </aside>

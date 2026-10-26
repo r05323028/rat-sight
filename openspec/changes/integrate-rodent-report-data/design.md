@@ -4,7 +4,7 @@
 
 The only permitted input for this change is the committed synthetic fixture
 `services/api/tests/fixtures/rodent_reports/synthetic_reports.csv`. It has dataset ID
-`00000000-0000-4000-8000-000000000002`, resource version `2026-10-17T00:00:00Z`, and a
+`00000000-0000-4000-8000-000000000002`, resource version `2026-10-26T17:22:26Z`, and a
 recorded SHA-256 manifest in `services/api/tests/fixtures/rodent_reports/README.md`.
 The importer pins all three values and rejects other source identities by default; no
 real report download or source override flag exists.

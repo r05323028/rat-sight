@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type {
   AdministrativeDistricts,
+  CitizenReportAggregates,
   RodentReports,
   SimulationPreview,
   StormwaterNetwork,
@@ -226,6 +227,72 @@ const rodentReports: RodentReports = {
   ],
 };
 
+const citizenAggregates: CitizenReportAggregates = {
+  type: "FeatureCollection",
+  data_state: "available",
+  data_class: "CITIZEN_REPORT_AGGREGATE",
+  classification: "UNVERIFIED",
+  notice: "公民通報彙整只提供 250 公尺網格計數。",
+  feature_count: 1,
+  bbox: [121.5, 25.0, 121.53, 25.02],
+  truncated: false,
+  provenance: {
+    schema_version: "1",
+    source_kind: "public_citizen_report_export",
+    dataset_id: "ratdar-taipei-public-export",
+    resource_version: "2026-10-26T20:00:00Z",
+    retrieved_at: "2026-10-26T20:00:00Z",
+    content_sha256: "e".repeat(64),
+    source_url: "https://ratdar.taipei/",
+    license: "公開匯出，未取得再利用授權；僅發布彙整計數。",
+    attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+    source_crs: "EPSG:4326",
+    target_crs: "EPSG:4326",
+    processing: { tool: "test", tool_version: "0", steps: ["aggregate"] },
+    aggregation: {
+      cell_size_meters: 250,
+      month_timezone_assumption: "Asia/Taipei wall clock",
+      suppression_minimum: 3,
+      dropped_fields: ["地點", "說明", "照片網址"],
+    },
+    counts: {
+      parsed: 1435,
+      used: 319,
+      invalid_coordinates: 0,
+      suppressed_records: 1116,
+      suppressed_cells: 946,
+    },
+    synthetic: false,
+    uncertainty: { currentness: "2026-05 only", note: "citizen reports" },
+  },
+  features: [
+    {
+      type: "Feature",
+      geometry: {
+        type: "Polygon",
+        coordinates: [
+          [
+            [121.51, 25.0112],
+            [121.51, 25.0135],
+            [121.508, 25.0135],
+            [121.508, 25.0112],
+            [121.51, 25.0112],
+          ],
+        ],
+      },
+      properties: {
+        cell_id: "g250m:1:2",
+        month: "2026-05",
+        report_type: "sighting",
+        count: 4,
+        data_class: "CITIZEN_REPORT_AGGREGATE",
+        classification: "UNVERIFIED",
+        attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+      },
+    },
+  ],
+};
+
 type MapViewProps = {
   preview?: SimulationPreview | null;
   showSimulatedPaths?: boolean;
@@ -241,6 +308,8 @@ type MapViewProps = {
   showRodentReports?: boolean;
   selectedReportId?: string | null;
   onSelectReport?: (properties: unknown) => void;
+  citizenAggregates?: CitizenReportAggregates | null;
+  showCitizenAggregates?: boolean;
   onSelectTrajectory?: (trajectoryId: number) => void;
   outputMode?: "aggregate" | "trajectory";
   onBoundsChange?: (bbox: [number, number, number, number]) => void;
@@ -261,6 +330,8 @@ function mapElement({
   showRodentReports = false,
   selectedReportId = null,
   onSelectReport = vi.fn(),
+  citizenAggregates: citizenAggregatesValue = null,
+  showCitizenAggregates = false,
   onSelectTrajectory = vi.fn(),
   outputMode = "aggregate",
   onBoundsChange = vi.fn(),
@@ -281,6 +352,8 @@ function mapElement({
       showRodentReports={showRodentReports}
       selectedReportId={selectedReportId}
       onSelectReport={onSelectReport}
+      citizenAggregates={citizenAggregatesValue}
+      showCitizenAggregates={showCitizenAggregates}
       onSelectTrajectory={onSelectTrajectory}
       outputMode={outputMode}
       onBoundsChange={onBoundsChange}
@@ -778,4 +851,49 @@ describe("MapView", () => {
       "hidden",
     );
   });
+
+  it("draws citizen-report aggregates as a suppressed cell layer", () => {
+    render(mapElement({ citizenAggregates, showCitizenAggregates: true }));
+    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
+      "data-citizen-aggregates",
+      "visible",
+    );
+    const map = h.latest.current as {
+      addSource: ReturnType<typeof vi.fn>;
+      addLayer: ReturnType<typeof vi.fn>;
+    };
+    expect(map.addSource).toHaveBeenCalledWith(
+      "ratsight-citizen-report-aggregates",
+      expect.objectContaining({
+        type: "geojson",
+        data: { type: "FeatureCollection", features: citizenAggregates.features },
+      }),
+    );
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "ratsight-citizen-report-aggregates-fill",
+        type: "fill",
+        layout: expect.objectContaining({ visibility: "visible" }),
+        paint: expect.objectContaining({ "fill-color": "#a3243c" }),
+      }),
+      undefined,
+    );
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "ratsight-citizen-report-aggregates-line",
+        type: "line",
+        paint: expect.objectContaining({ "line-color": "#a3243c" }),
+      }),
+      undefined,
+    );
+  });
+
+  it("hides citizen-report aggregate cells until the layer is enabled", () => {
+    render(mapElement({ citizenAggregates, showCitizenAggregates: false }));
+    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
+      "data-citizen-aggregates",
+      "hidden",
+    );
+  });
 });
+

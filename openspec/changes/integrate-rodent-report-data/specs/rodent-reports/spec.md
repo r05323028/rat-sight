@@ -13,7 +13,7 @@ The system MUST document candidate source ownership, access, licensing, semantic
 
 ### Requirement: Validated rodent report import
 
-The system MUST provide a documented local-file-only importer for the pinned synthetic fixture `services/api/tests/fixtures/rodent_reports/synthetic_reports.csv`, with dataset ID `00000000-0000-4000-8000-000000000002`, resource version `2026-10-17T00:00:00Z`, and manifest SHA-256. It MUST reject any other identity/hash and validate the exact CSV header, unique source identity, RFC3339 UTC timestamps, finite EPSG:4326 point coordinates, bounded report/status/precision enums, and the immutable typed `RodentReportProvenanceV1` envelope before any write. Fixture records MUST be labeled `data_class=RODENT_REPORT` and `classification=SIMULATED`; invalid, changed, or forbidden-field content MUST fail closed without partial writes.
+The system MUST provide a documented local-file-only importer for the pinned synthetic fixture `services/api/tests/fixtures/rodent_reports/synthetic_reports.csv`, with dataset ID `00000000-0000-4000-8000-000000000002`, resource version `2026-10-26T17:22:26Z`, and manifest SHA-256. It MUST reject any other identity/hash and validate the exact CSV header, unique source identity, RFC3339 UTC timestamps, finite EPSG:4326 point coordinates, bounded report/status/precision enums, and the immutable typed `RodentReportProvenanceV1` envelope before any write. Fixture records MUST be labeled `data_class=RODENT_REPORT` and `classification=SIMULATED`; invalid, changed, or forbidden-field content MUST fail closed without partial writes.
 
 #### Scenario: Valid synthetic fixture
 

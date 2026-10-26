@@ -39,3 +39,7 @@ __pycache__/
 .pi/skills/impeccable/
 apps/web/.impeccable/
 .codex/hooks.json
+
+# Raw licensed/sensitive source exports stay outside version control
+data/raw/*
+!data/raw/README.md

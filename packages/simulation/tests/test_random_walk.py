@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import networkx as nx
 import pytest
-from ratsight_simulation.graph.network import create_synthetic_graph
+from ratsight_simulation.graph.network import create_synthetic_graph, reachability_summary
 from ratsight_simulation.movement.random_walk import (
     edge_transition_probabilities,
     run_weighted_random_walk,
@@ -78,3 +78,61 @@ def test_isolated_origin_returns_empty_trajectory() -> None:
     assert result.node_probabilities == {"origin": 1.0}
     assert result.edge_visits == {}
     assert result.edge_probabilities == {}
+
+
+def test_termination_reasons_distinguish_completed_dead_end_and_eligibility() -> None:
+    completed = run_weighted_random_walk(
+        create_synthetic_graph(), walkers=2, steps=4, seed=11, start_node="n0"
+    )
+    assert completed.termination_reasons == ["completed", "completed"]
+    assert completed.terminated_early == [False, False]
+
+    dead_end_graph = nx.MultiDiGraph()
+    dead_end_graph.add_edge("start", "sink", edge_id="start-sink", movement_weight=1.0)
+    dead_end = run_weighted_random_walk(
+        dead_end_graph, walkers=1, steps=4, seed=0, start_node="start"
+    )
+    assert dead_end.termination_reasons == ["dead_end"]
+
+    class BlocksEverything:
+        def allows(self, source, target, edge, step) -> bool:
+            return False
+
+    blocked = run_weighted_random_walk(
+        create_synthetic_graph(),
+        walkers=1,
+        steps=4,
+        seed=0,
+        start_node="n0",
+        constraints=[BlocksEverything()],
+    )
+    assert blocked.termination_reasons == ["no_eligible_transition"]
+    assert blocked.trajectories == [[]]
+
+
+def test_reachability_summary_counts_directed_reachable_topology() -> None:
+    graph = nx.MultiDiGraph()
+    graph.add_edge("a", "b", edge_id="ab", movement_weight=1.0)
+    graph.add_edge("b", "c", edge_id="bc", movement_weight=1.0)
+    graph.add_node("island")
+
+    summary = reachability_summary(graph, "a")
+
+    assert summary == {
+        "origin_node_id": "a",
+        "reachable_nodes": 3,
+        "total_nodes": 4,
+        "reachable_edges": 2,
+        "total_edges": 2,
+        "component_count": 2,
+    }
+    with pytest.raises(ValueError, match="not in graph"):
+        reachability_summary(graph, "missing")
+
+
+def test_synthetic_graph_is_fully_reachable_from_every_node() -> None:
+    graph = create_synthetic_graph()
+    for node in graph.nodes:
+        summary = reachability_summary(graph, node)
+        assert summary["reachable_nodes"] == summary["total_nodes"]
+        assert summary["component_count"] == 1

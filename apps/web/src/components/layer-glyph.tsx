@@ -47,6 +47,12 @@ const GLYPH_PATHS: Record<string, ReactNode> = {
       <path d="M6 2.6a3.4 3.4 0 0 1 0 6.8z" fill="currentColor" stroke="none" />
     </>
   ),
+  "citizen-aggregates": (
+    <>
+      <path d="M1.5 1.5h3.4v3.4H1.5zM7.1 1.5h3.4v3.4H7.1zM1.5 7.1h3.4v3.4H1.5z" />
+      <path d="M8.8 8.8h1.9M9.75 7.85v1.9" />
+    </>
+  ),
   simulated_paths: <path d="M1.5 9.5 4.5 5.5 7.5 8 10.5 2.5" strokeDasharray="2 1.4" />,
 };
 

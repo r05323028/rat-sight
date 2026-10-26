@@ -33,8 +33,13 @@ import-stormwater:
 import-rodent-reports:
 	uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports $(ARGS)
 
+# Suppressed 250 m counts only; never downloads citizen data. Reuse terms unverified.
+import-citizen-reports:
+	uv run --package ratsight-api python -m ratsight_api.importers.citizen_report_aggregates $(ARGS)
+
 # Persistent pinned-reference profile in its own Compose project/volume.
-# ARGS accepts: up (default) | status | down, plus --inspect-only, --synthetic, --purge.
+# ARGS accepts: up (default) | status | down, plus --inspect-only, --synthetic,
+# --citizen-reports, --purge.
 data-bootstrap:
 	PROFILE=$(PROFILE) bash scripts/data_bootstrap.sh $(ARGS)
 

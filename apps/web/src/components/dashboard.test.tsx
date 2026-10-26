@@ -9,7 +9,11 @@ const mockState = vi.hoisted(() => ({
   boundaryMode: "empty" as "empty" | "available" | "error",
   stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
   rodentMode: "available" as "available" | "empty" | "in_filters" | "truncated" | "error" | "many",
+  citizenMode: "available" as "available" | "empty" | "error",
   previewMode: "available" as "available" | "osm_unavailable" | "ui_error" | "unknown_origin",
+  // Absent by default: the API does not ship termination_reason yet.
+  previewTerminationReason: undefined as "dead_end" | "no_eligible_transition" | undefined,
+  previewReachability: true,
   district: {
     district_id: "63000010",
     district_name: "松山區",
@@ -130,7 +134,10 @@ beforeEach(() => {
   mockState.boundaryMode = "empty";
   mockState.stormwaterMode = "available";
   mockState.rodentMode = "available";
+  mockState.citizenMode = "available";
   mockState.previewMode = "available";
+  mockState.previewTerminationReason = undefined;
+  mockState.previewReachability = true;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -279,6 +286,122 @@ beforeEach(() => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
+      if (url.includes("/api/v1/citizen-report-aggregates")) {
+        if (mockState.citizenMode === "error") {
+          return new Response("aggregate storage unavailable", { status: 503 });
+        }
+        if (mockState.citizenMode === "empty") {
+          return new Response(
+            JSON.stringify({
+              type: "FeatureCollection",
+              data_state: "empty",
+              data_class: "CITIZEN_REPORT_AGGREGATE",
+              classification: "UNVERIFIED",
+              notice: "公民通報彙整只提供 250 公尺網格計數。",
+              provenance: null,
+              features: [],
+              feature_count: 0,
+              bbox: null,
+              truncated: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            type: "FeatureCollection",
+            data_state: "available",
+            data_class: "CITIZEN_REPORT_AGGREGATE",
+            classification: "UNVERIFIED",
+            notice: "公民通報彙整只提供 250 公尺網格計數。",
+            provenance: {
+              schema_version: "1",
+              source_kind: "public_citizen_report_export",
+              dataset_id: "ratdar-taipei-public-export",
+              resource_version: "2026-10-26T20:00:00Z",
+              retrieved_at: "2026-10-26T20:00:00Z",
+              content_sha256: "e".repeat(64),
+              source_url: "https://ratdar.taipei/",
+              license: "公開匯出，未取得再利用授權；僅發布彙整計數。",
+              attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+              source_crs: "EPSG:4326",
+              target_crs: "EPSG:4326",
+              processing: { tool: "test", tool_version: "0", steps: ["aggregate"] },
+              aggregation: {
+                cell_size_meters: 250,
+                month_timezone_assumption: "Asia/Taipei wall clock",
+                suppression_minimum: 3,
+                dropped_fields: ["地點", "說明", "照片網址"],
+              },
+              counts: {
+                parsed: 1435,
+                used: 319,
+                invalid_coordinates: 0,
+                suppressed_records: 1116,
+                suppressed_cells: 946,
+              },
+              synthetic: false,
+              uncertainty: { currentness: "2026-05 only", note: "citizen reports" },
+            },
+            features: [
+              {
+                type: "Feature",
+                geometry: {
+                  type: "Polygon",
+                  coordinates: [
+                    [
+                      [121.51, 25.0112],
+                      [121.51, 25.0135],
+                      [121.508, 25.0135],
+                      [121.508, 25.0112],
+                      [121.51, 25.0112],
+                    ],
+                  ],
+                },
+                properties: {
+                  cell_id: "g250m:1:2",
+                  month: "2026-05",
+                  report_type: "sighting",
+                  count: 4,
+                  data_class: "CITIZEN_REPORT_AGGREGATE",
+                  classification: "UNVERIFIED",
+                  attribution:
+                    "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+                },
+              },
+              {
+                type: "Feature",
+                geometry: {
+                  type: "Polygon",
+                  coordinates: [
+                    [
+                      [121.52, 25.0112],
+                      [121.52, 25.0135],
+                      [121.518, 25.0135],
+                      [121.518, 25.0112],
+                      [121.52, 25.0112],
+                    ],
+                  ],
+                },
+                properties: {
+                  cell_id: "g250m:1:3",
+                  month: "2026-05",
+                  report_type: "sighting",
+                  count: 3,
+                  data_class: "CITIZEN_REPORT_AGGREGATE",
+                  classification: "UNVERIFIED",
+                  attribution:
+                    "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+                },
+              },
+            ],
+            feature_count: 2,
+            bbox: [121.5, 25.0, 121.53, 25.02],
+            truncated: false,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (url.includes("/api/v1/rodent-reports")) {
         if (mockState.rodentMode === "error") {
           return new Response("storage unavailable", { status: 503 });
@@ -406,12 +529,42 @@ beforeEach(() => {
             {
               id: "n2",
               coordinates: [121.52, 25.02],
-              visits: 2,
-              probability: 0.4,
+              visits: 0,
+              probability: 0,
+              classification: "SIMULATED",
+            },
+            {
+              id: "n3",
+              coordinates: [121.53, 25.03],
+              visits: 0,
+              probability: 0,
               classification: "SIMULATED",
             },
           ],
-          edges: [],
+          reachability: mockState.previewReachability
+            ? {
+                origin_node_id: requestBody.origin_node_id ?? "n1",
+                reachable_nodes: 2,
+                total_nodes: 3,
+                reachable_edges: 1,
+                total_edges: 1,
+                component_count: 2,
+                classification: "SIMULATED",
+                note: "Graph reachability from the resolved origin; synthetic model input.",
+              }
+            : undefined,
+          // n1 -> n3 only: n2 is disconnected and n3 is reachable but unsampled.
+          edges: [
+            {
+              source: "n1",
+              target: "n3",
+              edge_id: "e3",
+              movement_weight: 1,
+              visits: 0,
+              probability: 0,
+              classification: "SIMULATED",
+            },
+          ],
           trajectories: [
             {
               walker_id: 1,
@@ -434,6 +587,9 @@ beforeEach(() => {
               walker_id: 2,
               classification: "SIMULATED",
               terminated_early: true,
+              ...(mockState.previewTerminationReason
+                ? { termination_reason: mockState.previewTerminationReason }
+                : {}),
               edges: [
                 {
                   source: "b",
@@ -625,12 +781,12 @@ describe("RatSight dashboard", () => {
       expect(screen.getAllByText(label)).toHaveLength(1);
       expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
     }
-    // Four built-in map rows plus five catalog entries plus synthetic paths.
+    // Five built-in map rows plus five catalog entries plus synthetic paths.
     const badge = screen.getByLabelText(/個圖層列/);
-    expect(badge).toHaveTextContent("10");
+    expect(badge).toHaveTextContent("11");
     // The displayed count must equal the rows actually rendered, not a stale total.
     expect(document.querySelectorAll(".layer-row")).toHaveLength(Number(badge.textContent));
-    expect(screen.getAllByRole("checkbox")).toHaveLength(4);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(5);
   });
 
   it("qualifies a truncated response without claiming a total", async () => {
@@ -728,7 +884,40 @@ describe("RatSight dashboard", () => {
     expect(screen.getByText("步驟 0 / 1")).toBeInTheDocument();
     // Playback switches trajectory without re-running the model.
     fireEvent.change(screen.getByLabelText("合成軌跡"), { target: { value: "2" } });
-    expect(screen.getByText(/此合成代理在模型網路死路終止/)).toBeInTheDocument();
+    expect(screen.getByText(/此合成代理模型規則下無可用轉移而提前終止/)).toBeInTheDocument();
+  });
+
+  it("uses the API termination reason when the payload carries one", async () => {
+    mockState.previewTerminationReason = "dead_end";
+    renderDashboard();
+    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
+    await screen.findByRole("status");
+    fireEvent.change(screen.getByLabelText("輸出模式"), { target: { value: "trajectory" } });
+    fireEvent.change(screen.getByLabelText("合成軌跡"), { target: { value: "2" } });
+    expect(screen.getByText(/此合成代理模型網路死路（無可用出邊）終止/)).toBeInTheDocument();
+  });
+
+  it("discloses graph-derived reachability without implying absence", async () => {
+    renderDashboard();
+    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
+    await screen.findByRole("status");
+    // Fixture graph: n1 -> n3, so n2 is unreachable and n3 is reachable but unsampled.
+    expect(screen.getByText("2 / 3 個模型節點")).toBeInTheDocument();
+    const note = screen.getByText(/可達性由 API 回傳的模型節點與邊計算（SIMULATED，非觀測或調查）/);
+    expect(note).toHaveTextContent(/1 個節點不可達/);
+    expect(note).toHaveTextContent(/未被取樣/);
+    expect(note).toHaveTextContent(/1 個可達節點也未被取樣/);
+    expect(note).toHaveTextContent(/模型網路有 2 個互不相連的分量/);
+    expect(note).toHaveTextContent(/未取樣或不可達不代表沒有動物/);
+  });
+
+  it("falls back to graph-derived reachability when the API omits it", async () => {
+    mockState.previewReachability = false;
+    renderDashboard();
+    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
+    await screen.findByRole("status");
+    expect(screen.getByText("2 / 3 個模型節點")).toBeInTheDocument();
+    expect(screen.queryByText(/互不相連的分量/)).not.toBeInTheDocument();
   });
 
   it("discloses the default origin chosen by the API", async () => {
@@ -801,9 +990,13 @@ describe("RatSight dashboard", () => {
 
   it("keeps advanced simulation settings collapsed behind stated defaults", () => {
     renderDashboard();
-    const summary = screen.getByText(/進階設定 · 松山 OSM 來源網路 · 12 步 · 種子 42 · 24 個合成代理/);
+    const summary = screen.getByText(
+      /進階設定 · 松山 OSM 來源網路 · 12 步 · 種子 42 · 24 個合成代理/,
+    );
     expect(summary.closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByText(/預設示範參數：松山 OSM 來源網路 · 12 步 · 種子 42/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/預設示範參數：松山 OSM 來源網路 · 12 步 · 種子 42/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/合成預覽 — 僅為模擬測試資料/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "開始模擬" })).toBeEnabled();
   });
@@ -1062,5 +1255,32 @@ describe("RatSight dashboard", () => {
         (url) => url.includes("reported_from=2026-10-09") && url.includes("reported_to=2026-09-30"),
       ),
     ).toBe(false);
+  });
+
+
+  it("shows suppressed citizen-report cell counts without presenting reports", async () => {
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    expect(await within(panel).findByText("CITIZEN_REPORT_AGGREGATE · UNVERIFIED（未驗證）"))
+      .toBeInTheDocument();
+    expect(
+      within(panel).getByText(/回傳 2 個\s*250 公尺網格、7 筆已發布的通報計數/),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(/每格每月每類型至少\s*3\s*筆才發布/)).toBeInTheDocument();
+    expect(within(panel).getByText(/不是鼠類觀測、盛行率、族群、移動或風險估計/)).toBeInTheDocument();
+    fireEvent.click(within(panel).getByText("來源、授權、精度與抑制"));
+    expect(within(panel).getByText("地點、說明、照片網址")).toBeInTheDocument();
+    expect(within(panel).getByText(/解析 1435 筆 · 採用\s*319 筆 · 抑制/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("公民通報彙整")).toBeEnabled());
+    fireEvent.click(screen.getByLabelText("公民通報彙整"));
+    expect(screen.getByLabelText("公民通報彙整")).toBeChecked();
+  });
+
+  it("states that no aggregate is imported instead of substituting another layer", async () => {
+    mockState.citizenMode = "empty";
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    expect(await within(panel).findByText(/尚未匯入公民通報彙整：資料庫尚未匯入/)).toBeInTheDocument();
+    expect(screen.getByLabelText("公民通報彙整")).toBeDisabled();
   });
 });

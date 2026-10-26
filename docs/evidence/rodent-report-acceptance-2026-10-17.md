@@ -7,6 +7,7 @@
 
 - Source investigation: `docs/evidence/rodent-report-source-investigation-2026-10-17.md`; Rat Radar, Taipei open-data, and 1999 candidates remain `UNVERIFIED` for license/privacy/schema/CRS/coverage. Real ingestion requires written authorization, privacy/retention review, field semantics, CRS/precision, and human acceptance.
 - Pinned fixture: `services/api/tests/fixtures/rodent_reports/synthetic_reports.csv`, 5 rows, SHA-256 `611b8f66f023f96b745fd0bd7b01943629400bf837ad45283bde5b835505080d`.
+- **Superseded 2026-10-26:** fixture regenerated to 160 synthetic rows (resource version `2026-10-26T17:22:26Z`, SHA-256 `b28305e75e02d88a0a18f5455ce2a8e26c6db47ab657e621cb3d63f39a84655d`) by `scripts/generate_synthetic_rodent_reports.py`. Shape uses only coarse aggregates recorded in `docs/evidence/ratdar-reuse-claim-2026-10-26.md`; no citizen-report record is stored, copied, or redistributed, and the reuse gate remains NO-GO/UNVERIFIED.
 - Importer/API: additive migration `0004`, fail-closed exact-header importer, idempotent persistence, immutable provenance model and database mutation trigger, bounded bbox/time API, 5,000 cap, explicit empty/error states, and exact public allowlist.
 - Dashboard: independent point layer, UTC temporal filters, selection/provenance, stale removal, synthetic limitations, and no simulation/infrastructure coupling.
 

@@ -2,6 +2,18 @@
 
 Sources not listed in the verified record below remain candidates only; verify current publisher, license, terms, CRS, schema, coverage, update cadence and permitted use before ingestion.
 
+## Claimed reuse authorization, unverified: Rat Radar citizen reports
+
+- Evidence ID: `EVID-RATDAR-REUSE-CLAIM-2026-10-26`; record: `docs/evidence/ratdar-reuse-claim-2026-10-26.md`
+- Publisher: Rat Radar / 見鼠雷達 (`https://ratdar.taipei/`); owner identity and licensing entity unverified.
+- Dataset: local export `ratdar_20261026_172226.csv`, SHA-256 `eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b`, 1,435 reports covering 2026-05-01 → 2026-10-25.
+- Authorization: asserted by the project owner on 2026-10-26 without licence text, grantor identity, attribution, retention, or redistribution terms. Status `ASSERTED_BY_PROJECT_OWNER`, evidence absent.
+- Classification if ever ingested: `data_class=CITIZEN_REPORT`, `classification=UNVERIFIED`; not a rodent observation, not prevalence, not a simulation input.
+- Published aggregate layer (explicit owner override, 2026-10-26): `data_class=CITIZEN_REPORT_AGGREGATE`, `classification=UNVERIFIED`; 250 m cell × month × report type counts only, groups under 3 suppressed, place names / free text / photo URLs dropped before any write, exact coordinates never stored. Table `citizen_report_cells` (migration 0007), route `GET /api/v1/citizen-report-aggregates`. Counts are report counts, never abundance, prevalence, movement, risk, or simulation input. Licence stays unverified, so this is a recorded override, not a closed blocker.
+- Blocking gaps: licence and attribution, written permission or ownership proof, retention/deletion, coordinate precision and small-cell protection, schema and moderation-status definitions, CRS, update contract.
+- Handling: raw export and its free text, photographs, and exact coordinates stay outside Git (`data/raw/*` is ignored). Record-level ingestion remains blocked; the only derived artifact published is the suppressed aggregate layer above, on the project owner's explicit 2026-10-26 override.
+
+
 ## Verified administrative reference: Taipei district boundaries
 
 - Evidence ID: `EVID-TPE-DISTRICT-BOUNDARIES-2026-10-15`

@@ -7,6 +7,25 @@ import networkx as nx
 SYNTHETIC_FIXTURE_ID = "ratsight-synthetic-graph-v1"
 
 
+def reachability_summary(graph: nx.MultiDiGraph, origin: str) -> dict[str, int | str]:
+    """Directed reachability from `origin` plus whole-graph topology counts.
+
+    Topology only: it reports which nodes a walk can reach, never which habitat,
+    food source, or movement is biologically plausible.
+    """
+    if origin not in graph:
+        raise ValueError(f"origin node {origin!r} is not in graph")
+    reachable = nx.descendants(graph, origin) | {str(origin)}
+    return {
+        "origin_node_id": str(origin),
+        "reachable_nodes": len(reachable),
+        "total_nodes": int(graph.number_of_nodes()),
+        "reachable_edges": int(graph.subgraph(reachable).number_of_edges()),
+        "total_edges": int(graph.number_of_edges()),
+        "component_count": nx.number_weakly_connected_components(graph),
+    }
+
+
 def create_synthetic_graph() -> nx.MultiDiGraph:
     """Return a small schematic graph; coordinates are not surveyed infrastructure."""
     graph = nx.MultiDiGraph(fixture_id=SYNTHETIC_FIXTURE_ID, classification="SIMULATED")

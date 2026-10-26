@@ -265,6 +265,10 @@ a {
 .legend-rodent-reports {
   background: var(--rodent);
 }
+.legend-citizen-aggregate {
+  background: rgba(163, 36, 60, 0.22);
+  border: 1px solid var(--rodent);
+}
 .map-note {
   margin: 0;
   padding: 10px 16px;
@@ -398,6 +402,9 @@ a {
   color: var(--stormwater);
 }
 .glyph-rodent-reports {
+  color: var(--rodent);
+}
+.glyph-citizen-aggregates {
   color: var(--rodent);
 }
 .layer-name {

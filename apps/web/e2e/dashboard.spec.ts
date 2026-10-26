@@ -360,6 +360,11 @@ test("dashboard renders controls, simulation, and the administrative toggle", as
   await expect(page.getByLabel("模擬摘要")).toContainText("1 條合成軌跡（SIMULATED）");
   await expect(page.getByLabel("模擬摘要")).not.toContainText("節點造訪");
   await expect(page.getByLabel("模擬移動路徑")).toBeChecked();
+  // Reachability is stated as graph-derived and never as absence of animals.
+  await expect(page.locator(".analysis-row", { hasText: "可達節點" })).toContainText("個模型節點");
+  await expect(page.getByText(/可達性由 API 回傳的模型節點與邊計算/)).toContainText(
+    /不代表沒有動物/,
+  );
   await expect(page.locator(".analysis-row", { hasText: "合成起點" })).toContainText(
     "a · 25.02000, 121.55000 · 預設固定起點 · SIMULATED",
   );

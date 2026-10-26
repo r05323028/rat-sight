@@ -86,7 +86,7 @@ def _load(source: Path, sha256: str):
 def test_committed_fixture_hash_and_records_match_manifest() -> None:
     assert compute_file_sha256(FIXTURE_PATH) == FIXTURE_SHA256
     batch = _load(FIXTURE_PATH, FIXTURE_SHA256)
-    assert len(batch.records) == 7
+    assert len(batch.records) == 160
     assert batch.records[0].source_record_id == "RR-0001"
     assert {record.location_precision for record in batch.records} == {"synthetic_point"}
     assert {record.review_status for record in batch.records} == {"unreviewed"}
