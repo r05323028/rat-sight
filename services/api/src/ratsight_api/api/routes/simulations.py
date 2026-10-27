@@ -9,9 +9,13 @@ from ratsight_api.api.schemas import (
 from ratsight_api.application.simulation_preview import (
     OriginCellResolutionError,
     OriginCellStorageError,
+    OriginReportTypeIneligibleError,
+    OriginSourceUnknownError,
+    OriginSourceVersionConflictError,
     UnknownOriginNodeError,
     preview_simulation,
 )
+from ratsight_api.domain.citizen_report_aggregates import ORIGIN_POLICY_VERSION
 from ratsight_api.infrastructure.database.connection import get_session
 from ratsight_simulation.models.metadata import MODEL_ID, MODEL_VERSION
 from sqlalchemy.orm import Session
@@ -42,6 +46,42 @@ def create_preview(
 ) -> dict[str, object]:
     try:
         return preview_simulation(request, session=session)
+    except OriginSourceVersionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ORIGIN_SOURCE_VERSION_CONFLICT",
+                "message": "The selected citizen-report dataset is no longer current.",
+                "action": "Refresh citizen reports and select an origin again.",
+                "dataset_id": (request.origin_source.dataset_id if request.origin_source else None),
+                "resource_version": (
+                    request.origin_source.resource_version if request.origin_source else None
+                ),
+            },
+        ) from exc
+    except OriginSourceUnknownError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ORIGIN_SOURCE_UNKNOWN",
+                "message": str(exc),
+                "action": "Select a published citizen-report dataset and try again.",
+                "dataset_id": (request.origin_source.dataset_id if request.origin_source else None),
+            },
+        ) from exc
+    except OriginReportTypeIneligibleError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ORIGIN_REPORT_TYPE_INELIGIBLE",
+                "message": str(exc),
+                "reason": exc.reason,
+                "report_type": exc.report_type,
+                "origin_cell_id": request.origin_cell_id,
+                "policy_version": ORIGIN_POLICY_VERSION,
+                "classification": "UNVERIFIED",
+            },
+        ) from exc
     except OriginCellResolutionError as exc:
         raise HTTPException(
             status_code=422,

@@ -12,7 +12,12 @@ const mockState = vi.hoisted(() => ({
   stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
   citizenMode: "available" as "available" | "empty" | "error" | "fixture",
   previewMode: "available" as
-    "available" | "osm_unavailable" | "ui_error" | "unknown_origin" | "cell_origin",
+    | "available"
+    | "osm_unavailable"
+    | "ui_error"
+    | "unknown_origin"
+    | "cell_origin"
+    | "version_conflict",
   // Absent by default: the API does not ship termination_reason yet.
   previewTerminationReason: undefined as "dead_end" | "no_eligible_transition" | undefined,
   previewReachability: true,
@@ -25,6 +30,12 @@ const mockState = vi.hoisted(() => ({
     data_class: "CITIZEN_REPORT_AGGREGATE" as const,
     classification: "UNVERIFIED" as const,
     attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+    origin_eligibility: {
+      eligible: true,
+      reason: "eligible_sighting_candidate",
+      policy_version: "origin-report-category-v1",
+      message: "鼠蹤通報可作為候選模擬起點；這是通報彙整，不是已驗證的動物位置。",
+    } as const,
   },
   citizenFixtureCell: {
     cell_id: "g250m:1:2",
@@ -34,7 +45,30 @@ const mockState = vi.hoisted(() => ({
     data_class: "SYNTHETIC_AGGREGATE_FIXTURE" as const,
     classification: "SIMULATED" as const,
     attribution: "SIMULATED local fixture; not citizen-report data.",
+    origin_eligibility: {
+      eligible: true,
+      reason: "eligible_sighting_candidate",
+      policy_version: "origin-report-category-v1",
+      message: "本機合成測試格可作為模擬起點；不含任何公民通報。",
+    } as const,
   },
+  citizenBaitCell: {
+    cell_id: "g250m:1:4",
+    month: "2026-05",
+    report_type: "bait_station" as const,
+    count: 3,
+    data_class: "CITIZEN_REPORT_AGGREGATE" as const,
+    classification: "UNVERIFIED" as const,
+    attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+    origin_eligibility: {
+      eligible: false,
+      reason: "context_only_bait_station",
+      policy_version: "origin-report-category-v1",
+      message: "此類通報不直接代表鼠類出現位置，目前僅供資料參考，無法作為模擬起點。",
+    } as const,
+  },
+  citizenBait: false,
+  citizenResourceVersion: "2026-10-26T20:00:00Z",
   district: {
     district_id: "63000010",
     district_name: "松山區",
@@ -99,6 +133,9 @@ vi.mock("@/components/map-view", () => ({
           </button>
           <button type="button" onClick={() => onSelectCitizenCell(mockState.citizenFixtureCell)}>
             Select synthetic fixture cell
+          </button>
+          <button type="button" onClick={() => onSelectCitizenCell(mockState.citizenBaitCell)}>
+            Select bait station cell
           </button>
         </>
       )}
@@ -181,6 +218,8 @@ beforeEach(() => {
   mockState.previewTerminationReason = undefined;
   mockState.previewReachability = true;
   mockState.previewVisualization = false;
+  mockState.citizenBait = false;
+  mockState.citizenResourceVersion = "2026-10-26T20:00:00Z";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -402,7 +441,7 @@ beforeEach(() => {
               schema_version: "1",
               source_kind: "public_citizen_report_export",
               dataset_id: "ratdar-taipei-public-export",
-              resource_version: "2026-10-26T20:00:00Z",
+              resource_version: mockState.citizenResourceVersion,
               retrieved_at: "2026-10-26T20:00:00Z",
               content_sha256: "e".repeat(64),
               source_url: "https://ratdar.taipei/",
@@ -467,10 +506,31 @@ beforeEach(() => {
                   classification: "UNVERIFIED",
                   attribution:
                     "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+                  origin_eligibility: mockState.citizenCell.origin_eligibility,
                 },
               },
+              ...(mockState.citizenBait
+                ? [
+                    {
+                      type: "Feature",
+                      geometry: {
+                        type: "Polygon",
+                        coordinates: [
+                          [
+                            [121.53, 25.0112],
+                            [121.53, 25.0135],
+                            [121.528, 25.0135],
+                            [121.528, 25.0112],
+                            [121.53, 25.0112],
+                          ],
+                        ],
+                      },
+                      properties: mockState.citizenBaitCell,
+                    },
+                  ]
+                : []),
             ],
-            feature_count: 2,
+            feature_count: mockState.citizenBait ? 3 : 2,
             bbox: [121.5, 25.0, 121.53, 25.02],
             truncated: false,
           }),
@@ -481,7 +541,24 @@ beforeEach(() => {
         study_area?: string;
         origin_node_id?: string;
         origin_cell_id?: string;
+        origin_source?: {
+          dataset_id: string;
+          resource_version: string;
+          content_sha256: string;
+        };
       };
+      if (mockState.previewMode === "version_conflict") {
+        return new Response(
+          JSON.stringify({
+            detail: {
+              code: "ORIGIN_SOURCE_VERSION_CONFLICT",
+              message: "The selected citizen-report dataset is no longer current.",
+              action: "Refresh citizen reports and select an origin again.",
+            },
+          }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        );
+      }
       if (mockState.previewMode === "ui_error") {
         return new Response("preview exploded", { status: 500 });
       }
@@ -1192,6 +1269,131 @@ describe("RatSight dashboard", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(controls).toHaveTextContent(`起點 ${originB}`);
     expect(controls).not.toHaveTextContent(`起點 ${originA}`);
+  });
+
+  it("binds the simulation request to the report snapshot that produced the selection", async () => {
+    renderDashboard();
+    await runSelectedCitizenCell();
+    await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+
+    const previewCall = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).includes("/api/v1/simulations/preview"))
+      .at(-1);
+    expect(JSON.parse(String(previewCall?.[1]?.body))).toMatchObject({
+      study_area: "taipei_osm_songshan",
+      origin_cell_id: "g250m:1:2:2026-05:sighting",
+      origin_source: {
+        dataset_id: "ratdar-taipei-public-export",
+        resource_version: "2026-10-26T20:00:00Z",
+        content_sha256: "e".repeat(64),
+      },
+    });
+
+    const card = screen.getByLabelText("公民通報彙整格詳細資料");
+    expect(within(card).getByText("ratdar-taipei-public-export")).toBeInTheDocument();
+    expect(within(card).getByText("2026-10-26T20:00:00Z")).toBeInTheDocument();
+    expect(within(card).getByText("e".repeat(64))).toBeInTheDocument();
+    expect(within(card).getByText("origin-report-category-v1")).toBeInTheDocument();
+  });
+
+  it("keeps context-only report categories inspectable but not runnable", async () => {
+    mockState.citizenBait = true;
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    await within(panel).findByText(/回傳 3 個/);
+    fireEvent.click(await screen.findByRole("button", { name: "Select bait station cell" }));
+
+    const card = screen.getByLabelText("公民通報彙整格詳細資料");
+    const note = within(card).getByRole("note");
+    expect(note).toHaveTextContent("毒餌相關通報");
+    expect(note).toHaveTextContent(
+      /此類通報不直接代表鼠類出現位置，目前僅供資料參考，無法作為模擬起點。/,
+    );
+    const run = within(card).getByRole("button", { name: "此類通報無法作為模擬起點" });
+    expect(run).toBeDisabled();
+    fireEvent.click(run);
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).includes("/api/v1/simulations/preview")),
+    ).toHaveLength(0);
+    expect(screen.queryByRole("region", { name: "模擬軌跡播放控制" })).not.toBeInTheDocument();
+  });
+
+  it("invalidates the selection and result when the report snapshot changes", async () => {
+    const { queryClient } = renderDashboard();
+    await runSelectedCitizenCell();
+    expect(await screen.findByRole("region", { name: "模擬軌跡播放控制" })).toBeInTheDocument();
+
+    mockState.citizenResourceVersion = "2026-10-27T21:00:00Z";
+    await queryClient.refetchQueries({ queryKey: ["citizen-report-aggregates"] });
+
+    expect(
+      await screen.findByText("公民通報資料已更新，請重新載入並選擇模擬起點。"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("公民通報彙整格詳細資料")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "模擬軌跡播放控制" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the reviewed origin when a viewport refresh returns the same snapshot", async () => {
+    const { queryClient } = renderDashboard();
+    await runSelectedCitizenCell();
+    await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+
+    await queryClient.refetchQueries({ queryKey: ["citizen-report-aggregates"] });
+
+    expect(screen.getByLabelText("公民通報彙整格詳細資料")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "模擬軌跡播放控制" })).toBeInTheDocument();
+    expect(screen.queryByText(/公民通報資料已更新/)).not.toBeInTheDocument();
+  });
+
+  it("reports a source-version conflict instead of reusing a stale result", async () => {
+    renderDashboard();
+    await runSelectedCitizenCell();
+    await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+
+    mockState.previewMode = "version_conflict";
+    fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("公民通報資料已更新，請重新載入並選擇模擬起點。");
+    expect(alert).not.toHaveTextContent("ORIGIN_SOURCE_VERSION_CONFLICT");
+    expect(screen.queryByRole("region", { name: "模擬軌跡播放控制" })).not.toBeInTheDocument();
+  });
+
+  it("does not show an in-flight result whose report snapshot was superseded", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const originalFetch = fetchMock.getMockImplementation();
+    if (!originalFetch) throw new Error("Dashboard fetch fixture is not installed");
+    const pending = new Map<string, () => Promise<void>>();
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith("/api/v1/simulations/preview")) {
+        const body = JSON.parse(String(init?.body)) as { origin_cell_id: string };
+        return await new Promise<Response>((resolve) => {
+          pending.set(body.origin_cell_id, async () => {
+            resolve(await originalFetch(input, init));
+          });
+        });
+      }
+      return originalFetch(input, init);
+    });
+
+    const { queryClient } = renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    await within(panel).findByText(/回傳 2 個/);
+    fireEvent.click(await screen.findByRole("button", { name: "Select citizen report cell" }));
+    fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
+    const origin = "g250m:1:2:2026-05:sighting";
+    await waitFor(() => expect(pending.has(origin)).toBe(true));
+
+    mockState.citizenResourceVersion = "2026-10-27T21:00:00Z";
+    await queryClient.refetchQueries({ queryKey: ["citizen-report-aggregates"] });
+    await screen.findByText(/公民通報資料已更新/);
+
+    await pending.get(origin)?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole("region", { name: "模擬軌跡播放控制" })).not.toBeInTheDocument();
   });
 
   it("clears a selected aggregate cell when refreshed viewport data drops it", async () => {

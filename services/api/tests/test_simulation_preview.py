@@ -3,10 +3,14 @@ from typing import cast
 import pytest
 from ratsight_api.api.schemas import (
     CitizenReportCellPolygon,
+    OriginSourceIdentity,
     SimulationPreviewRequest,
     SimulationPreviewResponse,
 )
-from ratsight_api.application.citizen_report_aggregates import CitizenReportCellNotFound
+from ratsight_api.application.citizen_report_aggregates import (
+    CitizenReportCellNotFound,
+    CitizenReportOriginCell,
+)
 from ratsight_api.application.simulation_preview import (
     OriginCellResolutionError,
     UnknownOriginNodeError,
@@ -18,6 +22,36 @@ from ratsight_geo.osm import load_osm_surface_graph
 from sqlalchemy.orm import Session
 
 OSM_TEST_CELL_ID = "fixture:osm-origin"
+OSM_ORIGIN_SOURCE = OriginSourceIdentity(
+    dataset_id="ratdar-taipei-public-export",
+    resource_version="2026-10-26T20:53:32Z",
+    content_sha256="e" * 64,
+)
+
+
+def origin_cell(
+    polygon: CitizenReportCellPolygon,
+    *,
+    feature_id: str = OSM_TEST_CELL_ID,
+    report_type: str = "sighting",
+) -> CitizenReportOriginCell:
+    """Build the resolver result the application layer returns for one snapshot."""
+    return CitizenReportOriginCell(
+        feature_id=feature_id,
+        polygon=polygon,
+        dataset_id=OSM_ORIGIN_SOURCE.dataset_id,
+        resource_version=OSM_ORIGIN_SOURCE.resource_version,
+        content_sha256=OSM_ORIGIN_SOURCE.content_sha256,
+        cell_id=feature_id.rsplit(":", 2)[0],
+        month=feature_id.rsplit(":", 2)[1],
+        report_type=report_type,
+        report_type_eligible=True,
+        report_type_reason="eligible_sighting_candidate",
+        policy_version="origin-report-category-v1",
+        cell_size_meters=250,
+        source_url="https://ratdar.taipei/",
+        attribution="fixture-only attribution",
+    )
 
 
 def preview_simulation(
@@ -56,8 +90,8 @@ def _stub_osm_origin_cell(monkeypatch: pytest.MonkeyPatch) -> None:
         ]
     )
     monkeypatch.setattr(
-        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
-        lambda _session, _feature_id: cell,
+        "ratsight_api.application.simulation_preview.get_citizen_report_origin_cell",
+        lambda _session, _feature_id, _source: origin_cell(cell),
     )
 
 
@@ -72,6 +106,7 @@ def test_default_preview_uses_the_pinned_osm_network() -> None:
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id=OSM_TEST_CELL_ID,
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=2,
                 duration_steps=3,
             )
@@ -108,6 +143,7 @@ def test_osm_preview_returns_simulated_geometry_and_trajectories() -> None:
         SimulationPreviewRequest(
             study_area="taipei_osm_songshan",
             origin_cell_id=OSM_TEST_CELL_ID,
+            origin_source=OSM_ORIGIN_SOURCE,
             walkers=2,
             duration_steps=3,
         )
@@ -142,6 +178,7 @@ def test_identical_requests_are_reproducible() -> None:
         SimulationPreviewRequest(
             study_area="taipei_osm_songshan",
             origin_cell_id=OSM_TEST_CELL_ID,
+            origin_source=OSM_ORIGIN_SOURCE,
             walkers=2,
             duration_steps=3,
         )
@@ -150,6 +187,7 @@ def test_identical_requests_are_reproducible() -> None:
         SimulationPreviewRequest(
             study_area="taipei_osm_songshan",
             origin_cell_id=OSM_TEST_CELL_ID,
+            origin_source=OSM_ORIGIN_SOURCE,
             walkers=2,
             duration_steps=3,
         )
@@ -164,6 +202,7 @@ def test_cell_origin_starts_walkers_at_resolved_node_and_is_echoed() -> None:
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id=OSM_TEST_CELL_ID,
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=2,
                 duration_steps=3,
             )
@@ -201,7 +240,9 @@ def test_real_origin_cell_requires_database_access() -> None:
     with pytest.raises(OriginCellResolutionError, match="require database access"):
         _preview_simulation(
             SimulationPreviewRequest(
-                study_area="taipei_osm_songshan", origin_cell_id="synthetic-cell-n0"
+                study_area="taipei_osm_songshan",
+                origin_cell_id="synthetic-cell-n0",
+                origin_source=OSM_ORIGIN_SOURCE,
             )
         )
 
@@ -235,8 +276,8 @@ def test_real_origin_cell_resolves_one_strictly_contained_node(
         ]
     )
     monkeypatch.setattr(
-        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
-        lambda _session, _feature_id: cell,
+        "ratsight_api.application.simulation_preview.get_citizen_report_origin_cell",
+        lambda _session, feature_id, _source: origin_cell(cell, feature_id=feature_id),
     )
     feature_id = "g250m:1:2:2026-05:sighting"
     response = SimulationPreviewResponse.model_validate(
@@ -244,6 +285,7 @@ def test_real_origin_cell_resolves_one_strictly_contained_node(
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id=feature_id,
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=2,
                 duration_steps=3,
             ),
@@ -299,14 +341,15 @@ def test_synthetic_aggregate_origin_remains_simulated(
         source_kind="synthetic_aggregate_fixture",
     )
     monkeypatch.setattr(
-        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
-        lambda _session, _feature_id: fixture_cell,
+        "ratsight_api.application.simulation_preview.get_citizen_report_origin_cell",
+        lambda _session, feature_id, _source: origin_cell(fixture_cell, feature_id=feature_id),
     )
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id="ratsight-smoke-fixture:2026-05:sighting",
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=1,
                 duration_steps=1,
             )
@@ -349,8 +392,8 @@ def test_real_origin_cell_seeds_every_in_cell_node(monkeypatch: pytest.MonkeyPat
         ]
     )
     monkeypatch.setattr(
-        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
-        lambda _session, _feature_id: cell,
+        "ratsight_api.application.simulation_preview.get_citizen_report_origin_cell",
+        lambda _session, feature_id, _source: origin_cell(cell, feature_id=feature_id),
     )
     feature_id = "g250m:11146:49037:2026-05:sighting"
     response = SimulationPreviewResponse.model_validate(
@@ -358,6 +401,7 @@ def test_real_origin_cell_seeds_every_in_cell_node(monkeypatch: pytest.MonkeyPat
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id=feature_id,
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=5,
                 duration_steps=3,
             ),
@@ -389,17 +433,21 @@ def test_real_origin_cell_seeds_every_in_cell_node(monkeypatch: pytest.MonkeyPat
 
 
 def test_missing_real_origin_cell_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def missing_cell(_session: object, _feature_id: str) -> CitizenReportCellPolygon:
-        raise CitizenReportCellNotFound("origin cell is not present in the latest version")
+    def missing_cell(
+        _session: object, _feature_id: str, _source: OriginSourceIdentity
+    ) -> CitizenReportOriginCell:
+        raise CitizenReportCellNotFound("origin cell is not present in the selected snapshot")
 
     monkeypatch.setattr(
-        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
+        "ratsight_api.application.simulation_preview.get_citizen_report_origin_cell",
         missing_cell,
     )
     with pytest.raises(OriginCellResolutionError, match="not present"):
         preview_simulation(
             SimulationPreviewRequest(
-                study_area="taipei_osm_songshan", origin_cell_id="g250m:1:2:2026-05:sighting"
+                study_area="taipei_osm_songshan",
+                origin_cell_id="g250m:1:2:2026-05:sighting",
+                origin_source=OSM_ORIGIN_SOURCE,
             ),
             session=cast(Session, object()),
         )
@@ -412,13 +460,15 @@ def test_real_origin_cell_without_an_in_cell_node_fails_closed(
         coordinates=[[[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]]
     )
     monkeypatch.setattr(
-        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
-        lambda _session, _feature_id: empty_cell,
+        "ratsight_api.application.simulation_preview.get_citizen_report_origin_cell",
+        lambda _session, feature_id, _source: origin_cell(empty_cell, feature_id=feature_id),
     )
     with pytest.raises(OriginCellResolutionError, match="0 eligible graph nodes"):
         preview_simulation(
             SimulationPreviewRequest(
-                study_area="taipei_osm_songshan", origin_cell_id="g250m:1:2:2026-05:sighting"
+                study_area="taipei_osm_songshan",
+                origin_cell_id="g250m:1:2:2026-05:sighting",
+                origin_source=OSM_ORIGIN_SOURCE,
             ),
             session=cast(Session, object()),
         )
@@ -459,6 +509,7 @@ def test_trajectory_steps_carry_zero_based_step_index() -> None:
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id=OSM_TEST_CELL_ID,
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=2,
                 duration_steps=3,
             )
@@ -474,6 +525,7 @@ def test_reachability_reports_directed_topology_from_the_origin() -> None:
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id=OSM_TEST_CELL_ID,
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=2,
                 duration_steps=3,
             )
@@ -517,6 +569,7 @@ def test_termination_reason_is_consistent_with_terminated_early() -> None:
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan",
                 origin_cell_id=OSM_TEST_CELL_ID,
+                origin_source=OSM_ORIGIN_SOURCE,
                 walkers=3,
                 duration_steps=3,
             )

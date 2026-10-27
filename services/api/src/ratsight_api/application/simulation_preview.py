@@ -6,9 +6,13 @@ from ratsight_api.api.schemas import SimulationPreviewRequest
 from ratsight_api.application.citizen_report_aggregates import (
     CitizenReportCellNotFound,
     CitizenReportDataError,
+    CitizenReportDatasetUnknown,
+    CitizenReportOriginCell,
+    CitizenReportOriginIneligible,
     CitizenReportQueryError,
+    CitizenReportSourceVersionConflict,
     CitizenReportStorageError,
-    get_citizen_report_cell_polygon,
+    get_citizen_report_origin_cell,
 )
 from ratsight_geo.osm import load_osm_surface_graph
 from ratsight_simulation.graph.network import (
@@ -80,6 +84,23 @@ class OriginCellStorageError(RuntimeError):
     """Citizen-report aggregate storage could not resolve an origin cell."""
 
 
+class OriginSourceVersionConflictError(RuntimeError):
+    """The selected citizen-report snapshot is no longer the published one."""
+
+
+class OriginSourceUnknownError(LookupError):
+    """The selected citizen-report dataset identity is not published."""
+
+
+class OriginReportTypeIneligibleError(ValueError):
+    """A published report category is display-only and cannot seed a simulation."""
+
+    def __init__(self, message: str, *, reason: str, report_type: str | None) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.report_type = report_type
+
+
 def _distance_meters(a: tuple[float, float], b: tuple[float, float]) -> float:
     """Approximate local distance; only used to bound the map reference subset."""
     mean_latitude = radians((a[1] + b[1]) / 2.0)
@@ -147,22 +168,39 @@ def preview_simulation(
     origin_source_classification: str | None = None
     origin_source_kind: str | None = None
     requested_origins: list[str] | None = None
+    stored_origin: CitizenReportOriginCell | None = None
     if request.origin_cell_id is not None:
         if osm:
             if session is None:
                 raise OriginCellResolutionError(
                     "real citizen-report origin cells require database access"
                 )
+            if request.origin_source is None:
+                raise OriginCellResolutionError(
+                    "origin_source is required to resolve a published citizen-report origin"
+                )
             try:
-                stored = get_citizen_report_cell_polygon(session, request.origin_cell_id)
+                stored_origin = get_citizen_report_origin_cell(
+                    session, request.origin_cell_id, request.origin_source
+                )
             except CitizenReportStorageError as exc:
                 raise OriginCellStorageError(str(exc)) from exc
+            except CitizenReportSourceVersionConflict as exc:
+                raise OriginSourceVersionConflictError(str(exc)) from exc
+            except CitizenReportDatasetUnknown as exc:
+                raise OriginSourceUnknownError(str(exc)) from exc
+            except CitizenReportOriginIneligible as exc:
+                report_type = request.origin_cell_id.rsplit(":", 1)[-1]
+                raise OriginReportTypeIneligibleError(
+                    str(exc), reason=exc.reason, report_type=report_type
+                ) from exc
             except (
                 CitizenReportCellNotFound,
                 CitizenReportDataError,
                 CitizenReportQueryError,
             ) as exc:
                 raise OriginCellResolutionError(str(exc)) from exc
+            stored = stored_origin.polygon
             polygon = [(float(x), float(y)) for x, y in stored.coordinates[0]]
             origin_source_data_class = stored.data_class
             origin_source_classification = stored.classification
@@ -265,6 +303,11 @@ def preview_simulation(
         for walker_id, trajectory in enumerate(visible_trajectories)
     ]
     sampled_nodes = sum(1 for visits in statistics.node_visits.values() if visits > 0)
+    origin_snapshot_reference = (
+        f"{stored_origin.dataset_id}@{stored_origin.resource_version}"
+        if stored_origin is not None
+        else "unversioned fixture"
+    )
     return {
         "simulation_status": "completed",
         "classification": "SIMULATED",
@@ -281,6 +324,16 @@ def preview_simulation(
             "source_data_class": origin_source_data_class,
             "source_classification": origin_source_classification,
             "source_kind": origin_source_kind,
+            "source_dataset_id": stored_origin.dataset_id if stored_origin else None,
+            "source_resource_version": stored_origin.resource_version if stored_origin else None,
+            "source_content_sha256": stored_origin.content_sha256 if stored_origin else None,
+            "source_report_type": stored_origin.report_type if stored_origin else None,
+            "source_report_type_eligible": (
+                stored_origin.report_type_eligible if stored_origin else None
+            ),
+            "source_origin_policy_version": (
+                stored_origin.policy_version if stored_origin else None
+            ),
             "classification": "SIMULATED",
             "note": (
                 (
@@ -372,10 +425,13 @@ def preview_simulation(
             OSM_ASSUMPTIONS
             + (
                 [
-                    "The origin cell is a suppressed aggregate of UNVERIFIED citizen reports; "
+                    "The origin cell is a suppressed aggregate of UNVERIFIED citizen reports "
+                    f"resolved inside the published snapshot {origin_snapshot_reference}; "
                     "it is not an observed animal location.",
                     "For a cell origin, walkers start uniformly from all eligible in-cell graph "
                     "nodes; the cell does not identify one observed animal location.",
+                    "Only sighting reports are candidate origins by default; bait-related and "
+                    "unclassified reports are display-only context and cannot seed a simulation.",
                 ]
                 if origin_source_classification == "UNVERIFIED"
                 else [

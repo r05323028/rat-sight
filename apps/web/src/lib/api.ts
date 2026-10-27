@@ -219,6 +219,42 @@ export function isSourceNetworkUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(SOURCE_NETWORK_UNAVAILABLE_PREFIX);
 }
 
+// Exact citizen-report snapshot a selection was read from. The API rejects an
+// origin whose snapshot is no longer published instead of silently resolving a
+// newer version behind the analyst's back.
+export type CitizenReportSourceIdentity = {
+  dataset_id: string;
+  resource_version: string;
+  content_sha256: string;
+};
+
+/** Snapshot identity of the aggregate response, or null when it carries none. */
+export function citizenReportSourceIdentity(
+  aggregates: CitizenReportAggregates | null | undefined,
+): CitizenReportSourceIdentity | null {
+  const provenance = aggregates?.provenance;
+  if (!provenance?.dataset_id || !provenance.resource_version || !provenance.content_sha256) {
+    return null;
+  }
+  return {
+    dataset_id: provenance.dataset_id,
+    resource_version: provenance.resource_version,
+    content_sha256: provenance.content_sha256,
+  };
+}
+
+export function sameCitizenReportSource(
+  left: CitizenReportSourceIdentity | null,
+  right: CitizenReportSourceIdentity | null,
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.dataset_id === right.dataset_id &&
+    left.resource_version === right.resource_version &&
+    left.content_sha256 === right.content_sha256
+  );
+}
+
 type SimulationPreviewRequestBase = {
   duration_steps: number;
   walkers: number;
@@ -231,6 +267,7 @@ export type SimulationPreviewRequest =
   | (SimulationPreviewRequestBase & {
       study_area: "taipei_osm_songshan";
       origin_cell_id: string;
+      origin_source: CitizenReportSourceIdentity;
       origin_node_id?: never;
     })
   | (SimulationPreviewRequestBase & {
@@ -244,6 +281,60 @@ export type SimulationPreviewRequest =
       origin_node_id?: never;
     });
 
+export const ORIGIN_SOURCE_VERSION_CONFLICT_CODE = "ORIGIN_SOURCE_VERSION_CONFLICT";
+
+export class ApiError extends Error {
+  readonly code: string | null;
+  readonly action: string | null;
+  readonly status: number;
+
+  constructor(
+    message: string,
+    options: { code?: string | null; action?: string | null; status: number },
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.code = options.code ?? null;
+    this.action = options.action ?? null;
+    this.status = options.status;
+  }
+}
+
+export function isOriginSourceVersionConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.code === ORIGIN_SOURCE_VERSION_CONFLICT_CODE;
+}
+
+type PreviewErrorDetail = {
+  code?: string;
+  message?: string;
+  provisioning?: string;
+  action?: string;
+};
+
+// The API's error codes carry the actionable instruction; render Traditional
+// Chinese instead of forwarding the English server message.
+function previewErrorMessage(status: number, detail: PreviewErrorDetail | undefined): string {
+  const server = detail?.message ?? "未知錯誤";
+  switch (detail?.code) {
+    case "SOURCE_NETWORK_UNAVAILABLE":
+      return `${SOURCE_NETWORK_UNAVAILABLE_PREFIX}${server} ${detail.provisioning ?? ""}`.trim();
+    case "ORIGIN_NODE_NOT_IN_GRAPH":
+      return `合成起點不在模型網路內：${server}`;
+    case "ORIGIN_CELL_NOT_RESOLVABLE":
+      return `公民通報格網起點無法解析：${server}`;
+    case "ORIGIN_CELL_STORAGE_UNAVAILABLE":
+      return `公民通報彙整儲存無法使用：${server}`;
+    case "ORIGIN_SOURCE_VERSION_CONFLICT":
+      return "公民通報資料已更新，請重新載入並選擇模擬起點。";
+    case "ORIGIN_SOURCE_UNKNOWN":
+      return "找不到所選的公民通報資料集，請重新載入公民通報後再選擇起點。";
+    case "ORIGIN_REPORT_TYPE_INELIGIBLE":
+      return "此類通報不直接代表鼠類出現位置，目前僅供資料參考，無法作為模擬起點。";
+    default:
+      return `Simulation preview failed (${status})`;
+  }
+}
+
 export async function requestPreview(input: SimulationPreviewRequest): Promise<SimulationPreview> {
   const response = await fetch(`${API_BASE_URL}/api/v1/simulations/preview`, {
     method: "POST",
@@ -252,22 +343,14 @@ export async function requestPreview(input: SimulationPreviewRequest): Promise<S
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
-      detail?: { code?: string; message?: string; provisioning?: string };
+      detail?: PreviewErrorDetail;
     } | null;
     const detail = payload?.detail;
-    throw new Error(
-      detail?.code === "SOURCE_NETWORK_UNAVAILABLE"
-        ? `${SOURCE_NETWORK_UNAVAILABLE_PREFIX}${detail.message ?? "未知錯誤"} ${
-            detail.provisioning ?? ""
-          }`
-        : detail?.code === "ORIGIN_NODE_NOT_IN_GRAPH"
-          ? `合成起點不在模型網路內：${detail.message ?? "未知錯誤"}`
-          : detail?.code === "ORIGIN_CELL_NOT_RESOLVABLE"
-            ? `公民通報格網起點無法解析：${detail.message ?? "未知錯誤"}`
-            : detail?.code === "ORIGIN_CELL_STORAGE_UNAVAILABLE"
-              ? `公民通報彙整儲存無法使用：${detail.message ?? "未知錯誤"}`
-              : `Simulation preview failed (${response.status})`,
-    );
+    throw new ApiError(previewErrorMessage(response.status, detail), {
+      code: detail?.code ?? null,
+      action: detail?.action ?? null,
+      status: response.status,
+    });
   }
   return response.json() as Promise<SimulationPreview>;
 }
@@ -382,6 +465,17 @@ export async function fetchStormwaterPipelines(bbox?: StormwaterBbox): Promise<S
 // strict candidate or uniform seeded starts across multiple candidates.
 export type CitizenReportCellGeometry = { type: "Polygon"; coordinates: number[][][] };
 
+export type CitizenReportOriginEligibility = {
+  eligible: boolean;
+  reason:
+    | "eligible_sighting_candidate"
+    | "context_only_bait_station"
+    | "context_only_other"
+    | "context_only_unknown";
+  policy_version: string;
+  message: string;
+};
+
 export type CitizenReportCellProperties = {
   cell_id: string;
   month: string;
@@ -390,6 +484,9 @@ export type CitizenReportCellProperties = {
   data_class: "CITIZEN_REPORT_AGGREGATE" | "SYNTHETIC_AGGREGATE_FIXTURE";
   classification: "UNVERIFIED" | "SIMULATED";
   attribution: string;
+  // Server-owned policy: only sighting cells may seed a simulation. Context-only
+  // categories stay inspectable but their run action stays disabled.
+  origin_eligibility: CitizenReportOriginEligibility;
 };
 
 export type CitizenReportAggregation = {

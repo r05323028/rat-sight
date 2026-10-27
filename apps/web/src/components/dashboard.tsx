@@ -8,6 +8,7 @@ import { MapView } from "@/components/map-view";
 import { Button } from "@/components/ui/button";
 import {
   BBOX_MAX_SPAN_DEGREES,
+  citizenReportSourceIdentity,
   fetchAdministrativeDistricts,
   fetchCitizenReportAggregates,
   fetchLayers,
@@ -15,9 +16,11 @@ import {
   isBboxTooBroad,
   isSourceNetworkUnavailable,
   requestPreview,
+  sameCitizenReportSource,
   type AdministrativeDistrictProperties,
   type Bbox,
   type CitizenReportCellProperties,
+  type CitizenReportSourceIdentity,
   type Layer,
   type SimulationPreview,
   type StormwaterProperties,
@@ -115,7 +118,7 @@ const SIMULATION_WALKERS = 24;
 
 const CITIZEN_REPORT_TYPE_LABELS: Record<string, string> = {
   sighting: "鼠蹤通報",
-  bait_station: "毒餌通報",
+  bait_station: "毒餌相關通報",
   other: "其他通報",
 };
 
@@ -141,6 +144,11 @@ export function Dashboard() {
   const [previewOriginCellId, setPreviewOriginCellId] = useState<string | null>(null);
   const [pendingPreviewOriginCellId, setPendingPreviewOriginCellId] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<unknown>(null);
+  // Snapshot the origin was resolved against; results never belong to a later one.
+  const [previewSource, setPreviewSource] = useState<CitizenReportSourceIdentity | null>(null);
+  // Snapshot the selected marker was read from, captured at selection time.
+  const [selectionSource, setSelectionSource] = useState<CitizenReportSourceIdentity | null>(null);
+  const [sourceRefreshNotice, setSourceRefreshNotice] = useState<string | null>(null);
   const [outputMode, setOutputMode] = useState<"aggregate" | "trajectory">("aggregate");
   const [activeStep, setActiveStep] = useState(0);
   const [selectedTrajectoryId, setSelectedTrajectoryId] = useState<number | null>(null);
@@ -162,6 +170,7 @@ export function Dashboard() {
     setPreviewOriginCellId(null);
     setPendingPreviewOriginCellId(null);
     setPreviewError(null);
+    setPreviewSource(null);
     setOutputMode("aggregate");
     setActiveStep(0);
     setSelectedTrajectoryId(null);
@@ -177,12 +186,14 @@ export function Dashboard() {
     }) => ({
       requestId,
       originCellId: input.origin_cell_id,
+      source: "origin_source" in input ? input.origin_source : null,
       preview: await requestPreview(input),
     }),
-    onSuccess: ({ requestId, originCellId: resultOriginCellId, preview: result }) => {
+    onSuccess: ({ requestId, originCellId: resultOriginCellId, source, preview: result }) => {
       if (requestId !== latestSimulationRequestId.current) return;
       setPreview(result);
       setPreviewOriginCellId(resultOriginCellId ?? null);
+      setPreviewSource(source);
       setPendingPreviewOriginCellId(null);
       setPreviewError(null);
       setOutputMode("aggregate");
@@ -194,6 +205,7 @@ export function Dashboard() {
       if (variables.requestId !== latestSimulationRequestId.current) return;
       setPreview(null);
       setPreviewOriginCellId(null);
+      setPreviewSource(null);
       setPendingPreviewOriginCellId(null);
       setPreviewError(error);
       setOutputMode("aggregate");
@@ -247,6 +259,11 @@ export function Dashboard() {
     () => citizenAggregates?.features ?? [],
     [citizenAggregates],
   );
+  // Published snapshot of the loaded aggregates; null while loading or unversioned.
+  const citizenSourceIdentity = useMemo(
+    () => citizenReportSourceIdentity(citizenAggregates),
+    [citizenAggregates],
+  );
   // Feature id is the API's stable cell identity: cell_id:month:report_type.
   const citizenOriginOptions = useMemo(
     () =>
@@ -297,6 +314,18 @@ export function Dashboard() {
     selectedCitizenCell,
     invalidatePreviewForSelectionChange,
   ]);
+  // Only a real snapshot change invalidates the selection: a pending reload or an
+  // unchanged version from a viewport move leaves the reviewed origin usable.
+  useEffect(() => {
+    if (!selectionSource || !citizenSourceIdentity) return;
+    if (sameCitizenReportSource(selectionSource, citizenSourceIdentity)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    invalidatePreviewForSelectionChange();
+    setOriginCellId(null);
+    setSelectedCitizenCell(null);
+    setSelectionSource(null);
+    setSourceRefreshNotice("公民通報資料已更新，請重新載入並選擇模擬起點。");
+  }, [citizenSourceIdentity, invalidatePreviewForSelectionChange, selectionSource]);
   // Cell counts are suppressed aggregates, so summing them is a floor on reported
   // volume, not a report total: every suppressed group is excluded.
   const citizenAggregateReportCount =
@@ -351,9 +380,12 @@ export function Dashboard() {
   const selectedCitizenCellKey = selectedCitizenCell
     ? `${selectedCitizenCell.cell_id}:${selectedCitizenCell.month}:${selectedCitizenCell.report_type}`
     : null;
+  // Server-owned policy; the action stays disabled for context-only categories.
+  const selectedCellIsEligibleOrigin = selectedCitizenCell?.origin_eligibility?.eligible === true;
   const currentPreview =
     preview &&
     previewOriginCellId === selectedCitizenCellKey &&
+    sameCitizenReportSource(previewSource, citizenSourceIdentity) &&
     citizenOriginOptions.some((option) => option.id === previewOriginCellId)
       ? preview
       : null;
@@ -425,6 +457,8 @@ export function Dashboard() {
     if (cellKey !== selectedCitizenCellKey) invalidatePreviewForSelectionChange();
     setSelectedCitizenCell(cell);
     setOriginCellId(cellKey);
+    setSelectionSource(citizenSourceIdentity);
+    setSourceRefreshNotice(null);
   };
   const handleSelectTrajectory = (trajectoryId: number) => {
     setIsPlaying(false);
@@ -438,6 +472,16 @@ export function Dashboard() {
   };
   const runPreviewFromSelectedCell = () => {
     if (!selectedCitizenCellKey) return;
+    if (!selectedCellIsEligibleOrigin) {
+      setPreviewError(
+        new Error(selectedCitizenCell?.origin_eligibility?.message ?? "此類通報無法作為模擬起點。"),
+      );
+      return;
+    }
+    if (!selectionSource) {
+      setPreviewError(new Error("公民通報資料版本尚未載入，請重新載入公民通報後再選擇起點。"));
+      return;
+    }
     const requestId = latestSimulationRequestId.current + 1;
     latestSimulationRequestId.current = requestId;
     setPreview(null);
@@ -459,6 +503,7 @@ export function Dashboard() {
         movement_model: "weighted_random_walk",
         intervention_scenario: "baseline",
         origin_cell_id: selectedCitizenCellKey,
+        origin_source: selectionSource,
       },
     });
   };
@@ -486,6 +531,7 @@ export function Dashboard() {
             invalidatePreviewForSelectionChange();
             setOriginCellId(null);
             setSelectedCitizenCell(null);
+            setSelectionSource(null);
           }}
         >
           ×
@@ -529,14 +575,61 @@ export function Dashboard() {
             : "不是個別通報點位。通報計數不是鼠類觀測、族群或風險估計，也不會成為代理數或移動權重。"}
         </p>
         <p className="map-cell-card-attribution">{selectedCitizenCell.attribution}</p>
+        {selectionSource && (
+          <details className="map-cell-card-details">
+            <summary>資料來源與版本</summary>
+            <dl className="map-cell-card-facts">
+              <div>
+                <dt>資料集</dt>
+                <dd>{selectionSource.dataset_id}</dd>
+              </div>
+              <div>
+                <dt>來源版本</dt>
+                <dd>{selectionSource.resource_version}</dd>
+              </div>
+              <div>
+                <dt>內容雜湊</dt>
+                <dd className="mono-value">{selectionSource.content_sha256}</dd>
+              </div>
+              {!selectedCitizenCellIsFixture && (
+                <div>
+                  <dt>通報類別政策</dt>
+                  <dd>{selectedCitizenCell.origin_eligibility.policy_version}</dd>
+                </div>
+              )}
+            </dl>
+            <p className="map-cell-card-caution">
+              模擬結果只屬於此來源版本；來源更新後必須重新選擇起點。輸入維持 UNVERIFIED，輸出維持
+              SIMULATED。
+            </p>
+          </details>
+        )}
       </div>
+      {!selectedCellIsEligibleOrigin && selectedCitizenCell.origin_eligibility && (
+        <p className="map-cell-card-note is-warning" role="note">
+          <strong>
+            {selectedCitizenCellIsFixture
+              ? "本機測試格"
+              : (CITIZEN_REPORT_TYPE_LABELS[selectedCitizenCell.report_type] ??
+                selectedCitizenCell.report_type)}
+          </strong>
+          {" · "}
+          {selectedCitizenCell.origin_eligibility.message}
+        </p>
+      )}
       <Button
         className="map-cell-card-action"
         size="small"
-        disabled={previewPendingForSelection || !hasCitizenAggregates}
+        disabled={
+          previewPendingForSelection || !hasCitizenAggregates || !selectedCellIsEligibleOrigin
+        }
         onClick={runPreviewFromSelectedCell}
       >
-        {previewPendingForSelection ? "模擬執行中…" : "以此格網起點執行模擬"}
+        {!selectedCellIsEligibleOrigin
+          ? "此類通報無法作為模擬起點"
+          : previewPendingForSelection
+            ? "模擬執行中…"
+            : "以此格網起點執行模擬"}
       </Button>
       {previewError !== null && (
         <p className="map-cell-card-note is-error" role="alert">
@@ -1244,6 +1337,11 @@ export function Dashboard() {
             {hasCitizenAggregates ? (
               <>
                 <p className="reference-label">{citizenAggregateStatus}</p>
+                {sourceRefreshNotice && (
+                  <p className="inline-note source-refresh-notice" role="status">
+                    {sourceRefreshNotice}
+                  </p>
+                )}
                 <div className="form-field citizen-cell-picker">
                   <label htmlFor="citizen-origin-cell">模擬起點格網</label>
                   <select

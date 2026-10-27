@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import weakref
+from collections import deque
 from collections.abc import Sequence
 
 import networkx as nx
@@ -50,6 +53,27 @@ def resolve_origin_cell(
     }
 
 
+_COMPONENT_COUNTS: weakref.WeakKeyDictionary[nx.MultiDiGraph, int] = weakref.WeakKeyDictionary()
+_COMPONENT_LOCK = threading.Lock()
+
+
+def _component_count(graph: nx.MultiDiGraph) -> int:
+    """Memoize the whole-graph component count per graph object.
+
+    The count depends only on immutable topology, and the loader builds a new
+    graph whenever the pinned source changes, so identity-keyed caching cannot
+    serve stale topology to a later request.
+    """
+    with _COMPONENT_LOCK:
+        cached = _COMPONENT_COUNTS.get(graph)
+    if cached is not None:
+        return cached
+    count = nx.number_weakly_connected_components(graph)
+    with _COMPONENT_LOCK:
+        _COMPONENT_COUNTS[graph] = count
+    return count
+
+
 def reachability_summary(
     graph: nx.MultiDiGraph, origin: str | Sequence[str]
 ) -> dict[str, int | str | list[str]]:
@@ -58,6 +82,10 @@ def reachability_summary(
     Topology only: it reports which nodes a walk can reach, never which habitat,
     food source, or movement is biologically plausible. For a cell origin the
     union is reported because every eligible node can seed a walker.
+
+    The union is computed with one multi-source breadth-first traversal: a cell
+    origin can seed dozens of nodes, and repeating a full traversal per node
+    dominated preview latency on the expanded extract.
     """
     origins = [str(origin)] if isinstance(origin, str) else [str(item) for item in origin]
     if not origins:
@@ -66,16 +94,26 @@ def reachability_summary(
         if node_id not in graph:
             raise ValueError(f"origin node {node_id!r} is not in graph")
     reachable = set(origins)
-    for node_id in origins:
-        reachable |= nx.descendants(graph, node_id)
+    frontier = deque(origins)
+    while frontier:
+        for successor in graph.successors(frontier.popleft()):
+            if successor not in reachable:
+                reachable.add(successor)
+                frontier.append(successor)
     return {
         "origin_node_id": origins[0],
         "origin_node_ids": origins,
         "reachable_nodes": len(reachable),
         "total_nodes": int(graph.number_of_nodes()),
-        "reachable_edges": int(graph.subgraph(reachable).number_of_edges()),
+        # Counting membership matches subgraph(reachable).number_of_edges()
+        # exactly, without materializing a 50k-node subgraph per request.
+        "reachable_edges": int(
+            sum(
+                1 for source, target in graph.edges() if source in reachable and target in reachable
+            )
+        ),
         "total_edges": int(graph.number_of_edges()),
-        "component_count": nx.number_weakly_connected_components(graph),
+        "component_count": _component_count(graph),
     }
 
 

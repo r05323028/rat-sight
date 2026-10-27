@@ -1,0 +1,233 @@
+{
+  "benchmark_schema_version": "1",
+  "classification": "ENGINEERING_MEASUREMENT",
+  "environment": {
+    "measured_at": "2026-10-27T19:00:13+00:00",
+    "python": "3.12.3",
+    "platform": "macOS-26.3.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_count": 8,
+    "total_memory_bytes": 17179869184,
+    "networkx": "3.7"
+  },
+  "graph": {
+    "study_area": "taipei_osm_songshan",
+    "source": "taipei-expanded-ratdar-20261027.osm",
+    "cold_load_ms": 12768.674,
+    "cold_load_ms_untraced": 2249.675,
+    "cold_load_note": "cold_load_ms is traced (upper bound); cold_load_ms_untraced is a fresh interpreter without tracemalloc",
+    "warm_load_ms_samples": [
+      16.354,
+      14.878,
+      13.795
+    ],
+    "warm_load_ms_median": 14.878,
+    "graph_memory_peak_bytes": 569983228,
+    "graph_memory_current_bytes": 191211598,
+    "node_count": 71281,
+    "edge_count": 208244,
+    "network_provenance": {
+      "source_id": "taipei-expanded-ratdar-20261027.osm",
+      "source_sha256": "9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868",
+      "resource_version": "2026-10-27T13:20:28Z",
+      "license": "ODbL 1.0",
+      "attribution": "© OpenStreetMap contributors",
+      "source_crs": "EPSG:4326",
+      "coverage": "EPSG:4326 bbox 121.2786025,24.9821164,121.6725037,25.1249122; 91 published-cell neighborhoods with a 500 m buffer"
+    }
+  },
+  "seed": 42,
+  "configs": [
+    {
+      "walkers": 24,
+      "steps": 12
+    },
+    {
+      "walkers": 100,
+      "steps": 30
+    },
+    {
+      "walkers": 500,
+      "steps": 50
+    }
+  ],
+  "capacity_notes": [
+    "Timings include digest verification on every graph load; only parsing is cached.",
+    "Payload bytes are the JSON body of one preview response, not HTTP framing.",
+    "The walk is pure Python over a MultiDiGraph; larger walker/step products scale roughly linearly with walkers x steps.",
+    "Memory figures come from tracemalloc allocation peaks, not resident set size."
+  ],
+  "snapshot": {
+    "available": true,
+    "resource_version": "2026-10-26T20:53:32Z",
+    "content_sha256": "eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b",
+    "classification": "UNVERIFIED",
+    "data_class": "CITIZEN_REPORT_AGGREGATE",
+    "suppression_minimum": 3,
+    "published_cells": 91,
+    "provenance": {
+      "counts": {
+        "used": 319,
+        "parsed": 1435,
+        "suppressed_cells": 946,
+        "suppressed_records": 1116,
+        "invalid_coordinates": 0
+      },
+      "license": "公開可讀取的公民通報匯出；無授權條款、無書面再利用同意。僅以聚合計數呈現，未驗證，不得視為觀測或再散布原始紀錄。",
+      "synthetic": false,
+      "dataset_id": "ratdar-taipei-public-export",
+      "processing": {
+        "tool": "ratsight_api.importers.citizen_report_aggregates",
+        "steps": [
+          "只讀取通報時間/類型/緯度/經度；地點、說明、照片網址在聚合前即丟棄",
+          "將 EPSG:4326 座標投影到 250 公尺網格並指派 cell_id",
+          "以通報時間的本月桶（亞洲台北牆鐘時間，UTC 位移未驗證）分月",
+          "抑制少於 3 筆的網格-月份群組與個別類型列，不寫入任何個別通報"
+        ],
+        "tool_version": "1"
+      },
+      "source_crs": "EPSG:4326",
+      "source_url": "https://ratdar.taipei/",
+      "target_crs": "EPSG:4326",
+      "aggregation": {
+        "dropped_fields": [
+          "地點",
+          "說明",
+          "照片網址"
+        ],
+        "cell_size_meters": 250,
+        "suppression_minimum": 3,
+        "month_timezone_assumption": "Asia/Taipei wall-clock time in the export; UTC offset unverified"
+      },
+      "attribution": "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+      "source_kind": "public_citizen_report_export",
+      "uncertainty": {
+        "note": "公民通報聚合計數（250 公尺網格、按月），已抑制少於 3 筆的網格與類型列。屬 UNVERIFIED 公民回報，不是觀測、盛行率、族群、移動或風險證據，也不作為模擬輸入。",
+        "currentness": "2026-10-26T20:53:32Z"
+      },
+      "retrieved_at": "2026-10-26T20:53:32Z",
+      "content_sha256": "eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b",
+      "schema_version": "1",
+      "resource_version": "2026-10-26T20:53:32Z"
+    }
+  },
+  "origin_resolution": {
+    "eligible_cells_total": 91,
+    "cells_measured": 25,
+    "resolved": 25,
+    "zero_candidate": 0,
+    "per_cell_ms_median": 67.894,
+    "per_cell_ms_p90": 72.396,
+    "per_cell_ms_max": 83.731,
+    "candidates_min": 22,
+    "candidates_median": 75,
+    "candidates_max": 147,
+    "sample_cell": "g250m:11127:49040:2026-05:sighting",
+    "sample_candidate_count": 38
+  },
+  "reachability": {
+    "elapsed_ms": 282.692,
+    "origin_node_id": "1274021893",
+    "origin_node_ids": [
+      "1274021893",
+      "1274021924",
+      "1274021935",
+      "12769556741",
+      "12769556742",
+      "12769556743",
+      "12769556744",
+      "13180604840",
+      "13180604841",
+      "13180604843",
+      "13180604844",
+      "13180604845",
+      "13180604846",
+      "13180604847",
+      "1889965180",
+      "1891996988",
+      "1917378980",
+      "1933911095",
+      "2467283246",
+      "2467283258",
+      "2974008702",
+      "2974008703",
+      "2974008704",
+      "2974008705",
+      "2974008707",
+      "2974008708",
+      "2974008709",
+      "3639102805",
+      "4401768588",
+      "5272985301",
+      "5272985303",
+      "5272985311",
+      "5272985312",
+      "5272985314",
+      "5272985315",
+      "5272985316",
+      "5272985317",
+      "5272985319"
+    ],
+    "reachable_nodes": 54828,
+    "total_nodes": 71281,
+    "reachable_edges": 163140,
+    "total_edges": 208244,
+    "component_count": 387
+  },
+  "walks": [
+    {
+      "walkers": 24,
+      "steps": 12,
+      "seed": 42,
+      "elapsed_ms": 173.396,
+      "ms_per_walker": 7.225,
+      "distinct_nodes_visited": 0
+    },
+    {
+      "walkers": 100,
+      "steps": 30,
+      "seed": 42,
+      "elapsed_ms": 228.527,
+      "ms_per_walker": 2.285,
+      "distinct_nodes_visited": 0
+    },
+    {
+      "walkers": 500,
+      "steps": 50,
+      "seed": 42,
+      "elapsed_ms": 581.259,
+      "ms_per_walker": 1.163,
+      "distinct_nodes_visited": 0
+    }
+  ],
+  "previews": [
+    {
+      "walkers": 24,
+      "steps": 12,
+      "status": "ok",
+      "preview_ms": 640.681,
+      "serialize_ms": 8.286,
+      "payload_bytes": 790317,
+      "payload_nodes": null
+    },
+    {
+      "walkers": 100,
+      "steps": 30,
+      "status": "ok",
+      "preview_ms": 674.404,
+      "serialize_ms": 16.433,
+      "payload_bytes": 1357782,
+      "payload_nodes": null
+    },
+    {
+      "walkers": 500,
+      "steps": 50,
+      "status": "ok",
+      "preview_ms": 1053.214,
+      "serialize_ms": 21.498,
+      "payload_bytes": 1769074,
+      "payload_nodes": null
+    }
+  ]
+}

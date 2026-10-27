@@ -12,7 +12,8 @@ import json
 import math
 import re
 from collections.abc import Mapping
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast
 
 from pydantic import ValidationError
 from ratsight_api.api.schemas import (
@@ -23,13 +24,17 @@ from ratsight_api.api.schemas import (
     CitizenReportCellProperties,
     CitizenReportClassification,
     CitizenReportDataClass,
+    CitizenReportOriginEligibility,
+    CitizenReportOriginEligibilityReason,
     CitizenReportProvenanceV1,
     CitizenReportSourceKind,
+    OriginSourceIdentity,
     SyntheticAggregateFixtureProvenance,
 )
 from ratsight_api.domain.citizen_report_aggregates import (
     ATTRIBUTION,
     BBOX_MAX_SPAN,
+    CELL_SIZE_METERS,
     CITIZEN_REPORT_CLASSIFICATION,
     CITIZEN_REPORT_DATA_CLASS,
     DATASET_ID,
@@ -40,13 +45,17 @@ from ratsight_api.domain.citizen_report_aggregates import (
     LON_MIN,
     MONTH_PATTERN,
     NOTICE,
+    ORIGIN_ELIGIBILITY_MESSAGES,
+    ORIGIN_POLICY_VERSION,
     SOURCE_KIND,
+    SOURCE_URL,
     SYNTHETIC_FIXTURE_ATTRIBUTION,
     SYNTHETIC_FIXTURE_CLASSIFICATION,
     SYNTHETIC_FIXTURE_DATA_CLASS,
     SYNTHETIC_FIXTURE_DATASET_PREFIX,
     SYNTHETIC_FIXTURE_NOTICE,
     SYNTHETIC_FIXTURE_SOURCE_KIND,
+    origin_eligibility,
     synthetic_aggregate_fixture_enabled,
 )
 from ratsight_api.infrastructure.database.models import CitizenReportCell
@@ -175,28 +184,68 @@ class CitizenReportCellNotFound(LookupError):
     """Raised when a requested aggregate cell identity is not stored."""
 
 
-def get_citizen_report_cell_polygon(
-    session: Session, feature_id: str, *, dataset_id: str | None = None
-) -> CitizenReportCellPolygon:
-    """Return one latest-version aggregate cell polygon by feature identity.
+class CitizenReportDatasetUnknown(LookupError):
+    """Raised when the requested dataset identity has no published snapshot."""
 
-    The feature id is 'cell_id:month:report_type'; cell ids may themselves
-    contain colons, so the identity is split from the right. There is no
-    fallback, nearest-cell search, or geometry synthesis.
+
+class CitizenReportSourceVersionConflict(RuntimeError):
+    """Raised when the requested snapshot is not the currently published one."""
+
+
+class CitizenReportOriginIneligible(ValueError):
+    """Raised when a published cell's report category cannot seed a simulation."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(ORIGIN_ELIGIBILITY_MESSAGES.get(reason, reason))
+        self.reason = reason
+
+
+@dataclass(frozen=True)
+class CitizenReportOriginCell:
+    """One published cell resolved inside its exact source snapshot.
+
+    Geometry, classification, and suppression state all come from the same
+    stored row, so a caller never mixes versions.
     """
+
+    feature_id: str
+    polygon: CitizenReportCellPolygon
+    dataset_id: str
+    resource_version: str
+    content_sha256: str
+    cell_id: str
+    month: str
+    report_type: str
+    report_type_eligible: bool
+    report_type_reason: str
+    policy_version: str
+    cell_size_meters: int
+    source_url: str | None
+    attribution: str | None
+
+
+def parse_origin_feature_id(feature_id: str) -> tuple[str, str, str]:
+    """Split 'cell_id:month:report_type' from the right; cell ids may contain colons."""
     parts = feature_id.rsplit(":", 2)
     if len(parts) != 3:
         raise CitizenReportQueryError("origin cell id must be cell_id:month:report_type")
     cell_id, month, report_type = parts
     if not cell_id or MONTH_RE.fullmatch(month) is None or not report_type:
         raise CitizenReportQueryError("origin cell id must be cell_id:month:report_type")
-    resolved_dataset_id = dataset_id or DATASET_ID
-    _ensure_dataset_allowed(resolved_dataset_id)
+    return cell_id, month, report_type
+
+
+def _latest_published_snapshot(session: Session, dataset_id: str) -> tuple[str, str] | None:
+    """Return the published (resource_version, content_sha256) for a dataset.
+
+    Version and digest are read together, so a client cannot be told its version
+    is current while its digest is compared against a different snapshot.
+    """
     try:
-        meta = (
+        row = (
             session.execute(
-                select(CitizenReportCell.resource_version, CitizenReportCell.provenance)
-                .where(CitizenReportCell.dataset_id == resolved_dataset_id)
+                select(CitizenReportCell.resource_version, CitizenReportCell.content_sha256)
+                .where(CitizenReportCell.dataset_id == dataset_id)
                 .order_by(CitizenReportCell.resource_version.desc())
                 .limit(1)
             )
@@ -205,11 +254,35 @@ def get_citizen_report_cell_polygon(
         )
     except SQLAlchemyError as exc:
         raise CitizenReportStorageError("citizen report storage unavailable") from exc
-    if meta is None:
-        raise CitizenReportCellNotFound("no citizen report aggregate version is stored")
-    provenance = _validated_provenance(resolved_dataset_id, meta["provenance"])
-    if provenance.resource_version != meta["resource_version"]:
-        raise CitizenReportDataError("stored aggregate provenance version does not match")
+    if row is None:
+        return None
+    return str(row["resource_version"]), str(row["content_sha256"])
+
+
+def get_citizen_report_origin_cell(
+    session: Session, feature_id: str, source: OriginSourceIdentity
+) -> CitizenReportOriginCell:
+    """Resolve one origin cell against the exact snapshot the client selected.
+
+    The requested dataset/version/hash must still be the published snapshot; a
+    newer import produces a version conflict rather than silently resolving
+    against different geometry. The row query pins the same version and digest,
+    so published-cell, suppression, and classification rules are applied to that
+    snapshot only. There is no fallback, nearest-cell search, or geometry
+    synthesis.
+    """
+    cell_id, month, report_type = parse_origin_feature_id(feature_id)
+    _ensure_dataset_allowed(source.dataset_id)
+    published = _latest_published_snapshot(session, source.dataset_id)
+    if published is None:
+        raise CitizenReportDatasetUnknown(
+            f"no citizen report aggregate snapshot is published for {source.dataset_id!r}"
+        )
+    published_version, published_digest = published
+    if published_version != source.resource_version or published_digest != source.content_sha256:
+        raise CitizenReportSourceVersionConflict(
+            "the requested citizen report snapshot is no longer the published version"
+        )
     try:
         row = (
             session.execute(
@@ -217,10 +290,13 @@ def get_citizen_report_cell_polygon(
                     CitizenReportCell.data_class,
                     CitizenReportCell.classification,
                     CitizenReportCell.report_count,
+                    CitizenReportCell.content_sha256,
+                    CitizenReportCell.provenance,
                     func.ST_AsGeoJSON(CitizenReportCell.geometry).label("geometry"),
                 )
-                .where(CitizenReportCell.dataset_id == resolved_dataset_id)
-                .where(CitizenReportCell.resource_version == meta["resource_version"])
+                .where(CitizenReportCell.dataset_id == source.dataset_id)
+                .where(CitizenReportCell.resource_version == source.resource_version)
+                .where(CitizenReportCell.content_sha256 == source.content_sha256)
                 .where(CitizenReportCell.cell_id == cell_id)
                 .where(CitizenReportCell.month == month)
                 .where(CitizenReportCell.report_type == report_type)
@@ -233,7 +309,15 @@ def get_citizen_report_cell_polygon(
         raise CitizenReportStorageError("citizen report storage unavailable") from exc
     if row is None:
         raise CitizenReportCellNotFound(
-            "origin cell is not present in the latest citizen report aggregate version"
+            "origin cell is not present in the selected citizen report aggregate snapshot"
+        )
+    provenance = _validated_provenance(source.dataset_id, row["provenance"])
+    if (
+        provenance.resource_version != source.resource_version
+        or provenance.content_sha256 != source.content_sha256
+    ):
+        raise CitizenReportDataError(
+            "stored origin provenance does not match the requested snapshot"
         )
     expected_data_class = (
         SYNTHETIC_FIXTURE_DATA_CLASS
@@ -251,14 +335,56 @@ def get_citizen_report_cell_polygon(
         if row["report_count"] is not None:
             raise CitizenReportDataError("synthetic fixture origin must not contain report counts")
     elif row["report_count"] is None or row["report_count"] < 3:
-        raise CitizenReportDataError(
-            "stored citizen report origin does not meet suppression minimum"
+        # A suppressed row must be indistinguishable from an absent one: reporting
+        # "suppressed" would confirm that the cell exists in the source snapshot.
+        raise CitizenReportCellNotFound(
+            "origin cell is not present in the selected citizen report aggregate snapshot"
         )
-    return _parse_polygon(
+    # Category eligibility is checked only after the cell is proven published and
+    # suppression-eligible, so an error cannot reveal a suppressed cell.
+    eligible, reason = origin_eligibility(report_type)
+    if not eligible:
+        raise CitizenReportOriginIneligible(reason)
+    polygon = _parse_polygon(
         row["geometry"],
         data_class=expected_data_class,
         classification=expected_classification,
         source_kind=provenance.source_kind,
+    )
+    return CitizenReportOriginCell(
+        feature_id=feature_id,
+        polygon=polygon,
+        dataset_id=source.dataset_id,
+        resource_version=source.resource_version,
+        content_sha256=source.content_sha256,
+        cell_id=cell_id,
+        month=month,
+        report_type=report_type,
+        report_type_eligible=eligible,
+        report_type_reason=reason,
+        policy_version=ORIGIN_POLICY_VERSION,
+        cell_size_meters=CELL_SIZE_METERS,
+        source_url=(
+            SYNTHETIC_FIXTURE_ATTRIBUTION
+            if isinstance(provenance, SyntheticAggregateFixtureProvenance)
+            else SOURCE_URL
+        ),
+        attribution=(
+            SYNTHETIC_FIXTURE_ATTRIBUTION
+            if isinstance(provenance, SyntheticAggregateFixtureProvenance)
+            else ATTRIBUTION
+        ),
+    )
+
+
+def origin_eligibility_payload(report_type: str) -> CitizenReportOriginEligibility:
+    """Build the API eligibility payload from the single domain rule."""
+    eligible, reason = origin_eligibility(report_type)
+    return CitizenReportOriginEligibility(
+        eligible=eligible,
+        reason=cast(CitizenReportOriginEligibilityReason, reason),
+        policy_version=ORIGIN_POLICY_VERSION,
+        message=ORIGIN_ELIGIBILITY_MESSAGES[reason],
     )
 
 
@@ -387,6 +513,7 @@ def list_citizen_report_aggregates(
                     data_class=expected_data_class,
                     classification=expected_classification,
                     attribution=(SYNTHETIC_FIXTURE_ATTRIBUTION if is_fixture else ATTRIBUTION),
+                    origin_eligibility=origin_eligibility_payload(row["report_type"]),
                 ),
             )
         )

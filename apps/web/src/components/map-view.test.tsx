@@ -253,6 +253,12 @@ const citizenAggregates: CitizenReportAggregates = {
         data_class: "CITIZEN_REPORT_AGGREGATE",
         classification: "UNVERIFIED",
         attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+        origin_eligibility: {
+          eligible: true,
+          reason: "eligible_sighting_candidate",
+          policy_version: "origin-report-category-v1",
+          message: "鼠蹤通報可作為候選模擬起點；這是通報彙整，不是已驗證的動物位置。",
+        },
       },
     },
   ],

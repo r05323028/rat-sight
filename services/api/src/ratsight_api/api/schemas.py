@@ -56,6 +56,21 @@ class ModelCatalogItem(BaseModel):
     description: str
 
 
+class OriginSourceIdentity(BaseModel):
+    """Exact published citizen-report snapshot an origin cell was selected from.
+
+    The client echoes the identity of the aggregate response it rendered. The
+    server resolves the cell inside that same snapshot and never falls forward
+    to a newer import.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    dataset_id: str = Field(min_length=1, max_length=64)
+    resource_version: str = Field(min_length=1, max_length=64)
+    content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
 class SimulationPreviewRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -67,7 +82,7 @@ class SimulationPreviewRequest(BaseModel):
                         "required": ["study_area"],
                     },
                     "then": {
-                        "required": ["origin_cell_id"],
+                        "required": ["origin_cell_id", "origin_source"],
                         "not": {"required": ["origin_node_id"]},
                     },
                 },
@@ -80,7 +95,8 @@ class SimulationPreviewRequest(BaseModel):
                         "anyOf": [
                             {"required": ["origin_node_id"]},
                             {"required": ["origin_cell_id"]},
-                        ]
+                        ],
+                        "not": {"required": ["origin_source"]},
                     },
                 },
                 {"not": {"required": ["origin_node_id", "origin_cell_id"]}},
@@ -91,6 +107,7 @@ class SimulationPreviewRequest(BaseModel):
     study_area: Literal["taipei_synthetic_demo", "taipei_osm_songshan"]
     origin_node_id: str | None = Field(default=None, min_length=1)
     origin_cell_id: str | None = Field(default=None, min_length=1)
+    origin_source: OriginSourceIdentity | None = None
     duration_steps: int = Field(default=12, ge=1, le=100)
     walkers: int = Field(default=24, ge=1, le=1000)
     random_seed: int = Field(default=42, ge=0, le=18_446_744_073_709_551_615)
@@ -107,9 +124,19 @@ class SimulationPreviewRequest(BaseModel):
                     "origin_cell_id is required for taipei_osm_songshan; "
                     "origin_node_id is not accepted"
                 )
+            if self.origin_source is None:
+                raise ValueError(
+                    "origin_source (dataset_id, resource_version, content_sha256) is required "
+                    "for a published citizen-report origin"
+                )
         elif self.origin_node_id is None and self.origin_cell_id is None:
             raise ValueError(
                 "origin_node_id or origin_cell_id is required for taipei_synthetic_demo"
+            )
+        if self.study_area == "taipei_synthetic_demo" and self.origin_source is not None:
+            raise ValueError(
+                "origin_source is only accepted for published citizen-report origins; "
+                "synthetic fixtures carry no source version"
             )
         return self
 
@@ -232,8 +259,24 @@ class PreviewOrigin(BaseModel):
     source_data_class: CitizenReportDataClass | None = None
     source_classification: CitizenReportClassification | None = None
     source_kind: CitizenReportSourceKind | None = None
+    # Exact citizen-report snapshot the cell was resolved from. Deliberately kept
+    # separate from the OSM network provenance so the two sources cannot be
+    # conflated, and never presented as a verified animal location.
+    source_dataset_id: str | None = None
+    source_resource_version: str | None = None
+    source_content_sha256: str | None = None
+    source_report_type: str | None = None
+    source_report_type_eligible: bool | None = None
+    source_origin_policy_version: str | None = None
     classification: Literal["SIMULATED"]
     note: str
+
+    @field_validator("source_content_sha256")
+    @classmethod
+    def _source_sha256_is_valid(cls, value: str | None) -> str | None:
+        if value is not None and re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("source_content_sha256 must be lowercase 64-character hex")
+        return value
 
 
 class SimulationPreviewResponse(BaseModel):
@@ -635,6 +678,29 @@ class CitizenReportCellPolygon(BaseModel):
     source_kind: CitizenReportSourceKind = "public_citizen_report_export"
 
 
+CitizenReportOriginEligibilityReason = Literal[
+    "eligible_sighting_candidate",
+    "context_only_bait_station",
+    "context_only_other",
+    "context_only_unknown",
+]
+
+
+class CitizenReportOriginEligibility(BaseModel):
+    """Whether a published report category may seed a simulation origin.
+
+    The server owns this rule; clients display the verdict instead of
+    re-deriving it, so a direct API call and the UI cannot disagree.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    eligible: bool
+    reason: CitizenReportOriginEligibilityReason
+    policy_version: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
 class CitizenReportCellProperties(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -645,6 +711,7 @@ class CitizenReportCellProperties(BaseModel):
     data_class: CitizenReportDataClass = "CITIZEN_REPORT_AGGREGATE"
     classification: CitizenReportClassification = "UNVERIFIED"
     attribution: str = Field(min_length=1)
+    origin_eligibility: CitizenReportOriginEligibility
 
 
 class CitizenReportCellFeature(BaseModel):

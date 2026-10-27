@@ -246,6 +246,44 @@ def test_reachability_summary_counts_directed_reachable_topology() -> None:
         reachability_summary(graph, [])
 
 
+def test_reachability_union_matches_networkx_descendants_with_parallel_edges() -> None:
+    graph = nx.MultiDiGraph()
+    graph.add_edge("a", "b", edge_id="ab1", movement_weight=1.0)
+    graph.add_edge("a", "b", edge_id="ab2", movement_weight=1.0)
+    graph.add_edge("b", "c", edge_id="bc", movement_weight=1.0)
+    graph.add_edge("c", "a", edge_id="ca", movement_weight=1.0)
+    graph.add_edge("d", "e", edge_id="de", movement_weight=1.0)
+    graph.add_node("island")
+
+    origins = ["d", "a"]
+    summary = reachability_summary(graph, origins)
+    reachable = set(origins).union(*(nx.descendants(graph, origin) for origin in origins))
+
+    # Multi-source traversal must equal the union of per-origin descendants.
+    assert summary["reachable_nodes"] == len(reachable) == 5
+    assert summary["total_nodes"] == 6
+    # Parallel edges are counted once each, exactly like subgraph().number_of_edges().
+    assert summary["reachable_edges"] == graph.subgraph(reachable).number_of_edges() == 5
+    permuted = reachability_summary(graph, list(reversed(origins)))
+    assert permuted["reachable_nodes"] == summary["reachable_nodes"]
+    assert permuted["reachable_edges"] == summary["reachable_edges"]
+    # {a,b,c}, {d,e} and the isolated node are three weak components.
+    assert permuted["component_count"] == summary["component_count"] == 3
+
+
+def test_component_count_cache_is_keyed_per_graph_object() -> None:
+    first = nx.MultiDiGraph()
+    first.add_edge("a", "b", edge_id="ab", movement_weight=1.0)
+    second = nx.MultiDiGraph()
+    second.add_edge("x", "y", edge_id="xy", movement_weight=1.0)
+    second.add_node("z")
+
+    assert reachability_summary(first, "a")["component_count"] == 1
+    assert reachability_summary(first, "a")["component_count"] == 1
+    # A different graph object must never inherit the first graph's cached count.
+    assert reachability_summary(second, "x")["component_count"] == 2
+
+
 def test_synthetic_graph_is_fully_reachable_from_every_node() -> None:
     graph = create_synthetic_graph()
     for node in graph.nodes:

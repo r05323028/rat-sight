@@ -1,0 +1,291 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "BLOCKED",
+      "findings": [
+        {
+          "id": "FCO-001",
+          "severity": "BLOCKING",
+          "status": "OPEN"
+        },
+        {
+          "id": "FCO-002",
+          "severity": "MAJOR",
+          "status": "RESOLVED"
+        },
+        {
+          "id": "FCO-003",
+          "severity": "MAJOR",
+          "status": "RESOLVED"
+        },
+        {
+          "id": "FCO-004",
+          "severity": "MAJOR",
+          "status": "RESOLVED"
+        },
+        {
+          "id": "FCO-005",
+          "severity": "MINOR",
+          "status": "OPEN"
+        },
+        {
+          "id": "FCO-006",
+          "severity": "MAJOR",
+          "status": "RESOLVED"
+        }
+      ]
+    },
+    "code": {
+      "decision": "PASS_WITH_WARNINGS",
+      "findings": [
+        {
+          "id": "CR-001",
+          "severity": "MINOR",
+          "status": "OPEN"
+        }
+      ]
+    }
+  },
+  "engineering": [
+    {
+      "requirement": "citizen-origin#Snapshot-bound simulation origins",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/application/citizen_report_aggregates.py",
+        "apps/web/src/lib/api.ts",
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_citizen_report_aggregates_api.py",
+        "services/api/tests/test_api.py",
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/src/lib/api.test.ts"
+      ],
+      "verification": [
+        "focused-api",
+        "web-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Fail-closed snapshot resolution",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/application/citizen_report_aggregates.py",
+        "services/api/src/ratsight_api/api/routes/simulations.py"
+      ],
+      "tests": [
+        "services/api/tests/test_citizen_report_aggregates_api.py",
+        "services/api/tests/test_api.py"
+      ],
+      "verification": [
+        "focused-api"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Report-category origin eligibility",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/domain/citizen_report_aggregates.py",
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/api/routes/simulations.py",
+        "apps/web/src/lib/api.ts",
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_citizen_report_aggregates_api.py",
+        "services/api/tests/test_simulation_preview.py",
+        "services/api/tests/test_api.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "focused-api",
+        "web-tests",
+        "browser-smoke"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Snapshot provenance in simulation output",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "services/api/src/ratsight_api/api/schemas.py"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "services/api/tests/test_api.py"
+      ],
+      "verification": [
+        "focused-api",
+        "real-snapshot-http"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Source-refresh selection integrity",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/lib/api.ts"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "web-tests",
+        "browser-smoke",
+        "real-snapshot-browser"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Published-cell coverage diagnostics",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/citizen_origin_coverage.py"
+      ],
+      "tests": [
+        "scripts/tests/test_citizen_origin_coverage.py"
+      ],
+      "verification": [
+        "coverage"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Measured simulation performance",
+      "status": "VERIFIED",
+      "implementation": [
+        "packages/simulation/src/ratsight_simulation/graph/network.py",
+        "scripts/benchmark_simulation.py"
+      ],
+      "tests": [
+        "packages/simulation/tests/test_random_walk.py"
+      ],
+      "verification": [
+        "benchmark",
+        "full-py"
+      ]
+    }
+  ],
+  "verification": [
+    {
+      "id": "focused-api",
+      "command": "uv run pytest services/api/tests/test_api.py services/api/tests/test_citizen_report_aggregates_api.py services/api/tests/test_simulation_preview.py -q",
+      "exit_code": 0,
+      "result": "63 passed in 12.31s",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "full-py",
+      "command": "make test-py",
+      "exit_code": 0,
+      "result": "230 passed in 79.51s",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "web-tests",
+      "command": "make test-js",
+      "exit_code": 0,
+      "result": "70 passed (3 files)",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "typecheck",
+      "command": "make typecheck",
+      "exit_code": 0,
+      "result": "0 errors, 0 warnings, 0 notes",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "lint",
+      "command": "make lint",
+      "exit_code": 0,
+      "result": "All checks passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "format-check",
+      "command": "make format-check",
+      "exit_code": 0,
+      "result": "410 files already formatted",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "build",
+      "command": "make build",
+      "exit_code": 0,
+      "result": "Next.js compiled successfully, 3 static pages",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "browser-smoke",
+      "command": "bash scripts/geospatial_smoke.sh",
+      "exit_code": 0,
+      "result": "24 tests passed across 6 specs against a synthetic fixture",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "real-snapshot-http",
+      "command": "curl -fsS -X POST http://127.0.0.1:8011/api/v1/simulations/preview (published snapshot, origin_source pinned)",
+      "exit_code": 0,
+      "result": "HTTP 200, 3.134 s, 1,139,947 bytes, 24 trajectories, 47 candidates, source_classification UNVERIFIED, classification SIMULATED",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "real-snapshot-browser",
+      "command": "pnpm exec playwright test e2e/tmp-real-snapshot.spec.ts (temporary spec, deleted after the run)",
+      "exit_code": 0,
+      "result": "2 passed — desktop 7.5 s, mobile 7.4 s against the published snapshot",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "coverage",
+      "command": "uv run python scripts/citizen_origin_coverage.py --output docs/benchmarks/citizen-origin-coverage.json",
+      "exit_code": 0,
+      "result": "91 published / 91 eligible / 91 resolved / 0 zero-candidate",
+      "reference": "docs/benchmarks/citizen-origin-coverage.json"
+    },
+    {
+      "id": "benchmark",
+      "command": "uv run python scripts/benchmark_simulation.py --output docs/benchmarks/citizen-origin-preview.json",
+      "exit_code": 0,
+      "result": "reachability 3597.4 ms → 282.7 ms; preview 4294.1 → 640.7 ms at 24/12",
+      "reference": "docs/benchmarks/citizen-origin-preview.json"
+    },
+    {
+      "id": "openspec-validate",
+      "command": "openspec validate finalize-citizen-origin-data-integrity --strict",
+      "exit_code": 0,
+      "result": "Change is valid",
+      "reference": "openspec/changes/finalize-citizen-origin-data-integrity/specs/citizen-origin/spec.md"
+    }
+  ],
+  "science": {
+    "applicable": true,
+    "claims": [
+      {
+        "evidence_id": "EVID-CITIZEN-ORIGIN-ELIGIBILITY-2026-10-27",
+        "source": "docs/evidence/citizen-origin-eligibility-policy-2026-10-27.md",
+        "assumption": "A sighting report is the only citizen-report category that may seed a simulation origin; bait_station and other reports are context-only. A 250 m cell is a coarse reporting area, never an animal location.",
+        "parameter": "cell size 250 m; eligibility policy origin-report-category-v1; uniform in-cell node seeding; seed 42",
+        "model": "weighted_random_walk over the pinned OSM surface graph",
+        "data_class": "UNVERIFIED",
+        "status": "PARTIALLY_VERIFIED",
+        "limitation": "The policy, cell semantics, seeding baseline, and transition model are unapproved scientific assumptions; report counts are not animal counts and road geometry is not validated rodent movement ecology.",
+        "validation": [
+          "focused-api",
+          "web-tests",
+          "browser-smoke",
+          "real-snapshot-browser"
+        ]
+      }
+    ]
+  },
+  "approval": {
+    "required": true,
+    "trigger": "NEW_SCIENTIFIC_ASSUMPTION",
+    "decision": "PENDING",
+    "approver": null,
+    "reference": null,
+    "scope": "Approval of the origin-report-category-v1 eligibility policy and of treating a 250 m aggregate cell as a candidate origin with uniform graph-node seeding.",
+    "findings": []
+  }
+}

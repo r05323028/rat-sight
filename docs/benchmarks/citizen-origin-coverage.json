@@ -1,0 +1,103 @@
+{
+  "coverage_schema_version": "1",
+  "classification": "ENGINEERING_DIAGNOSTIC",
+  "source": {
+    "dataset_id": "ratdar-taipei-public-export",
+    "resource_version": "2026-10-26T20:53:32Z",
+    "content_sha256": "eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b",
+    "classification": "UNVERIFIED",
+    "cell_size_meters": 250,
+    "suppression_minimum": 3,
+    "provenance": {
+      "counts": {
+        "used": 319,
+        "parsed": 1435,
+        "suppressed_cells": 946,
+        "suppressed_records": 1116,
+        "invalid_coordinates": 0
+      },
+      "license": "公開可讀取的公民通報匯出；無授權條款、無書面再利用同意。僅以聚合計數呈現，未驗證，不得視為觀測或再散布原始紀錄。",
+      "synthetic": false,
+      "dataset_id": "ratdar-taipei-public-export",
+      "processing": {
+        "tool": "ratsight_api.importers.citizen_report_aggregates",
+        "steps": [
+          "只讀取通報時間/類型/緯度/經度；地點、說明、照片網址在聚合前即丟棄",
+          "將 EPSG:4326 座標投影到 250 公尺網格並指派 cell_id",
+          "以通報時間的本月桶（亞洲台北牆鐘時間，UTC 位移未驗證）分月",
+          "抑制少於 3 筆的網格-月份群組與個別類型列，不寫入任何個別通報"
+        ],
+        "tool_version": "1"
+      },
+      "source_crs": "EPSG:4326",
+      "source_url": "https://ratdar.taipei/",
+      "target_crs": "EPSG:4326",
+      "aggregation": {
+        "dropped_fields": [
+          "地點",
+          "說明",
+          "照片網址"
+        ],
+        "cell_size_meters": 250,
+        "suppression_minimum": 3,
+        "month_timezone_assumption": "Asia/Taipei wall-clock time in the export; UTC offset unverified"
+      },
+      "attribution": "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+      "source_kind": "public_citizen_report_export",
+      "uncertainty": {
+        "note": "公民通報聚合計數（250 公尺網格、按月），已抑制少於 3 筆的網格與類型列。屬 UNVERIFIED 公民回報，不是觀測、盛行率、族群、移動或風險證據，也不作為模擬輸入。",
+        "currentness": "2026-10-26T20:53:32Z"
+      },
+      "retrieved_at": "2026-10-26T20:53:32Z",
+      "content_sha256": "eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b",
+      "schema_version": "1",
+      "resource_version": "2026-10-26T20:53:32Z"
+    }
+  },
+  "network": {
+    "source_id": "taipei-expanded-ratdar-20261027.osm",
+    "source_sha256": "9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868",
+    "resource_version": "2026-10-27T13:20:28Z",
+    "license": "ODbL 1.0",
+    "attribution": "© OpenStreetMap contributors",
+    "source_crs": "EPSG:4326",
+    "coverage": "EPSG:4326 bbox 121.2786025,24.9821164,121.6725037,25.1249122; 91 published-cell neighborhoods with a 500 m buffer",
+    "node_count": 71281,
+    "edge_count": 208244
+  },
+  "cell_counts": {
+    "published": 91,
+    "eligible_origin_cells": 91,
+    "resolved": 91,
+    "zero_candidate": 0,
+    "context_only": 0
+  },
+  "context_only_by_report_type": {},
+  "context_only_reasons": {},
+  "candidate_counts": {
+    "total": 6142,
+    "min": 3,
+    "median": 60,
+    "p90": 107,
+    "max": 286,
+    "histogram": {
+      "1": 0,
+      "2-4": 1,
+      "5-9": 0,
+      "10-49": 34,
+      "50-99": 44,
+      "100+": 12
+    }
+  },
+  "resolver_versions": {
+    "uniform-in-cell-v1": 91
+  },
+  "unresolvable_cells": [],
+  "limitations": [
+    "Resolution proves only that a graph node lies inside the published polygon; it is not evidence that rodents occupy the cell.",
+    "A 250 m aggregate cell is not an animal location, and its report count is not an animal count.",
+    "Unresolvable cells stay ineligible. This tool never snaps a cell to a distant road or substitutes another cell.",
+    "The network is a bounded OSM road extract, not validated rodent movement ecology; its coverage is limited to the pinned export extent.",
+    "Absence of a published cell is suppressed or missing data, never a zero report count."
+  ]
+}

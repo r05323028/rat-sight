@@ -71,6 +71,42 @@ DROPPED_COLUMNS: tuple[str, ...] = ("地點", "說明", "照片網址")
 REPORT_TYPE_CODES = {"鼠蹤": "sighting", "毒餌": "bait_station"}
 DEFAULT_REPORT_TYPE = "other"
 
+# --- Simulation origin eligibility policy ------------------------------------
+# A report category is not evidence that a rodent was present. The conservative
+# default admits only '"'"'sighting'"'"' as a candidate origin category; bait-related and
+# unclassified reports stay displayable context and cannot seed a simulation.
+# This is a product/modelling policy, not proof that a sighting locates an animal.
+ORIGIN_POLICY_VERSION = "origin-report-category-v1"
+ELIGIBLE_ORIGIN_REPORT_TYPES = frozenset({"sighting"})
+CONTEXT_ONLY_REPORT_TYPES = frozenset({"bait_station", "other"})
+ELIGIBLE_ORIGIN_REASON = "eligible_sighting_candidate"
+CONTEXT_ONLY_REASONS = {
+    "bait_station": "context_only_bait_station",
+    "other": "context_only_other",
+}
+UNKNOWN_REPORT_TYPE_REASON = "context_only_unknown"
+
+ORIGIN_ELIGIBILITY_MESSAGES = {
+    ELIGIBLE_ORIGIN_REASON: ("鼠蹤通報可作為模擬起點候選；250 公尺格網仍不代表已驗證的動物位置。"),
+    "context_only_bait_station": (
+        "此類通報不直接代表鼠類出現位置，目前僅供資料參考，無法作為模擬起點。"
+    ),
+    "context_only_other": "此通報類別不屬於可用的模擬起點類別，目前僅供資料參考。",
+    UNKNOWN_REPORT_TYPE_REASON: "未識別的通報類別不會作為模擬起點，目前僅供資料參考。",
+}
+
+
+def origin_eligibility(report_type: str) -> tuple[bool, str]:
+    """Return (eligible, reason) for one published report category.
+
+    Single source of truth for the API, importer-adjacent code, and UI payloads;
+    callers must not re-derive the rule.
+    """
+    if report_type in ELIGIBLE_ORIGIN_REPORT_TYPES:
+        return True, ELIGIBLE_ORIGIN_REASON
+    return False, CONTEXT_ONLY_REASONS.get(report_type, UNKNOWN_REPORT_TYPE_REASON)
+
+
 NOTICE = (
     "公民通報聚合計數（250 公尺網格、按月），已抑制少於 "
     f"{SUPPRESSION_MINIMUM} 筆的網格與類型列。屬 UNVERIFIED 公民回報，"

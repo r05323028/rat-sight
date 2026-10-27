@@ -16,15 +16,20 @@ from ratsight_api.api.schemas import (
     CitizenReportProcessing,
     CitizenReportProvenanceV1,
     CitizenReportUncertainty,
+    OriginSourceIdentity,
     SyntheticAggregateFixtureProvenance,
 )
 from ratsight_api.application.citizen_report_aggregates import (
     CitizenReportCellNotFound,
     CitizenReportDataError,
+    CitizenReportDatasetUnknown,
+    CitizenReportOriginIneligible,
     CitizenReportQueryError,
+    CitizenReportSourceVersionConflict,
     CitizenReportStorageError,
-    get_citizen_report_cell_polygon,
+    get_citizen_report_origin_cell,
     list_citizen_report_aggregates,
+    origin_eligibility_payload,
     parse_bbox,
     parse_months,
 )
@@ -65,6 +70,7 @@ PROPERTY_KEYS = {
     "data_class",
     "classification",
     "attribution",
+    "origin_eligibility",
 }
 
 
@@ -160,6 +166,19 @@ class _FakeMappings:
         return list(self._rows)
 
 
+class _FakeSnapshot:
+    """Result double for the published-snapshot lookup."""
+
+    def __init__(self, version: str = VERSION, digest: str = CONTENT_SHA) -> None:
+        self._row = {"resource_version": version, "content_sha256": digest}
+
+    def mappings(self) -> _FakeSnapshot:
+        return self
+
+    def first(self) -> dict[str, str]:
+        return self._row
+
+
 class _FakeResult:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
@@ -172,12 +191,14 @@ class _FakeSession:
     def __init__(self, results: list[Any]) -> None:
         self._results = list(results)
 
-    def execute(self, _statement: object) -> _FakeResult:
+    def execute(self, _statement: object) -> Any:
         if not self._results:
             raise AssertionError("unexpected extra execute")
         nxt = self._results.pop(0)
         if isinstance(nxt, Exception):
             raise nxt
+        if isinstance(nxt, (_FakeSnapshot, _FakeResult)):
+            return nxt
         return _FakeResult(cast(list[dict[str, Any]], nxt))
 
 
@@ -215,6 +236,8 @@ def test_available_response_exposes_counts_not_reports() -> None:
     assert properties["count"] == 3
     assert properties["classification"] == "UNVERIFIED"
     assert properties["attribution"] == ATTRIBUTION
+    assert properties["origin_eligibility"]["eligible"] is True
+    assert properties["origin_eligibility"]["reason"] == "eligible_sighting_candidate"
     assert response.features[0].geometry.type == "Polygon"
     assert len(response.features[0].geometry.coordinates[0]) == 5
     assert response.data_class == "CITIZEN_REPORT_AGGREGATE"
@@ -301,23 +324,126 @@ def test_invalid_data_class_fails_closed() -> None:
         _list([[_meta_row()], [_feature_row(data_class="ADMINISTRATIVE_REFERENCE")]])
 
 
-def test_origin_cell_resolver_returns_the_exact_stored_polygon() -> None:
-    polygon = get_citizen_report_cell_polygon(
-        cast(Session, _FakeSession([[_meta_row()], [_feature_row(geometry=json.dumps(POLYGON))]])),
-        "g250m:1:2:2026-05:sighting",
-    )
-    assert polygon.coordinates == POLYGON["coordinates"]
+FEATURE_ID = "g250m:1:2:2026-05:sighting"
+BAIT_FEATURE_ID = "g250m:1:2:2026-05:bait_station"
+OTHER_FEATURE_ID = "g250m:1:2:2026-05:other"
+ORIGIN_SOURCE = OriginSourceIdentity(
+    dataset_id=DATASET_ID, resource_version=VERSION, content_sha256=CONTENT_SHA
+)
 
 
-def test_origin_cell_resolver_fails_closed_when_no_version_or_cell_exists() -> None:
-    with pytest.raises(CitizenReportCellNotFound, match="no citizen report aggregate version"):
-        get_citizen_report_cell_polygon(
-            cast(Session, _FakeSession([[]])), "g250m:1:2:2026-05:sighting"
-        )
-    with pytest.raises(CitizenReportCellNotFound, match="not present in the latest"):
-        get_citizen_report_cell_polygon(
-            cast(Session, _FakeSession([[_meta_row()], []])), "g250m:1:2:2026-05:sighting"
-        )
+def _origin_row(**overrides: Any) -> dict[str, Any]:
+    return _feature_row(provenance=_provenance().model_dump(mode="json"), **overrides)
+
+
+def _origin(
+    results: list[Any],
+    *,
+    feature_id: str = FEATURE_ID,
+    source: OriginSourceIdentity = ORIGIN_SOURCE,
+):
+    return get_citizen_report_origin_cell(cast(Session, _FakeSession(results)), feature_id, source)
+
+
+def test_origin_cell_resolver_returns_the_exact_stored_snapshot() -> None:
+    origin = _origin([_FakeSnapshot(), [_origin_row(geometry=json.dumps(POLYGON))]])
+    assert origin.polygon.coordinates == POLYGON["coordinates"]
+    assert origin.dataset_id == DATASET_ID
+    assert origin.resource_version == VERSION
+    assert origin.content_sha256 == CONTENT_SHA
+    assert origin.cell_id == "g250m:1:2"
+    assert origin.month == "2026-05"
+    assert origin.report_type == "sighting"
+    assert origin.report_type_eligible is True
+    assert origin.policy_version == "origin-report-category-v1"
+
+
+def test_origin_cell_resolver_rejects_a_stale_resource_version() -> None:
+    with pytest.raises(CitizenReportSourceVersionConflict):
+        _origin([_FakeSnapshot(version="2026-11-01T00:00:00Z")])
+
+
+def test_origin_cell_resolver_rejects_an_unknown_dataset() -> None:
+    with pytest.raises(CitizenReportDatasetUnknown):
+        _origin([_FakeResult([])])
+
+
+def test_origin_cell_resolver_rejects_a_changed_content_hash() -> None:
+    # The published digest is compared before the cell lookup, so a client that
+    # holds an older digest of the same version gets a source conflict instead of
+    # silently resolving against different source content.
+    stale = ORIGIN_SOURCE.model_copy(update={"content_sha256": "d" * 64})
+    with pytest.raises(CitizenReportSourceVersionConflict):
+        _origin([_FakeSnapshot(), []], source=stale)
+
+
+def test_origin_cell_resolver_rejects_a_removed_cell() -> None:
+    with pytest.raises(
+        CitizenReportCellNotFound, match="selected citizen report aggregate snapshot"
+    ):
+        _origin([_FakeSnapshot(), []])
+
+
+def test_origin_cell_resolver_rejects_stored_provenance_mismatch() -> None:
+    row = _origin_row()
+    provenance = dict(row["provenance"])
+    provenance["content_sha256"] = "d" * 64
+    row["provenance"] = provenance
+    with pytest.raises(CitizenReportDataError, match="does not match the requested snapshot"):
+        _origin([_FakeSnapshot(), [row]])
+
+
+def test_origin_cell_resolver_enforces_suppression_before_eligibility() -> None:
+    # A suppressed cell must be indistinguishable from an absent one and must
+    # fail before category eligibility, so the response cannot reveal that the
+    # cell exists.
+    suppressed_row = _origin_row(report_count=2, report_type="bait_station")
+    with pytest.raises(CitizenReportCellNotFound) as suppressed:
+        _origin([_FakeSnapshot(), [suppressed_row]], feature_id=BAIT_FEATURE_ID)
+    with pytest.raises(CitizenReportCellNotFound) as absent:
+        _origin([_FakeSnapshot(), []])
+    assert str(suppressed.value) == str(absent.value)
+
+
+def test_origin_cell_resolver_rejects_context_only_categories() -> None:
+    # The category is pinned by the feature id, so a bait row cannot be
+    # resolved under a sighting identity either.
+    bait_row = _origin_row(report_type="bait_station")
+    with pytest.raises(CitizenReportOriginIneligible) as bait:
+        _origin([_FakeSnapshot(), [bait_row]], feature_id=BAIT_FEATURE_ID)
+    assert bait.value.reason == "context_only_bait_station"
+    other_row = _origin_row(report_type="other")
+    with pytest.raises(CitizenReportOriginIneligible) as other:
+        _origin([_FakeSnapshot(), [other_row]], feature_id=OTHER_FEATURE_ID)
+    assert other.value.reason == "context_only_other"
+
+
+def test_context_only_categories_stay_visible_but_ineligible() -> None:
+    response = _list([[_meta_row()], [_feature_row(report_type="bait_station")]])
+    eligibility = response.features[0].properties.origin_eligibility
+    assert eligibility.eligible is False
+    assert eligibility.reason == "context_only_bait_station"
+    assert eligibility.policy_version == "origin-report-category-v1"
+    assert "無法作為模擬起點" in eligibility.message
+
+
+@pytest.mark.parametrize(
+    ("report_type", "eligible", "reason"),
+    [
+        ("sighting", True, "eligible_sighting_candidate"),
+        ("bait_station", False, "context_only_bait_station"),
+        ("other", False, "context_only_other"),
+        ("unclassified", False, "context_only_unknown"),
+    ],
+)
+def test_origin_eligibility_policy_has_a_single_source(
+    report_type: str, eligible: bool, reason: str
+) -> None:
+    payload = origin_eligibility_payload(report_type)
+    assert payload.eligible is eligible
+    assert payload.reason == reason
+    assert payload.policy_version == "origin-report-category-v1"
+    assert payload.message
 
 
 def test_invalid_fixture_provenance_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
