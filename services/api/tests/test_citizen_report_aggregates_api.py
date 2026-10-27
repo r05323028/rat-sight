@@ -16,6 +16,7 @@ from ratsight_api.api.schemas import (
     CitizenReportProcessing,
     CitizenReportProvenanceV1,
     CitizenReportUncertainty,
+    SyntheticAggregateFixtureProvenance,
 )
 from ratsight_api.application.citizen_report_aggregates import (
     CitizenReportCellNotFound,
@@ -31,6 +32,10 @@ from ratsight_api.domain.citizen_report_aggregates import (
     ATTRIBUTION,
     DATASET_ID,
     SUPPRESSION_MINIMUM,
+    SYNTHETIC_FIXTURE_ATTRIBUTION,
+    SYNTHETIC_FIXTURE_CLASSIFICATION,
+    SYNTHETIC_FIXTURE_DATA_CLASS,
+    SYNTHETIC_FIXTURE_DATASET_PREFIX,
 )
 from ratsight_api.infrastructure.database.connection import get_session
 from ratsight_api.main import app
@@ -99,6 +104,37 @@ def _meta_row() -> dict[str, Any]:
     return {"resource_version": VERSION, "provenance": _provenance().model_dump(mode="json")}
 
 
+def _fixture_provenance(dataset_id: str) -> SyntheticAggregateFixtureProvenance:
+    return SyntheticAggregateFixtureProvenance(
+        source_kind="synthetic_aggregate_fixture",
+        dataset_id=dataset_id,
+        resource_version=VERSION,
+        content_sha256=CONTENT_SHA,
+        reference_source_id="local-pinned-osm-test-source",
+        reference_source_sha256="d" * 64,
+        test_scope="isolated_disposable_postgis_smoke",
+        note="Synthetic fixture only; not citizen-report data.",
+    )
+
+
+def _fixture_meta_row(dataset_id: str) -> dict[str, Any]:
+    return {
+        "resource_version": VERSION,
+        "provenance": _fixture_provenance(dataset_id).model_dump(mode="json"),
+    }
+
+
+def _fixture_feature_row(**overrides: Any) -> dict[str, Any]:
+    return _feature_row(
+        **{
+            "report_count": None,
+            "data_class": SYNTHETIC_FIXTURE_DATA_CLASS,
+            "classification": SYNTHETIC_FIXTURE_CLASSIFICATION,
+            **overrides,
+        }
+    )
+
+
 def _feature_row(**overrides: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "cell_id": "g250m:1:2",
@@ -136,7 +172,7 @@ class _FakeSession:
     def __init__(self, results: list[Any]) -> None:
         self._results = list(results)
 
-    def execute(self, statement: object) -> _FakeResult:
+    def execute(self, _statement: object) -> _FakeResult:
         if not self._results:
             raise AssertionError("unexpected extra execute")
         nxt = self._results.pop(0)
@@ -181,6 +217,58 @@ def test_available_response_exposes_counts_not_reports() -> None:
     assert properties["attribution"] == ATTRIBUTION
     assert response.features[0].geometry.type == "Polygon"
     assert len(response.features[0].geometry.coordinates[0]) == 5
+    assert response.data_class == "CITIZEN_REPORT_AGGREGATE"
+
+
+def test_synthetic_fixture_is_opt_in_and_clearly_simulated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_id = f"{SYNTHETIC_FIXTURE_DATASET_PREFIX}browser-test"
+    monkeypatch.setenv("RATSIGHT_ENABLE_SYNTHETIC_AGGREGATE_FIXTURE", "1")
+    response = _list(
+        [[_fixture_meta_row(dataset_id)], [_fixture_feature_row()]], dataset_id=dataset_id
+    )
+    feature = response.features[0]
+    assert response.data_class == SYNTHETIC_FIXTURE_DATA_CLASS
+    assert response.classification == "SIMULATED"
+    assert response.notice.startswith("SIMULATED")
+    assert feature.properties.count is None
+    assert feature.properties.classification == "SIMULATED"
+    assert feature.properties.attribution == SYNTHETIC_FIXTURE_ATTRIBUTION
+    assert feature.geometry.data_class == SYNTHETIC_FIXTURE_DATA_CLASS
+    assert response.provenance is not None and response.provenance.synthetic is True
+
+
+def test_synthetic_fixture_requires_environment_opt_in_and_named_dataset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_id = f"{SYNTHETIC_FIXTURE_DATASET_PREFIX}browser-test"
+    monkeypatch.delenv("RATSIGHT_ENABLE_SYNTHETIC_AGGREGATE_FIXTURE", raising=False)
+    with pytest.raises(CitizenReportQueryError, match="explicit ratsight-smoke dataset"):
+        _list([], dataset_id=dataset_id)
+    monkeypatch.setenv("RATSIGHT_ENABLE_SYNTHETIC_AGGREGATE_FIXTURE", "1")
+    with pytest.raises(CitizenReportQueryError, match="explicit ratsight-smoke dataset"):
+        _list([], dataset_id=SYNTHETIC_FIXTURE_DATASET_PREFIX)
+
+
+def test_synthetic_fixture_rejects_report_counts_and_invalid_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_id = f"{SYNTHETIC_FIXTURE_DATASET_PREFIX}browser-test"
+    monkeypatch.setenv("RATSIGHT_ENABLE_SYNTHETIC_AGGREGATE_FIXTURE", "1")
+    with pytest.raises(CitizenReportDataError, match="must not contain report counts"):
+        _list(
+            [[_fixture_meta_row(dataset_id)], [_fixture_feature_row(report_count=3)]],
+            dataset_id=dataset_id,
+        )
+    with pytest.raises(CitizenReportDataError, match="classification is invalid"):
+        _list(
+            [
+                [_fixture_meta_row(dataset_id)],
+                [_fixture_feature_row(classification="UNVERIFIED")],
+            ],
+            dataset_id=dataset_id,
+        )
 
 
 def test_filter_miss_keeps_available_provenance() -> None:
@@ -215,7 +303,7 @@ def test_invalid_data_class_fails_closed() -> None:
 
 def test_origin_cell_resolver_returns_the_exact_stored_polygon() -> None:
     polygon = get_citizen_report_cell_polygon(
-        cast(Session, _FakeSession([[_meta_row()], [{"geometry": json.dumps(POLYGON)}]])),
+        cast(Session, _FakeSession([[_meta_row()], [_feature_row(geometry=json.dumps(POLYGON))]])),
         "g250m:1:2:2026-05:sighting",
     )
     assert polygon.coordinates == POLYGON["coordinates"]
@@ -232,9 +320,23 @@ def test_origin_cell_resolver_fails_closed_when_no_version_or_cell_exists() -> N
         )
 
 
+def test_invalid_fixture_provenance_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    dataset_id = f"{SYNTHETIC_FIXTURE_DATASET_PREFIX}browser-test"
+    monkeypatch.setenv("RATSIGHT_ENABLE_SYNTHETIC_AGGREGATE_FIXTURE", "1")
+    invalid = _fixture_meta_row(dataset_id)
+    invalid["provenance"]["source_kind"] = "public_citizen_report_export"
+    with pytest.raises(CitizenReportDataError, match="provenance failed validation"):
+        _list([[invalid], [_fixture_feature_row()]], dataset_id=dataset_id)
+
+
 def test_invalid_classification_fails_closed() -> None:
     with pytest.raises(CitizenReportDataError):
         _list([[_meta_row()], [_feature_row(classification="OBSERVED")]])
+
+
+def test_report_aggregate_below_suppression_minimum_fails_closed() -> None:
+    with pytest.raises(CitizenReportDataError, match="below suppression minimum"):
+        _list([[_meta_row()], [_feature_row(report_count=2)]])
 
 
 def test_storage_failure_is_reported() -> None:
@@ -243,7 +345,7 @@ def test_storage_failure_is_reported() -> None:
 
 
 def test_route_maps_query_errors_to_422(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _raise(*args: Any, **kwargs: Any) -> None:
+    def _raise(*_args: Any, **_kwargs: Any) -> None:
         raise CitizenReportQueryError("bad bbox")
 
     monkeypatch.setattr(route_module, "list_citizen_report_aggregates", _raise)

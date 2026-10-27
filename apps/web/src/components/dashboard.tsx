@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LayerGlyph } from "@/components/layer-glyph";
 import { MapView } from "@/components/map-view";
@@ -138,6 +138,14 @@ export function Dashboard() {
     enabled: !bboxTooBroad,
   });
   const [preview, setPreview] = useState<SimulationPreview | null>(null);
+  const [previewOriginCellId, setPreviewOriginCellId] = useState<string | null>(null);
+  const [pendingPreviewOriginCellId, setPendingPreviewOriginCellId] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<unknown>(null);
+  const [outputMode, setOutputMode] = useState<"aggregate" | "trajectory">("aggregate");
+  const [activeStep, setActiveStep] = useState(0);
+  const [selectedTrajectoryId, setSelectedTrajectoryId] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const latestSimulationRequestId = useRef(0);
   const [showNetworkReference, setShowNetworkReference] = useState(false);
   const [showBoundaries, setShowBoundaries] = useState(false);
   const [showStormwater, setShowStormwater] = useState(false);
@@ -148,12 +156,50 @@ export function Dashboard() {
   const [selectedCitizenCell, setSelectedCitizenCell] =
     useState<CitizenReportCellProperties | null>(null);
   const [originCellId, setOriginCellId] = useState<string | null>(null);
+  const invalidatePreviewForSelectionChange = useCallback(() => {
+    latestSimulationRequestId.current += 1;
+    setPreview(null);
+    setPreviewOriginCellId(null);
+    setPendingPreviewOriginCellId(null);
+    setPreviewError(null);
+    setOutputMode("aggregate");
+    setActiveStep(0);
+    setSelectedTrajectoryId(null);
+    setIsPlaying(false);
+  }, []);
   const mutation = useMutation({
-    mutationFn: requestPreview,
-    onSuccess: setPreview,
-    onError: () => {
-      // Never leave an earlier path visible after a failed origin run.
+    mutationFn: async ({
+      requestId,
+      input,
+    }: {
+      requestId: number;
+      input: Parameters<typeof requestPreview>[0];
+    }) => ({
+      requestId,
+      originCellId: input.origin_cell_id,
+      preview: await requestPreview(input),
+    }),
+    onSuccess: ({ requestId, originCellId: resultOriginCellId, preview: result }) => {
+      if (requestId !== latestSimulationRequestId.current) return;
+      setPreview(result);
+      setPreviewOriginCellId(resultOriginCellId ?? null);
+      setPendingPreviewOriginCellId(null);
+      setPreviewError(null);
+      setOutputMode("aggregate");
+      setActiveStep(0);
+      setSelectedTrajectoryId(result.trajectories?.[0]?.walker_id ?? null);
+      setIsPlaying(false);
+    },
+    onError: (error, variables) => {
+      if (variables.requestId !== latestSimulationRequestId.current) return;
       setPreview(null);
+      setPreviewOriginCellId(null);
+      setPendingPreviewOriginCellId(null);
+      setPreviewError(error);
+      setOutputMode("aggregate");
+      setActiveStep(0);
+      setSelectedTrajectoryId(null);
+      setIsPlaying(false);
     },
   });
   const layers = layersQuery.data ?? DEFAULT_LAYERS;
@@ -208,7 +254,12 @@ export function Dashboard() {
         id: `${properties.cell_id}:${properties.month}:${properties.report_type}`,
         label: `${properties.cell_id} · ${properties.month} · ${
           CITIZEN_REPORT_TYPE_LABELS[properties.report_type] ?? properties.report_type
-        } · ${properties.count} 筆`,
+        } · ${
+          properties.data_class === "SYNTHETIC_AGGREGATE_FIXTURE"
+            ? "SIMULATED 本機測試格"
+            : `${properties.count ?? "計數不可用"} 筆`
+        }`,
+        properties,
       })),
     [citizenAggregateCells],
   );
@@ -224,6 +275,9 @@ export function Dashboard() {
   }, [citizenAggregateQuery.isSuccess, citizenOriginOptions, originCellId]);
   useEffect(() => {
     if (!selectedCitizenCell) return;
+    // A new viewport query briefly has no data; do not treat that pending state as
+    // evidence that the cell disappeared.
+    if (citizenAggregateQuery.isPending) return;
     const remainsInViewport = citizenAggregateCells.some(
       ({ properties }) =>
         properties.cell_id === selectedCitizenCell.cell_id &&
@@ -233,18 +287,38 @@ export function Dashboard() {
     if (!remainsInViewport) {
       // Refreshed viewport no longer contains this cell; do not revive stale selection.
       // eslint-disable-next-line react-hooks/set-state-in-effect
+      invalidatePreviewForSelectionChange();
+      setOriginCellId(null);
       setSelectedCitizenCell(null);
     }
-  }, [citizenAggregateCells, selectedCitizenCell]);
+  }, [
+    citizenAggregateCells,
+    citizenAggregateQuery.isPending,
+    selectedCitizenCell,
+    invalidatePreviewForSelectionChange,
+  ]);
   // Cell counts are suppressed aggregates, so summing them is a floor on reported
   // volume, not a report total: every suppressed group is excluded.
-  const citizenAggregateReportCount = citizenAggregateCells.reduce(
-    (total, feature) => total + feature.properties.count,
-    0,
-  );
+  const citizenAggregateReportCount =
+    citizenAggregates?.data_class === "CITIZEN_REPORT_AGGREGATE"
+      ? citizenAggregateCells.reduce((total, feature) => total + (feature.properties.count ?? 0), 0)
+      : null;
   const citizenAggregateMonths = [
     ...new Set(citizenAggregateCells.map((feature) => feature.properties.month)),
   ].sort();
+  const syntheticAggregateProvenance =
+    citizenAggregates?.provenance?.source_kind === "synthetic_aggregate_fixture"
+      ? citizenAggregates.provenance
+      : null;
+  const publicAggregateProvenance =
+    citizenAggregates?.provenance?.source_kind === "public_citizen_report_export"
+      ? citizenAggregates.provenance
+      : null;
+  // Empty fixture datasets have no provenance record, so the response data class
+  // is also required to keep "no rows yet" from reading as a citizen dataset.
+  const isSyntheticAggregateDataset =
+    citizenAggregates?.data_class === "SYNTHETIC_AGGREGATE_FIXTURE" ||
+    syntheticAggregateProvenance !== null;
   // The catalog lists datasets. Citizen-report cells and simulated paths are
   // fixed workflow layers that appear as soon as their data is available.
   const catalogLayers = layers.filter(
@@ -277,10 +351,36 @@ export function Dashboard() {
   const selectedCitizenCellKey = selectedCitizenCell
     ? `${selectedCitizenCell.cell_id}:${selectedCitizenCell.month}:${selectedCitizenCell.report_type}`
     : null;
+  const currentPreview =
+    preview &&
+    previewOriginCellId === selectedCitizenCellKey &&
+    citizenOriginOptions.some((option) => option.id === previewOriginCellId)
+      ? preview
+      : null;
+  const previewPendingForSelection =
+    selectedCitizenCellKey !== null && pendingPreviewOriginCellId === selectedCitizenCellKey;
+  const selectedTrajectory =
+    currentPreview?.trajectories?.find(
+      (trajectory) => trajectory.walker_id === selectedTrajectoryId,
+    ) ?? null;
+  const playbackStepCount = selectedTrajectory?.edges.length ?? 0;
+  useEffect(() => {
+    if (!isPlaying || playbackStepCount === 0 || activeStep >= playbackStepCount) return;
+    const timer = window.setTimeout(() => {
+      const nextStep = Math.min(activeStep + 1, playbackStepCount);
+      setActiveStep(nextStep);
+      if (nextStep >= playbackStepCount) setIsPlaying(false);
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [activeStep, isPlaying, playbackStepCount]);
+  const selectedCitizenCellIsFixture =
+    selectedCitizenCell?.data_class === "SYNTHETIC_AGGREGATE_FIXTURE";
   const selectionSummary = selectedVisibleSegment
     ? `管線 ${selectedVisibleSegment.pipe_number || selectedVisibleSegment.segment_id} · UNVERIFIED（未驗證）`
     : selectedCitizenCell
-      ? `${selectedCitizenCell.cell_id} · ${selectedCitizenCell.month} · ${CITIZEN_REPORT_TYPE_LABELS[selectedCitizenCell.report_type] ?? selectedCitizenCell.report_type} · 公民通報彙整格焦點 · UNVERIFIED（未驗證）`
+      ? selectedCitizenCellIsFixture
+        ? `${selectedCitizenCell.cell_id} · SIMULATED 本機測試格（非公民通報）`
+        : `${selectedCitizenCell.cell_id} · ${selectedCitizenCell.month} · ${CITIZEN_REPORT_TYPE_LABELS[selectedCitizenCell.report_type] ?? selectedCitizenCell.report_type} · 公民通報彙整格焦點 · UNVERIFIED（未驗證）`
       : selectedDistrict
         ? `${selectedDistrict.district_name} · UNVERIFIED（未驗證）`
         : "尚未選取圖徵。從地圖或右側清單選取後，摘要顯示於此；詳細屬性保留在右側面板。";
@@ -313,85 +413,143 @@ export function Dashboard() {
       : citizenAggregateQuery.isError
         ? "公民通報彙整服務無法使用"
         : citizenAggregates?.data_state === "empty"
-          ? "尚未匯入公民通報彙整"
-          : "CITIZEN_REPORT_AGGREGATE · UNVERIFIED（未驗證）";
+          ? isSyntheticAggregateDataset
+            ? "尚無本機合成測試格（SIMULATED；非公民通報）"
+            : "尚未匯入公民通報彙整"
+          : citizenAggregates?.data_class === "SYNTHETIC_AGGREGATE_FIXTURE"
+            ? "SIMULATED · 本機合成測試格（不含公民通報）"
+            : "CITIZEN_REPORT_AGGREGATE · UNVERIFIED（未驗證）";
 
+  const handleSelectCitizenCell = (cell: CitizenReportCellProperties) => {
+    const cellKey = `${cell.cell_id}:${cell.month}:${cell.report_type}`;
+    if (cellKey !== selectedCitizenCellKey) invalidatePreviewForSelectionChange();
+    setSelectedCitizenCell(cell);
+    setOriginCellId(cellKey);
+  };
+  const handleSelectTrajectory = (trajectoryId: number) => {
+    setIsPlaying(false);
+    setActiveStep(0);
+    setSelectedTrajectoryId(trajectoryId);
+  };
+  const changeOutputMode = (mode: "aggregate" | "trajectory") => {
+    setIsPlaying(false);
+    setActiveStep(0);
+    setOutputMode(mode);
+  };
   const runPreviewFromSelectedCell = () => {
     if (!selectedCitizenCellKey) return;
-    // Use the focused cell directly instead of waiting for a state update.
+    const requestId = latestSimulationRequestId.current + 1;
+    latestSimulationRequestId.current = requestId;
+    setPreview(null);
+    setPreviewOriginCellId(null);
+    setPendingPreviewOriginCellId(selectedCitizenCellKey);
+    setPreviewError(null);
+    setOutputMode("aggregate");
+    setActiveStep(0);
+    setSelectedTrajectoryId(null);
+    setIsPlaying(false);
     setOriginCellId(selectedCitizenCellKey);
     mutation.mutate({
-      study_area: STUDY_AREA_ID,
-      duration_steps: SIMULATION_DURATION_STEPS,
-      walkers: SIMULATION_WALKERS,
-      random_seed: SIMULATION_RANDOM_SEED,
-      movement_model: "weighted_random_walk",
-      intervention_scenario: "baseline",
-      origin_cell_id: selectedCitizenCellKey,
+      requestId,
+      input: {
+        study_area: STUDY_AREA_ID,
+        duration_steps: SIMULATION_DURATION_STEPS,
+        walkers: SIMULATION_WALKERS,
+        random_seed: SIMULATION_RANDOM_SEED,
+        movement_model: "weighted_random_walk",
+        intervention_scenario: "baseline",
+        origin_cell_id: selectedCitizenCellKey,
+      },
     });
   };
 
   const citizenCellCard = selectedCitizenCell ? (
-    <aside className="map-cell-card" aria-label="公民通報彙整格詳細資料">
+    <aside
+      className="map-cell-card"
+      aria-label={
+        selectedCitizenCellIsFixture ? "本機合成測試格詳細資料" : "公民通報彙整格詳細資料"
+      }
+    >
       <div className="map-cell-card-heading">
-        <span className="reference-label">公民通報彙整格</span>
+        <span className="reference-label">
+          {selectedCitizenCellIsFixture ? "本機合成測試格" : "公民通報彙整格"}
+        </span>
         <button
           type="button"
           className="map-cell-card-close"
-          aria-label="關閉公民通報彙整格詳細資料"
-          onClick={() => setSelectedCitizenCell(null)}
+          aria-label={
+            selectedCitizenCellIsFixture
+              ? "關閉本機合成測試格詳細資料"
+              : "關閉公民通報彙整格詳細資料"
+          }
+          onClick={() => {
+            invalidatePreviewForSelectionChange();
+            setOriginCellId(null);
+            setSelectedCitizenCell(null);
+          }}
         >
           ×
         </button>
       </div>
       <div className="map-cell-card-body">
-        <span className="map-cell-card-badge">UNVERIFIED · 未驗證</span>
+        <span className="map-cell-card-badge">
+          {selectedCitizenCellIsFixture ? "SIMULATED · 本機測試" : "UNVERIFIED · 未驗證"}
+        </span>
         <h3>{selectedCitizenCell.cell_id}</h3>
         <dl className="map-cell-card-facts">
           <div>
-            <dt>通報類型</dt>
+            <dt>{selectedCitizenCellIsFixture ? "測試類別" : "通報類型"}</dt>
             <dd>
-              {CITIZEN_REPORT_TYPE_LABELS[selectedCitizenCell.report_type] ??
-                selectedCitizenCell.report_type}
+              {selectedCitizenCellIsFixture
+                ? "本機合成資料"
+                : (CITIZEN_REPORT_TYPE_LABELS[selectedCitizenCell.report_type] ??
+                  selectedCitizenCell.report_type)}
             </dd>
           </div>
           <div>
-            <dt>月份</dt>
+            <dt>{selectedCitizenCellIsFixture ? "測試批次" : "月份"}</dt>
             <dd>{selectedCitizenCell.month}</dd>
           </div>
-          <div>
-            <dt>發布通報計數</dt>
-            <dd>{selectedCitizenCell.count} 筆</dd>
-          </div>
+          {!selectedCitizenCellIsFixture && (
+            <div>
+              <dt>發布通報計數</dt>
+              <dd>
+                {selectedCitizenCell.count === null ? "不可用" : `${selectedCitizenCell.count} 筆`}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>空間單元</dt>
             <dd>250 公尺格網 · 標記在格網中心</dd>
           </div>
         </dl>
         <p className="map-cell-card-caution">
-          不是個別通報點位。通報計數不是鼠類觀測、族群或風險估計，也不會成為代理數或移動權重。
+          {selectedCitizenCellIsFixture
+            ? "僅供隔離本機測試的 SIMULATED 網格；不含公民通報、通報計數或動物觀測。"
+            : "不是個別通報點位。通報計數不是鼠類觀測、族群或風險估計，也不會成為代理數或移動權重。"}
         </p>
         <p className="map-cell-card-attribution">{selectedCitizenCell.attribution}</p>
       </div>
       <Button
         className="map-cell-card-action"
         size="small"
-        disabled={mutation.isPending || !hasCitizenAggregates}
+        disabled={previewPendingForSelection || !hasCitizenAggregates}
         onClick={runPreviewFromSelectedCell}
       >
-        {mutation.isPending ? "模擬執行中…" : "以此格網起點執行模擬"}
+        {previewPendingForSelection ? "模擬執行中…" : "以此格網起點執行模擬"}
       </Button>
-      {mutation.isError && (
+      {previewError !== null && (
         <p className="map-cell-card-note is-error" role="alert">
-          {mutation.error instanceof Error
-            ? mutation.error.message
+          {previewError instanceof Error
+            ? previewError.message
             : "預覽無法使用。請確認 API 正在執行後重試。"}
-          {isSourceNetworkUnavailable(mutation.error) ? " 系統未以示意網路替代 OSM 結果。" : ""}
+          {isSourceNetworkUnavailable(previewError) ? " 系統未以示意網路替代 OSM 結果。" : ""}
         </p>
       )}
-      {mutation.isSuccess && (
+      {currentPreview && (
         <p className="map-cell-card-note is-success" role="status">
-          可重現執行完成 · 種子 {preview?.parameters.random_seed} · 模擬路徑已顯示
+          SIMULATED · 起點 {previewOriginCellId} · 可重現執行完成 · 種子{" "}
+          {currentPreview.parameters.random_seed} · 模擬路徑已顯示
         </p>
       )}
     </aside>
@@ -448,10 +606,10 @@ export function Dashboard() {
           <div className="hud-cell">
             <span className="hud-label">合成輸出</span>
             <span className="hud-value">
-              {mutation.isPending ? "執行中" : preview ? "已產生" : "未產生"}
+              {previewPendingForSelection ? "執行中" : currentPreview ? "已產生" : "未產生"}
             </span>
             <span className="hud-meter" aria-hidden="true">
-              <i className={preview ? "is-lit" : undefined} />
+              <i className={currentPreview ? "is-lit" : undefined} />
             </span>
           </div>
           <div className="hud-cell">
@@ -479,9 +637,12 @@ export function Dashboard() {
           </div>
           <div className="map-stage">
             <MapView
-              preview={preview}
+              preview={currentPreview}
               showNetworkReference={showNetworkReference}
-              outputMode="aggregate"
+              outputMode={currentPreview ? outputMode : "aggregate"}
+              activeStep={currentPreview && outputMode === "trajectory" ? activeStep : null}
+              selectedTrajectoryId={selectedTrajectoryId}
+              onSelectTrajectory={handleSelectTrajectory}
               boundaries={districts}
               showBoundaries={showBoundaries}
               selectedDistrictId={selectedDistrict?.district_id ?? null}
@@ -492,11 +653,106 @@ export function Dashboard() {
               onSelectSegment={setSelectedSegment}
               citizenAggregates={citizenAggregates}
               selectedCitizenCellKey={selectedCitizenCellKey}
-              onSelectCitizenCell={setSelectedCitizenCell}
+              onSelectCitizenCell={handleSelectCitizenCell}
               citizenCellCard={citizenCellCard}
               onBoundsChange={setViewportBbox}
             />
           </div>
+          {currentPreview && (
+            <section className="simulation-playback" aria-label="模擬軌跡播放控制">
+              <div className="simulation-playback-heading">
+                <p className="simulation-playback-origin">SIMULATED · 起點 {previewOriginCellId}</p>
+                <div className="simulation-playback-modes" role="group" aria-label="路徑顯示模式">
+                  <button
+                    type="button"
+                    aria-pressed={outputMode === "aggregate"}
+                    onClick={() => changeOutputMode("aggregate")}
+                  >
+                    彙整路線
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={outputMode === "trajectory"}
+                    disabled={!currentPreview.trajectories?.length}
+                    onClick={() => changeOutputMode("trajectory")}
+                  >
+                    個別路徑
+                  </button>
+                </div>
+              </div>
+              {outputMode === "trajectory" && (
+                <div className="simulation-playback-controls">
+                  <label className="simulation-playback-walker">
+                    行走者
+                    <select
+                      aria-label="選擇行走者"
+                      value={selectedTrajectoryId === null ? "" : String(selectedTrajectoryId)}
+                      disabled={!currentPreview.trajectories?.length}
+                      onChange={(event) => handleSelectTrajectory(Number(event.target.value))}
+                    >
+                      {currentPreview.trajectories?.map((trajectory) => (
+                        <option key={trajectory.walker_id} value={trajectory.walker_id}>
+                          {trajectory.walker_id}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="simulation-playback-actions" role="group" aria-label="播放控制">
+                    <button
+                      type="button"
+                      disabled={playbackStepCount === 0 || activeStep === 0}
+                      onClick={() => {
+                        setIsPlaying(false);
+                        setActiveStep((step) => Math.max(0, step - 1));
+                      }}
+                    >
+                      上一步
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        playbackStepCount === 0 || (!isPlaying && activeStep >= playbackStepCount)
+                      }
+                      onClick={() => setIsPlaying((playing) => !playing)}
+                    >
+                      {isPlaying ? "暫停" : "播放"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={playbackStepCount === 0 || activeStep >= playbackStepCount}
+                      onClick={() => {
+                        setIsPlaying(false);
+                        setActiveStep((step) => Math.min(playbackStepCount, step + 1));
+                      }}
+                    >
+                      下一步
+                    </button>
+                    <button
+                      type="button"
+                      disabled={playbackStepCount === 0 || activeStep === 0}
+                      onClick={() => {
+                        setIsPlaying(false);
+                        setActiveStep(0);
+                      }}
+                    >
+                      重設
+                    </button>
+                  </div>
+                  <p className="simulation-playback-step" aria-live="polite">
+                    步驟 {activeStep} / {playbackStepCount} · 非實際時間
+                  </p>
+                  {playbackStepCount === 0 && (
+                    <p className="simulation-playback-empty" role="status">
+                      此路徑沒有可播放的移動步驟。
+                    </p>
+                  )}
+                  <p className="simulation-playback-note">
+                    這是模擬序列步驟，不代表實際經過的分鐘、時數或日期；切換行走者會重設至步驟 0。
+                  </p>
+                </div>
+              )}
+            </section>
+          )}
           <div className="map-legend">
             <span className="legend-item">
               <i className="legend-basemap" /> 底圖
@@ -855,7 +1111,7 @@ export function Dashboard() {
                           type="button"
                           className={`district-button ${selected ? "is-selected" : ""}`}
                           aria-pressed={selected}
-                          aria-label={feature.properties.segment_id}
+                          aria-label={`${feature.properties.pipe_number || feature.properties.segment_id}（管段 ${feature.properties.segment_id}）`}
                           onClick={() => setSelectedSegment(feature.properties)}
                         >
                           {feature.properties.pipe_number || feature.properties.segment_id}
@@ -975,94 +1231,158 @@ export function Dashboard() {
           <section
             className="panel citizen-aggregate-panel"
             id="panel-citizen-aggregates"
-            aria-label="公民通報彙整檢視"
+            aria-label={isSyntheticAggregateDataset ? "本機合成測試格檢視" : "公民通報彙整檢視"}
           >
             <div className="panel-heading">
               <div>
-                <h3>公民通報彙整</h3>
+                <h3>{isSyntheticAggregateDataset ? "本機合成測試格" : "公民通報彙整"}</h3>
               </div>
-              <span className="classification-badge">UNVERIFIED · 未驗證</span>
+              <span className="classification-badge">
+                {isSyntheticAggregateDataset ? "SIMULATED · 合成測試" : "UNVERIFIED · 未驗證"}
+              </span>
             </div>
             {hasCitizenAggregates ? (
               <>
                 <p className="reference-label">{citizenAggregateStatus}</p>
-                <p className="inline-note" aria-live="polite">
-                  目前視圖回傳 {citizenAggregateCells.length} 個{" "}
-                  {citizenAggregates?.provenance?.aggregation.cell_size_meters ?? 250} 公尺網格、
-                  {citizenAggregateReportCount} 筆已發布的通報計數
-                  {citizenAggregateMonths.length > 0
-                    ? `，涵蓋 ${citizenAggregateMonths.join("、")}`
-                    : ""}
-                  。每格每月每類型至少{" "}
-                  {citizenAggregates?.provenance?.aggregation.suppression_minimum ?? 3}{" "}
-                  筆才發布；未達門檻的網格與類型不顯示，因此計數是下限而非通報總數。
-                  {citizenAggregates?.truncated
-                    ? " 已達回傳上限：除這些網格外仍有符合條件的資料，且不宣稱精確總數。"
-                    : ""}
-                </p>
-                <p className="reference-note">
-                  公民自願通報的彙整計數，未經平台或市政驗證。不是鼠類觀測、盛行率、族群、移動或風險估計；已發布彙整格可明確選為模擬起點，但僅決定起點節點，計數不會成為代理數或移動權重，也不代表通報地點就是老鼠實際出現位置。資料來源：見鼠雷達
-                  Rat Radar — https://ratdar.taipei/
-                </p>
-                {citizenAggregates?.provenance && (
-                  <details className="provenance-details">
-                    <summary>來源、授權、精度與抑制</summary>
-                    <div className="provenance-block" aria-label="公民通報彙整來源出處">
-                      <span>來源 URL</span>
-                      {isSafeExternalUrl(citizenAggregates.provenance.source_url) ? (
-                        <a
-                          href={citizenAggregates.provenance.source_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {citizenAggregates.provenance.source_url}
-                        </a>
-                      ) : (
-                        <strong>{citizenAggregates.provenance.source_url}</strong>
-                      )}
-                      <span>姓名標示</span>
-                      <strong>{citizenAggregates.provenance.attribution}</strong>
-                      <span>授權／再利用</span>
-                      <strong>{citizenAggregates.provenance.license}</strong>
-                      <span>資料集版本</span>
-                      <strong>{citizenAggregates.provenance.resource_version}</strong>
-                      <span>內容 SHA-256</span>
-                      <strong>{citizenAggregates.provenance.content_sha256}</strong>
-                      <span>網格大小</span>
-                      <strong>
-                        {citizenAggregates.provenance.aggregation.cell_size_meters} 公尺
-                      </strong>
-                      <span>抑制門檻</span>
-                      <strong>
-                        每格每月每類型至少{" "}
-                        {citizenAggregates.provenance.aggregation.suppression_minimum} 筆
-                      </strong>
-                      <span>未匯入欄位</span>
-                      <strong>
-                        {citizenAggregates.provenance.aggregation.dropped_fields.join("、")}
-                      </strong>
-                      <span>處理計數</span>
-                      <strong>
-                        解析 {citizenAggregates.provenance.counts.parsed} 筆 · 採用{" "}
-                        {citizenAggregates.provenance.counts.used} 筆 · 抑制{" "}
-                        {citizenAggregates.provenance.counts.suppressed_records} 筆 /{" "}
-                        {citizenAggregates.provenance.counts.suppressed_cells} 格
-                      </strong>
-                      <span>月份假設</span>
-                      <strong>
-                        {citizenAggregates.provenance.aggregation.month_timezone_assumption}
-                      </strong>
-                      <span>現勢性</span>
-                      <strong>{citizenAggregates.provenance.uncertainty.currentness}</strong>
-                    </div>
-                  </details>
+                <div className="form-field citizen-cell-picker">
+                  <label htmlFor="citizen-origin-cell">模擬起點格網</label>
+                  <select
+                    id="citizen-origin-cell"
+                    aria-label={
+                      isSyntheticAggregateDataset ? "選擇本機合成測試格" : "選擇公民通報彙整格"
+                    }
+                    value={selectedCitizenCellKey ?? ""}
+                    onChange={(event) => {
+                      const option = citizenOriginOptions.find(
+                        (candidate) => candidate.id === event.target.value,
+                      );
+                      if (option) handleSelectCitizenCell(option.properties);
+                    }}
+                  >
+                    <option value="">請選擇一個格網</option>
+                    {citizenOriginOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    只會設定起點；變更選擇會清除上一個模擬結果，執行仍需按下詳細資料卡按鈕。
+                  </small>
+                </div>
+                {syntheticAggregateProvenance ? (
+                  <>
+                    <p className="inline-note" aria-live="polite">
+                      目前視圖回傳 {citizenAggregateCells.length} 個 250 公尺 SIMULATED
+                      本機測試格；不含公民通報、通報計數或動物觀測。
+                    </p>
+                    <p className="reference-note">
+                      此隔離測試夾具只用於驗證已發布格網至模擬的軟體流程；它不是 Rat Radar
+                      資料，不得解讀為真實事件。
+                    </p>
+                    <details className="provenance-details">
+                      <summary>測試夾具與 OSM 參考來源</summary>
+                      <div className="provenance-block" aria-label="本機合成測試格來源出處">
+                        <span>資料集</span>
+                        <strong>{syntheticAggregateProvenance.dataset_id}</strong>
+                        <span>版本</span>
+                        <strong>{syntheticAggregateProvenance.resource_version}</strong>
+                        <span>內容 SHA-256</span>
+                        <strong>{syntheticAggregateProvenance.content_sha256}</strong>
+                        <span>OSM 參考識別</span>
+                        <strong>{syntheticAggregateProvenance.reference_source_id}</strong>
+                        <span>OSM 來源 SHA-256</span>
+                        <strong>{syntheticAggregateProvenance.reference_source_sha256}</strong>
+                        <span>測試範圍</span>
+                        <strong>{syntheticAggregateProvenance.test_scope}</strong>
+                        <span>說明</span>
+                        <strong>{syntheticAggregateProvenance.note}</strong>
+                      </div>
+                    </details>
+                  </>
+                ) : (
+                  <>
+                    <p className="inline-note" aria-live="polite">
+                      目前視圖回傳 {citizenAggregateCells.length} 個{" "}
+                      {publicAggregateProvenance?.aggregation.cell_size_meters ?? 250} 公尺網格、
+                      {citizenAggregateReportCount ?? "計數不可用"} 筆已發布的通報計數
+                      {citizenAggregateMonths.length > 0
+                        ? `，涵蓋 ${citizenAggregateMonths.join("、")}`
+                        : ""}
+                      。每格每月每類型至少{" "}
+                      {publicAggregateProvenance?.aggregation.suppression_minimum ?? 3}{" "}
+                      筆才發布；未達門檻的網格與類型不顯示，因此計數是下限而非通報總數。
+                      {citizenAggregates?.truncated
+                        ? " 已達回傳上限：除這些網格外仍有符合條件的資料，且不宣稱精確總數。"
+                        : ""}
+                    </p>
+                    <p className="reference-note">
+                      公民自願通報的彙整計數，未經平台或市政驗證。不是鼠類觀測、盛行率、族群、移動或風險估計；已發布彙整格可明確選為模擬起點，但僅決定起點節點，計數不會成為代理數或移動權重，也不代表通報地點就是老鼠實際出現位置。資料來源：見鼠雷達
+                      Rat Radar — https://ratdar.taipei/
+                    </p>
+                    {publicAggregateProvenance && (
+                      <details className="provenance-details">
+                        <summary>來源、授權、精度與抑制</summary>
+                        <div className="provenance-block" aria-label="公民通報彙整來源出處">
+                          <span>來源 URL</span>
+                          {isSafeExternalUrl(publicAggregateProvenance.source_url) ? (
+                            <a
+                              href={publicAggregateProvenance.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {publicAggregateProvenance.source_url}
+                            </a>
+                          ) : (
+                            <strong>{publicAggregateProvenance.source_url}</strong>
+                          )}
+                          <span>姓名標示</span>
+                          <strong>{publicAggregateProvenance.attribution}</strong>
+                          <span>授權／再利用</span>
+                          <strong>{publicAggregateProvenance.license}</strong>
+                          <span>資料集版本</span>
+                          <strong>{publicAggregateProvenance.resource_version}</strong>
+                          <span>內容 SHA-256</span>
+                          <strong>{publicAggregateProvenance.content_sha256}</strong>
+                          <span>網格大小</span>
+                          <strong>
+                            {publicAggregateProvenance.aggregation.cell_size_meters} 公尺
+                          </strong>
+                          <span>抑制門檻</span>
+                          <strong>
+                            每格每月每類型至少{" "}
+                            {publicAggregateProvenance.aggregation.suppression_minimum} 筆
+                          </strong>
+                          <span>未匯入欄位</span>
+                          <strong>
+                            {publicAggregateProvenance.aggregation.dropped_fields.join("、")}
+                          </strong>
+                          <span>處理計數</span>
+                          <strong>
+                            解析 {publicAggregateProvenance.counts.parsed} 筆 · 採用{" "}
+                            {publicAggregateProvenance.counts.used} 筆 · 抑制{" "}
+                            {publicAggregateProvenance.counts.suppressed_records} 筆 /{" "}
+                            {publicAggregateProvenance.counts.suppressed_cells} 格
+                          </strong>
+                          <span>月份假設</span>
+                          <strong>
+                            {publicAggregateProvenance.aggregation.month_timezone_assumption}
+                          </strong>
+                          <span>現勢性</span>
+                          <strong>{publicAggregateProvenance.uncertainty.currentness}</strong>
+                        </div>
+                      </details>
+                    )}
+                  </>
                 )}
               </>
             ) : (
               <p className="inline-note" aria-live="polite">
                 {citizenAggregateStatus}
                 {citizenAggregates?.data_state === "empty"
-                  ? "：資料庫尚未匯入公民通報彙整；不以其他資料代替。"
+                  ? isSyntheticAggregateDataset
+                    ? "：資料庫尚未匯入本機測試夾具；不以其他資料代替。"
+                    : "：資料庫尚未匯入公民通報彙整；不以其他資料代替。"
                   : "：未取得彙整資料；不顯示代替資料。"}
               </p>
             )}

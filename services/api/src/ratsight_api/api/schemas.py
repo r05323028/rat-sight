@@ -5,12 +5,22 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 Classification = Literal["OBSERVED", "INFERRED", "SIMULATED", "UNVERIFIED"]
 DataClass = Literal["ADMINISTRATIVE_REFERENCE"]
 InfrastructureDataClass = Literal["INFRASTRUCTURE_REFERENCE"]
 ProvenanceSchemaVersion = Literal["1"]
+CitizenReportDataClass = Literal["CITIZEN_REPORT_AGGREGATE", "SYNTHETIC_AGGREGATE_FIXTURE"]
+CitizenReportClassification = Literal["UNVERIFIED", "SIMULATED"]
+CitizenReportSourceKind = Literal["public_citizen_report_export", "synthetic_aggregate_fixture"]
 
 
 class HealthResponse(BaseModel):
@@ -47,7 +57,36 @@ class ModelCatalogItem(BaseModel):
 
 
 class SimulationPreviewRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"study_area": {"const": "taipei_osm_songshan"}},
+                        "required": ["study_area"],
+                    },
+                    "then": {
+                        "required": ["origin_cell_id"],
+                        "not": {"required": ["origin_node_id"]},
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"study_area": {"const": "taipei_synthetic_demo"}},
+                        "required": ["study_area"],
+                    },
+                    "then": {
+                        "anyOf": [
+                            {"required": ["origin_node_id"]},
+                            {"required": ["origin_cell_id"]},
+                        ]
+                    },
+                },
+                {"not": {"required": ["origin_node_id", "origin_cell_id"]}},
+            ]
+        },
+    )
 
     study_area: Literal["taipei_synthetic_demo", "taipei_osm_songshan"]
     origin_node_id: str | None = Field(default=None, min_length=1)
@@ -57,6 +96,22 @@ class SimulationPreviewRequest(BaseModel):
     random_seed: int = Field(default=42, ge=0, le=18_446_744_073_709_551_615)
     movement_model: Literal["weighted_random_walk"] = "weighted_random_walk"
     intervention_scenario: Literal["baseline"] = "baseline"
+
+    @model_validator(mode="after")
+    def require_study_area_origin(self) -> SimulationPreviewRequest:
+        if self.origin_node_id is not None and self.origin_cell_id is not None:
+            raise ValueError("origin_node_id and origin_cell_id are mutually exclusive")
+        if self.study_area == "taipei_osm_songshan":
+            if self.origin_cell_id is None:
+                raise ValueError(
+                    "origin_cell_id is required for taipei_osm_songshan; "
+                    "origin_node_id is not accepted"
+                )
+        elif self.origin_node_id is None and self.origin_cell_id is None:
+            raise ValueError(
+                "origin_node_id or origin_cell_id is required for taipei_synthetic_demo"
+            )
+        return self
 
 
 class PreviewParameters(BaseModel):
@@ -170,10 +225,13 @@ class PreviewOrigin(BaseModel):
     node_id: str
     node_ids: list[str] = Field(default_factory=list)
     coordinates: tuple[float, float]
-    selection: Literal["default", "user", "cell"]
+    selection: Literal["user", "cell"]
     cell_id: str | None = None
     cell_candidate_count: int | None = Field(default=None, ge=1)
     cell_resolver_version: str | None = None
+    source_data_class: CitizenReportDataClass | None = None
+    source_classification: CitizenReportClassification | None = None
+    source_kind: CitizenReportSourceKind | None = None
     classification: Literal["SIMULATED"]
     note: str
 
@@ -481,8 +539,6 @@ class StormwaterResponse(BaseModel):
 # Counts of third-party citizen reports, coarsened to a 250 m grid and month
 # buckets with small-cell suppression. UNVERIFIED, never observation-grade.
 
-CitizenReportDataClass = Literal["CITIZEN_REPORT_AGGREGATE"]
-
 
 class CitizenReportProcessing(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -548,9 +604,35 @@ class CitizenReportProvenanceV1(BaseModel):
     uncertainty: CitizenReportUncertainty
 
 
+class SyntheticAggregateFixtureProvenance(BaseModel):
+    """Provenance for an isolated, non-report smoke-test origin fixture."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: ProvenanceSchemaVersion = "1"
+    source_kind: Literal["synthetic_aggregate_fixture"]
+    dataset_id: str = Field(min_length=1)
+    resource_version: str = Field(min_length=1)
+    content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    reference_source_id: str = Field(min_length=1)
+    reference_source_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    source_crs: Literal["EPSG:4326"] = "EPSG:4326"
+    target_crs: Literal["EPSG:4326"] = "EPSG:4326"
+    cell_size_meters: Literal[250] = 250
+    test_scope: Literal["isolated_disposable_postgis_smoke"]
+    synthetic: Literal[True] = True
+    note: str = Field(min_length=1)
+
+
+CitizenReportAggregateProvenance = CitizenReportProvenanceV1 | SyntheticAggregateFixtureProvenance
+
+
 class CitizenReportCellPolygon(BaseModel):
     type: Literal["Polygon"] = "Polygon"
     coordinates: list[list[list[float]]]
+    data_class: CitizenReportDataClass = "CITIZEN_REPORT_AGGREGATE"
+    classification: CitizenReportClassification = "UNVERIFIED"
+    source_kind: CitizenReportSourceKind = "public_citizen_report_export"
 
 
 class CitizenReportCellProperties(BaseModel):
@@ -559,9 +641,9 @@ class CitizenReportCellProperties(BaseModel):
     cell_id: str = Field(min_length=1)
     month: str = Field(min_length=1)
     report_type: str = Field(min_length=1)
-    count: int = Field(ge=0)
+    count: int | None = Field(default=None, ge=0)
     data_class: CitizenReportDataClass = "CITIZEN_REPORT_AGGREGATE"
-    classification: Literal["UNVERIFIED"] = "UNVERIFIED"
+    classification: CitizenReportClassification = "UNVERIFIED"
     attribution: str = Field(min_length=1)
 
 
@@ -577,9 +659,9 @@ class CitizenReportAggregateResponse(BaseModel):
     features: list[CitizenReportCellFeature]
     data_state: Literal["empty", "available"]
     data_class: CitizenReportDataClass = "CITIZEN_REPORT_AGGREGATE"
-    classification: Literal["UNVERIFIED"] = "UNVERIFIED"
+    classification: CitizenReportClassification = "UNVERIFIED"
     notice: str = Field(min_length=1)
-    provenance: CitizenReportProvenanceV1 | None = None
+    provenance: CitizenReportAggregateProvenance | None = None
     feature_count: int = Field(ge=0)
     bbox: tuple[float, float, float, float] | None = None
     truncated: bool = False

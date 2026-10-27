@@ -125,6 +125,44 @@
       ]
     },
     {
+      "requirement": "citizen-origin#Explicit analyst origin contract",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/api/routes/simulations.py",
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/lib/api.ts"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "services/api/tests/test_api.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "origin-slice-tests",
+        "citizen-origin-browser-smoke"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Playback and stale-result isolation",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/app/globals.css"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/src/components/map-view.test.tsx",
+        "apps/web/e2e/real-citizen-origin.spec.ts"
+      ],
+      "verification": [
+        "web-origin-slice-tests",
+        "citizen-origin-browser-smoke"
+      ]
+    },
+    {
       "requirement": "citizen-origin#Focused aggregate-cell detail card",
       "status": "VERIFIED",
       "implementation": [
@@ -144,39 +182,66 @@
       "requirement": "citizen-origin#Synthetic fixture origin isolation",
       "status": "VERIFIED",
       "implementation": [
-        "apps/web/src/components/dashboard.tsx"
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/application/citizen_report_aggregates.py",
+        "services/api/src/ratsight_api/domain/citizen_report_aggregates.py",
+        "services/api/src/ratsight_api/infrastructure/database/models.py",
+        "services/api/alembic/versions/0009_synthetic_aggregate_smoke_fixture.py",
+        "scripts/seed_citizen_report_smoke.py",
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx"
       ],
       "tests": [
-        "apps/web/src/components/dashboard.test.tsx"
+        "services/api/tests/test_citizen_report_aggregates_api.py",
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/src/components/map-view.test.tsx",
+        "apps/web/e2e/real-citizen-origin.spec.ts",
+        "apps/web/e2e/real-citizen-origin-empty.spec.ts"
       ],
       "verification": [
-        "web-origin-slice-tests"
+        "fixture-backend-tests",
+        "web-origin-slice-tests",
+        "citizen-origin-browser-smoke"
       ]
     },
     {
       "requirement": "citizen-origin#Analyst workflow hides technical graph nodes",
-      "status": "PARTIALLY_VERIFIED",
-      "gap": "Explicit aggregate-cell control added; technical graph-node control remains available and approved workflow review is pending.",
+      "status": "VERIFIED",
       "implementation": [
         "apps/web/src/components/dashboard.tsx",
         "apps/web/src/components/map-view.tsx"
       ],
       "tests": [
         "apps/web/src/components/dashboard.test.tsx",
-        "apps/web/src/components/map-view.test.tsx"
+        "apps/web/src/components/map-view.test.tsx",
+        "apps/web/e2e/real-citizen-origin.spec.ts"
       ],
       "verification": [
-        "real-cell-dashboard-tests",
-        "web-origin-slice-tests"
+        "web-origin-slice-tests",
+        "citizen-origin-browser-smoke"
       ]
     }
   ],
   "verification": [
     {
+      "id": "fixture-backend-tests",
+      "command": "uv run pytest services/api/tests/test_citizen_report_aggregates_api.py -q",
+      "exit_code": 0,
+      "result": "19 passed: fixture opt-in, dataset-prefix, NULL-count, classification, provenance, and real-aggregate suppression cases",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "citizen-origin-browser-smoke",
+      "command": "bash scripts/geospatial_smoke.sh",
+      "exit_code": 0,
+      "result": "24 passed: 14 citizen-origin desktop/mobile scenarios (explicit origin, playback, origin switching, held out-of-order responses, aggregate/simulation/OSM failures, unresolvable cell, refreshed-source disappearance), 2 empty fixture, and 8 admin/stormwater scenarios",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
       "id": "origin-slice-tests",
       "command": "uv run pytest packages/simulation/tests/test_random_walk.py services/api/tests/test_simulation_preview.py services/api/tests/test_citizen_report_aggregates_api.py services/api/tests/test_citizen_report_aggregates_import.py -q",
       "exit_code": 0,
-      "result": "62 passed",
+      "result": "68 passed",
       "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
     },
     {
@@ -188,16 +253,16 @@
     },
     {
       "id": "web-origin-slice-tests",
-      "command": "cd apps/web && corepack pnpm exec vitest run src/components/dashboard.test.tsx src/components/map-view.test.tsx",
+      "command": "corepack pnpm --filter @ratsight/web exec vitest run src/components/dashboard.test.tsx src/components/map-view.test.tsx",
       "exit_code": 0,
-      "result": "70 passed",
+      "result": "57 passed",
       "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
     },
     {
       "id": "real-cell-backend-tests",
       "command": "uv run pytest services/api/tests/test_simulation_preview.py -q",
       "exit_code": 0,
-      "result": "20 passed",
+      "result": "21 passed",
       "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
     },
     {
@@ -209,30 +274,37 @@
     },
     {
       "id": "focused-card-dashboard-tests",
-      "command": "corepack pnpm --filter @ratsight/web test src/components/map-view.test.tsx src/components/dashboard.test.tsx",
+      "command": "corepack pnpm --filter @ratsight/web exec vitest run src/components/dashboard.test.tsx src/components/map-view.test.tsx",
       "exit_code": 0,
-      "result": "70 passed",
+      "result": "57 passed",
       "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
     },
     {
       "id": "real-cell-dashboard-tests",
-      "command": "corepack pnpm --filter @ratsight/web test src/components/dashboard.test.tsx",
+      "command": "corepack pnpm --filter @ratsight/web exec vitest run src/components/dashboard.test.tsx",
       "exit_code": 0,
-      "result": "49 passed",
+      "result": "33 passed",
       "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
     },
     {
       "id": "full-js-tests",
       "command": "make test-js",
       "exit_code": 0,
-      "result": "3 files, 78 tests passed",
+      "result": "3 files, 64 tests passed",
       "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
     },
     {
       "id": "full-python-tests",
       "command": "make test-py",
       "exit_code": 0,
-      "result": "191 passed in 99.61s",
+      "result": "209 passed in 103.69s",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "full-quality-checks",
+      "command": "make test-js && make typecheck && make lint && make format-check && make build",
+      "exit_code": 0,
+      "result": "64 web tests passed; TypeScript/basedpyright, ESLint/Ruff, Prettier, and Next.js production build all passed",
       "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
     }
   ],

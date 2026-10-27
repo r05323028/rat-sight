@@ -278,16 +278,19 @@ export function MapView({
             ]
           : [];
       });
+      const trajectories = preview.trajectories ?? [];
+      const selectedTrajectoryStepCount = trajectories.find(
+        (trajectory) => trajectory.walker_id === selectedTrajectoryId,
+      )?.edges.length;
+      const shortestTrajectoryStepCount =
+        trajectories.length > 0
+          ? Math.min(...trajectories.map((trajectory) => trajectory.edges.length))
+          : 0;
       const clampedStep =
         typeof activeStep === "number"
           ? Math.max(
               0,
-              Math.min(
-                activeStep,
-                ...(preview.trajectories
-                  ? preview.trajectories.map((trajectory) => trajectory.edges.length)
-                  : [0]),
-              ),
+              Math.min(activeStep, selectedTrajectoryStepCount ?? shortestTrajectoryStepCount),
             )
           : null;
       const edgesThroughStep = (trajectoryEdges: SimulationTrajectoryStep[]) =>
@@ -299,6 +302,10 @@ export function MapView({
       const simulatedFeatures =
         outputMode === "trajectory" && preview.trajectories
           ? preview.trajectories
+              .filter(
+                (trajectory) =>
+                  selectedTrajectoryId === null || trajectory.walker_id === selectedTrajectoryId,
+              )
               .map((trajectory) => ({ trajectory, edges: edgesThroughStep(trajectory.edges) }))
               .filter(({ edges }) => edges.length > 0)
               .map(({ trajectory, edges }) => ({
@@ -787,7 +794,14 @@ export function MapView({
           source: CITIZEN_AGGREGATE_SOURCE,
           layout: { visibility },
           paint: {
-            "circle-color": "#a3243c",
+            // Citizen aggregates stay red; isolated synthetic fixtures use slate so
+            // they cannot be mistaken for published reports.
+            "circle-color": [
+              "case",
+              ["==", ["get", "data_class"], "SYNTHETIC_AGGREGATE_FIXTURE"],
+              "#5b6b7a",
+              "#a3243c",
+            ],
             "circle-radius": 7,
             "circle-stroke-color": "#fff",
             "circle-stroke-width": 2,
@@ -803,10 +817,20 @@ export function MapView({
           layout: { visibility },
           filter: ["==", ["get", "feature_key"], ""],
           paint: {
-            "circle-color": "#a3243c",
+            "circle-color": [
+              "case",
+              ["==", ["get", "data_class"], "SYNTHETIC_AGGREGATE_FIXTURE"],
+              "#5b6b7a",
+              "#a3243c",
+            ],
             "circle-opacity": 0.18,
             "circle-radius": 12,
-            "circle-stroke-color": "#a3243c",
+            "circle-stroke-color": [
+              "case",
+              ["==", ["get", "data_class"], "SYNTHETIC_AGGREGATE_FIXTURE"],
+              "#5b6b7a",
+              "#a3243c",
+            ],
             "circle-stroke-width": 2,
           },
         },
@@ -877,6 +901,15 @@ export function MapView({
     const emit = () => {
       const bounds = map.getBounds();
       if (!bounds) return;
+      const center = map.getCenter();
+      container.current?.setAttribute(
+        "data-map-center",
+        `${round(center.lng)},${round(center.lat)}`,
+      );
+      container.current?.setAttribute(
+        "data-map-zoom",
+        String(Math.round(map.getZoom() * 1000) / 1000),
+      );
       const bbox: StormwaterBbox = [
         round(bounds.getWest()),
         round(bounds.getSouth()),

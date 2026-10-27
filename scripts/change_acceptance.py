@@ -43,8 +43,21 @@ def change_dir(root: Path, change: str) -> Path:
 
 
 def git(root: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return ""
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def git_bytes(root: Path, *args: str) -> bytes | None:
+    try:
+        result = subprocess.run(["git", *args], cwd=root, capture_output=True, check=False)
+    except OSError:
+        return None
+    return result.stdout if result.returncode == 0 else None
 
 
 def now() -> str:
@@ -61,37 +74,99 @@ def load_decision(directory: Path) -> dict[str, Any]:
         raise SystemExit(f"invalid owner decision file: {exc}") from exc
     if not isinstance(data, dict) or data.get("schema_version") != 1:
         raise SystemExit("owner decision file has unsupported schema")
+    if data.get("change") != directory.name:
+        raise SystemExit("owner decision file change does not match its directory")
+    current = data.get("current")
+    history = data.get("history")
+    if current is not None and not isinstance(current, dict):
+        raise SystemExit("owner decision file has malformed current decision")
+    if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
+        raise SystemExit("owner decision file has malformed decision history")
+    valid_statuses = {"ACCEPTED", "CHANGES_REQUESTED", "DEFERRED"}
+    for item in ([current] if current is not None else []) + history:
+        if item.get("status") not in valid_statuses:
+            raise SystemExit("owner decision file has invalid decision status")
     return data
 
 
-def fingerprint(directory: Path) -> str:
+def fingerprint(root: Path, directory: Path) -> str | None:
+    """Hash the committed repository content, excluding this change's owner decision.
+
+    Git blob IDs bind every tracked path, mode, and content (including implementation,
+    contracts, tests, migrations/configuration, OpenSpec artifacts, and verification).
+    The commit ID is recorded separately; decision-only commits therefore do not create
+    a fingerprint cycle. Uncommitted implementation is rejected by git_state.
+    """
+    commit = git(root, "rev-parse", "HEAD")
+    entries = git_bytes(root, "ls-tree", "-r", "-z", "--full-tree", "HEAD")
+    if not commit or entries is None:
+        return None
+    owner_path = os.fsencode((directory.relative_to(root) / OWNER_FILE).as_posix())
     digest = hashlib.sha256()
-    for path in sorted(directory.rglob("*")):
-        if not path.is_file() or path.relative_to(directory) == OWNER_FILE:
+    for entry in entries.split(b"\0"):
+        if not entry:
             continue
-        digest.update(str(path.relative_to(directory)).encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
+        _metadata, separator, path = entry.partition(b"\t")
+        if not separator:
+            return None
+        if path == owner_path:
+            continue
+        digest.update(entry)
         digest.update(b"\0")
     return digest.hexdigest()
 
 
 def git_state(root: Path, directory: Path) -> dict[str, Any]:
-    relative = str(directory.relative_to(root))
-    status = git(root, "status", "--porcelain", "--", relative)
-    owner_suffix = str(OWNER_FILE)
-    lines = [line for line in status.splitlines() if not line[3:].endswith(owner_suffix)]
-    return {"commit": git(root, "rev-parse", "HEAD"), "dirty": bool(lines), "status": lines}
+    commit = git(root, "rev-parse", "HEAD")
+    top_level = git(root, "rev-parse", "--show-toplevel")
+    raw_status = git_bytes(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    if (
+        not commit
+        or not top_level
+        or Path(top_level).resolve() != root.resolve()
+        or raw_status is None
+    ):
+        return {
+            "commit": commit,
+            "dirty": True,
+            "status": ["Git repository or committed HEAD unavailable"],
+            "valid": False,
+        }
+    owner_path = os.fsencode((directory.relative_to(root) / OWNER_FILE).as_posix())
+    records = raw_status.split(b"\0")
+    lines: list[str] = []
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if not record:
+            continue
+        code, separator, path = record.partition(b" ")
+        if not separator:
+            lines.append(os.fsdecode(record))
+            continue
+        paths = [path]
+        if b"R" in code or b"C" in code:
+            if index < len(records) and records[index]:
+                paths.append(records[index])
+                index += 1
+        if paths == [owner_path]:
+            continue
+        lines.append(f"{code.decode('ascii', errors='replace')} {os.fsdecode(paths[0])}")
+    return {"commit": commit, "dirty": bool(lines), "status": lines, "valid": True}
 
 
 def gate(root: Path, change: str) -> dict[str, Any]:
-    result = subprocess.run(
-        ["uv", "run", "python", "scripts/openspec_quality_gate.py", change, "--json"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["uv", "run", "python", "scripts/openspec_quality_gate.py", change, "--json"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return {"passed": False, "errors": [{"message": str(exc)}]}
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
@@ -115,13 +190,41 @@ def proposal_summary(directory: Path) -> str:
     return "no proposal summary"
 
 
+def evidence_present(path: Path) -> bool:
+    try:
+        return path.is_file() and bool(path.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeError):
+        return False
+
+
 def task_counts(directory: Path) -> tuple[int, int]:
     path = directory / "tasks.md"
     if not path.is_file():
         return 0, 0
-    text = path.read_text(encoding="utf-8")
-    total = len(re.findall(r"^- \[[ xX]\]", text, re.MULTILINE))
-    done = len(re.findall(r"^- \[[xX]\]", text, re.MULTILINE))
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return 0, 0
+    done = total = 0
+    in_non_required_section = False
+    for line in lines:
+        heading = re.match(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$", line)
+        if heading:
+            in_non_required_section = bool(
+                re.search(
+                    r"\b(?:non[- ]?goals?|future follow[- ]?ups?|out of scope|not required)\b",
+                    heading.group(1),
+                    re.IGNORECASE,
+                )
+            )
+            continue
+        if in_non_required_section:
+            continue
+        checkbox = re.match(r"^\s*- \[([ xX])\]", line)
+        if checkbox:
+            total += 1
+            if checkbox.group(1).lower() == "x":
+                done += 1
     return done, total
 
 
@@ -130,40 +233,77 @@ def summary(root: Path, change: str) -> dict[str, Any]:
     decision = load_decision(directory)
     current = decision.get("current")
     current = current if isinstance(current, dict) else None
-    current_fingerprint = fingerprint(directory)
+    state = git_state(root, directory)
+    current_fingerprint = fingerprint(root, directory)
     stale = bool(
         current
         and current.get("status") == "ACCEPTED"
-        and current.get("evidence_fingerprint") != current_fingerprint
+        and (
+            current_fingerprint is None
+            or current.get("evidence_fingerprint") != current_fingerprint
+            or state["dirty"]
+            or not state["valid"]
+        )
     )
-    state = git_state(root, directory)
     gate_result = gate(root, change)
     tasks_done, tasks_total = task_counts(directory)
+    tasks_file = directory / "tasks.md"
     gate_file = directory / "verification" / "gate.json"
     gate_data: dict[str, Any] = {}
     if gate_file.is_file():
         try:
             parsed = json.loads(gate_file.read_text(encoding="utf-8"))
             gate_data = parsed if isinstance(parsed, dict) else {}
-        except json.JSONDecodeError:
-            pass
+        except (OSError, json.JSONDecodeError) as exc:
+            gate_data = {"_invalid_record": str(exc)}
     approval = gate_data.get("approval")
+    approval = approval if isinstance(approval, dict) else {"required": False}
     blockers = gate_result.get("errors", []) if isinstance(gate_result.get("errors"), list) else []
+    gate_passed = gate_result.get("passed") is True and not blockers
+    required_evidence = (
+        directory / "verification" / "qa.md",
+        directory / "verification" / "code-review.md",
+    )
+    verification_complete = all(evidence_present(path) for path in required_evidence)
+    implementation_complete = tasks_file.is_file() and tasks_total > 0 and tasks_done == tasks_total
+    approval_satisfied = not approval.get("required") or approval.get("decision") == "APPROVED"
+    clean_snapshot = state["valid"] and not state["dirty"] and current_fingerprint is not None
+    readiness = {
+        "implementation_tasks_complete": implementation_complete,
+        "verification_evidence_complete": verification_complete,
+        "quality_gate_passed": gate_passed,
+        "required_policy_approvals_satisfied": approval_satisfied,
+        "clean_implementation_snapshot": clean_snapshot,
+        "owner_acceptance_pending": not (
+            current and current.get("status") == "ACCEPTED" and not stale
+        ),
+    }
+    ready = all(
+        readiness[key]
+        for key in (
+            "implementation_tasks_complete",
+            "verification_evidence_complete",
+            "quality_gate_passed",
+            "required_policy_approvals_satisfied",
+            "clean_implementation_snapshot",
+        )
+    )
     return {
         "change": change,
         "proposal": proposal_summary(directory),
         "tasks": {"done": tasks_done, "total": tasks_total},
         "git": state,
         "gate": {
-            "passed": gate_result.get("passed") is True,
+            "passed": gate_passed,
             "errors": blockers,
             "warnings": gate_result.get("warnings", []),
         },
-        "approval": approval if isinstance(approval, dict) else {"required": False},
+        "approval": approval,
         "owner_decision": current,
         "acceptance_stale": stale,
         "evidence_fingerprint": current_fingerprint,
-        "ready_for_human_review": bool(gate_result.get("passed") is True and not blockers),
+        "readiness": readiness,
+        "ready_for_human_review": ready,
         "known_limitations": [
             item.get("message", "")
             for item in gate_result.get("warnings", [])
@@ -187,7 +327,14 @@ def print_summary(data: dict[str, Any]) -> None:
     commit = data["git"]["commit"] or "unavailable"
     cleanliness = "dirty" if data["git"]["dirty"] else "clean"
     print(f"  Git: {commit} ({cleanliness})")
+    readiness = data["readiness"]
+    task_state = "COMPLETE" if readiness["implementation_tasks_complete"] else "INCOMPLETE"
+    evidence_state = "COMPLETE" if readiness["verification_evidence_complete"] else "INCOMPLETE"
+    print(f"  Implementation Tasks: {task_state}")
+    print(f"  Verification Evidence: {evidence_state}")
     print(f"  Quality Gate: {'PASS' if gate_data['passed'] else 'BLOCKED'}")
+    snapshot_state = "YES" if readiness["clean_implementation_snapshot"] else "NO"
+    print(f"  Clean Implementation Snapshot: {snapshot_state}")
     approval_required = "YES" if approval.get("required") else "NO"
     approval_state = approval.get("decision", "not required")
     print(f"  Required Policy Approval: {approval_required} ({approval_state})")
@@ -206,6 +353,10 @@ def print_summary(data: dict[str, Any]) -> None:
 
 
 def write_decision(directory: Path, data: dict[str, Any], status: str, feedback: str = "") -> None:
+    if status not in {"ACCEPTED", "CHANGES_REQUESTED", "DEFERRED"}:
+        raise ValueError(f"unsupported owner decision: {status}")
+    if status == "ACCEPTED" and not data.get("ready_for_human_review"):
+        raise SystemExit("acceptance blocked: implementation readiness requirements are incomplete")
     record = load_decision(directory)
     entry = {
         "status": status,
@@ -234,22 +385,48 @@ def write_decision(directory: Path, data: dict[str, Any], status: str, feedback:
         json.dump(output, handle, indent=2)
         handle.write("\n")
         temporary = Path(handle.name)
-    os.replace(temporary, target)
+    try:
+        os.replace(temporary, target)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def archive_check(root: Path, change: str) -> int:
     data = summary(root, change)
     owner = data["owner_decision"]
-    if not data["gate"]["passed"]:
-        print("archive blocked: quality gate did not pass", file=sys.stderr)
-        return 1
-    if not isinstance(owner, dict) or owner.get("status") != "ACCEPTED":
-        print("archive blocked: current owner decision is not ACCEPTED", file=sys.stderr)
-        return 1
+    readiness = data["readiness"]
     if data["acceptance_stale"]:
         print("archive blocked: owner acceptance is stale", file=sys.stderr)
         return 1
-    print("archive eligible: current owner acceptance matches passing evidence")
+    if not readiness["implementation_tasks_complete"]:
+        print(
+            "archive blocked: required implementation tasks are incomplete or missing",
+            file=sys.stderr,
+        )
+        return 1
+    if not readiness["verification_evidence_complete"]:
+        print("archive blocked: required verification evidence is incomplete", file=sys.stderr)
+        return 1
+    if not readiness["quality_gate_passed"]:
+        print("archive blocked: quality gate did not pass", file=sys.stderr)
+        return 1
+    if not readiness["required_policy_approvals_satisfied"]:
+        print("archive blocked: mandatory policy approval is not APPROVED", file=sys.stderr)
+        return 1
+    if not readiness["clean_implementation_snapshot"]:
+        print("archive blocked: implementation snapshot is dirty or unavailable", file=sys.stderr)
+        return 1
+    if not isinstance(owner, dict) or owner.get("status") != "ACCEPTED":
+        status = owner.get("status") if isinstance(owner, dict) else None
+        if status == "CHANGES_REQUESTED":
+            print("archive blocked: owner requested changes", file=sys.stderr)
+        elif status == "DEFERRED":
+            print("archive blocked: owner decision is deferred", file=sys.stderr)
+        else:
+            print("archive blocked: current owner decision is not ACCEPTED", file=sys.stderr)
+        return 1
+    print("archive eligible: current owner acceptance matches the clean snapshot")
     return 0
 
 

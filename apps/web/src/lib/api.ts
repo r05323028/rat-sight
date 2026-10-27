@@ -219,16 +219,32 @@ export function isSourceNetworkUnavailable(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith(SOURCE_NETWORK_UNAVAILABLE_PREFIX);
 }
 
-export async function requestPreview(input: {
-  study_area: string;
+type SimulationPreviewRequestBase = {
   duration_steps: number;
   walkers: number;
   random_seed: number;
   movement_model: string;
   intervention_scenario: string;
-  origin_node_id?: string;
-  origin_cell_id?: string;
-}): Promise<SimulationPreview> {
+};
+
+export type SimulationPreviewRequest =
+  | (SimulationPreviewRequestBase & {
+      study_area: "taipei_osm_songshan";
+      origin_cell_id: string;
+      origin_node_id?: never;
+    })
+  | (SimulationPreviewRequestBase & {
+      study_area: "taipei_synthetic_demo";
+      origin_node_id: string;
+      origin_cell_id?: never;
+    })
+  | (SimulationPreviewRequestBase & {
+      study_area: "taipei_synthetic_demo";
+      origin_cell_id: string;
+      origin_node_id?: never;
+    });
+
+export async function requestPreview(input: SimulationPreviewRequest): Promise<SimulationPreview> {
   const response = await fetch(`${API_BASE_URL}/api/v1/simulations/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -370,9 +386,9 @@ export type CitizenReportCellProperties = {
   cell_id: string;
   month: string;
   report_type: "sighting" | "bait_station" | "other";
-  count: number;
-  data_class: "CITIZEN_REPORT_AGGREGATE";
-  classification: "UNVERIFIED";
+  count: number | null;
+  data_class: "CITIZEN_REPORT_AGGREGATE" | "SYNTHETIC_AGGREGATE_FIXTURE";
+  classification: "UNVERIFIED" | "SIMULATED";
   attribution: string;
 };
 
@@ -391,32 +407,48 @@ export type CitizenReportCounts = {
   suppressed_cells: number;
 };
 
-export type CitizenReportAggregateProvenance = {
-  schema_version: "1";
-  source_kind: "public_citizen_report_export";
-  dataset_id: string;
-  resource_version: string;
-  retrieved_at: string;
-  content_sha256: string;
-  source_url: string;
-  license: string;
-  attribution: string;
-  source_crs: "EPSG:4326";
-  target_crs: "EPSG:4326";
-  processing: ProvenanceProcessing;
-  aggregation: CitizenReportAggregation;
-  counts: CitizenReportCounts;
-  synthetic: false;
-  uncertainty: ProvenanceUncertainty;
-};
+export type CitizenReportAggregateProvenance =
+  | {
+      schema_version: "1";
+      source_kind: "public_citizen_report_export";
+      dataset_id: string;
+      resource_version: string;
+      retrieved_at: string;
+      content_sha256: string;
+      source_url: string;
+      license: string;
+      attribution: string;
+      source_crs: "EPSG:4326";
+      target_crs: "EPSG:4326";
+      processing: ProvenanceProcessing;
+      aggregation: CitizenReportAggregation;
+      counts: CitizenReportCounts;
+      synthetic: false;
+      uncertainty: ProvenanceUncertainty;
+    }
+  | {
+      schema_version: "1";
+      source_kind: "synthetic_aggregate_fixture";
+      dataset_id: string;
+      resource_version: string;
+      content_sha256: string;
+      reference_source_id: string;
+      reference_source_sha256: string;
+      source_crs: "EPSG:4326";
+      target_crs: "EPSG:4326";
+      cell_size_meters: 250;
+      test_scope: "isolated_disposable_postgis_smoke";
+      synthetic: true;
+      note: string;
+    };
 
 export type CitizenReportAggregates = ReferenceFeatureCollection<
   CitizenReportCellGeometry,
   CitizenReportCellProperties,
-  "CITIZEN_REPORT_AGGREGATE",
+  "CITIZEN_REPORT_AGGREGATE" | "SYNTHETIC_AGGREGATE_FIXTURE",
   CitizenReportAggregateProvenance
 > & {
-  classification: "UNVERIFIED";
+  classification: "UNVERIFIED" | "SIMULATED";
   notice: string;
   feature_count: number;
   bbox: Bbox | null;

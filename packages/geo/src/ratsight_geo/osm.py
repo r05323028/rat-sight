@@ -93,17 +93,9 @@ def _parse_osm_surface_graph(source_name: str, digest: str, _modified_ns: int) -
                 "highway": tags["highway"],
                 "oneway": tags.get("oneway", "no"),
             }
-            direction = tags.get("oneway", "no")
-            if direction != "-1":
-                graph.add_edge(segment[0], segment[-1], key=source_id, **attributes)
-            if direction in {"no", "", "0"} or direction not in {"yes", "true", "1", "-1"}:
-                reverse = dict(attributes)
-                reverse["edge_id"] = f"{source_id}:reverse"
-                reverse["geometry"] = tuple(reversed(geometry))
-                graph.add_edge(segment[-1], segment[0], key=reverse["edge_id"], **reverse)
-            elif direction == "-1":
-                reverse = dict(attributes)
-                reverse["edge_id"] = f"{source_id}:reverse"
-                reverse["geometry"] = tuple(reversed(geometry))
-                graph.add_edge(segment[-1], segment[0], key=reverse["edge_id"], **reverse)
+            graph.add_edge(segment[0], segment[-1], key=source_id, **attributes)
+            reverse = dict(attributes)
+            reverse["edge_id"] = f"{source_id}:reverse"
+            reverse["geometry"] = tuple(reversed(geometry))
+            graph.add_edge(segment[-1], segment[0], key=reverse["edge_id"], **reverse)
     return graph

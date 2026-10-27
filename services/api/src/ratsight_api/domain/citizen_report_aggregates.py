@@ -11,9 +11,14 @@ at zero.
 
 from __future__ import annotations
 
+import os
+
 CITIZEN_REPORT_DATA_CLASS = "CITIZEN_REPORT_AGGREGATE"
 CITIZEN_REPORT_CLASSIFICATION = "UNVERIFIED"
 SOURCE_KIND = "public_citizen_report_export"
+SYNTHETIC_FIXTURE_DATA_CLASS = "SYNTHETIC_AGGREGATE_FIXTURE"
+SYNTHETIC_FIXTURE_CLASSIFICATION = "SIMULATED"
+SYNTHETIC_FIXTURE_SOURCE_KIND = "synthetic_aggregate_fixture"
 SOURCE_URL = "https://ratdar.taipei/"
 ATTRIBUTION = "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）"
 LICENSE_NOTE = (
@@ -25,7 +30,25 @@ CELL_SIZE_METERS = 250
 SUPPRESSION_MINIMUM = 3
 MONTH_TIMEZONE_ASSUMPTION = "Asia/Taipei wall-clock time in the export; UTC offset unverified"
 
-DATASET_ID = "ratdar-taipei-public-export"
+DATASET_ID = os.environ.get("RATSIGHT_CITIZEN_REPORT_DATASET_ID", "ratdar-taipei-public-export")
+SYNTHETIC_FIXTURE_DATASET_PREFIX = "ratsight-smoke-"
+
+
+def synthetic_aggregate_fixture_enabled(dataset_id: str | None = None) -> bool:
+    """Allow synthetic aggregate fixture data only in an explicitly named smoke dataset."""
+    selected_dataset = dataset_id or DATASET_ID
+    return (
+        os.environ.get("RATSIGHT_ENABLE_SYNTHETIC_AGGREGATE_FIXTURE") == "1"
+        and selected_dataset.startswith(SYNTHETIC_FIXTURE_DATASET_PREFIX)
+        and len(selected_dataset) > len(SYNTHETIC_FIXTURE_DATASET_PREFIX)
+    )
+
+
+SYNTHETIC_FIXTURE_NOTICE = (
+    "SIMULATED test fixture only; contains no citizen reports or report counts."
+)
+SYNTHETIC_FIXTURE_ATTRIBUTION = "Synthetic smoke fixture; not citizen-report data."
+
 FEATURE_CAP = 5000
 BBOX_MAX_SPAN = 0.30
 # Taiwan main island bounds; the export also contains a few outlying reports.

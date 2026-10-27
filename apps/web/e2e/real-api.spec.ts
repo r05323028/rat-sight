@@ -27,23 +27,24 @@ test("renders administrative data obtained from the running FastAPI API", async 
   expect(latitude).toBeLessThanOrEqual(90);
   const districtButton = page.getByRole("button", { name: "測試行政區" });
   await expect(districtButton).toBeVisible();
-  const boundaryToggle = page.getByLabel("行政區");
+  const boundaryToggle = page.getByRole("checkbox", { name: "行政區" });
   await expect(boundaryToggle).toBeEnabled();
   await boundaryToggle.click();
   await expect(boundaryToggle).toBeChecked();
   await districtButton.click();
   await expect(districtButton).toHaveAttribute("aria-pressed", "true");
   await expect(
-    page.getByRole("region", { name: "Administrative reference" }).getByText("smoke-1"),
+    page.getByRole("region", { name: "行政區參考檢視" }).getByText("smoke-1"),
   ).toBeVisible();
   await boundaryToggle.click();
   await expect(boundaryToggle).not.toBeChecked();
   await boundaryToggle.click();
   await expect(boundaryToggle).toBeChecked();
   await expect(districtButton).toHaveAttribute("aria-pressed", "true");
+  await page.getByText("行政區來源、授權與現勢性").click();
   await expect(
     page
-      .getByRole("region", { name: "Administrative reference" })
+      .getByRole("region", { name: "行政區參考檢視" })
       .getByText("RatSight automated test fixture"),
   ).toBeVisible();
 });

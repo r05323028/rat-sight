@@ -180,15 +180,18 @@ class CitizenReportCell(Base):
     __tablename__ = "citizen_report_cells"
     __table_args__ = (
         CheckConstraint(
-            "classification = 'UNVERIFIED'",
+            "(data_class = 'CITIZEN_REPORT_AGGREGATE' AND classification = 'UNVERIFIED') OR "
+            "(data_class = 'SYNTHETIC_AGGREGATE_FIXTURE' AND classification = 'SIMULATED')",
             name="ck_citizen_report_cells_classification",
         ),
         CheckConstraint(
-            "data_class = 'CITIZEN_REPORT_AGGREGATE'",
+            "data_class IN ('CITIZEN_REPORT_AGGREGATE', 'SYNTHETIC_AGGREGATE_FIXTURE')",
             name="ck_citizen_report_cells_data_class",
         ),
         CheckConstraint(
-            "report_count >= 3",
+            "(data_class = 'CITIZEN_REPORT_AGGREGATE' AND report_count IS NOT NULL "
+            "AND report_count >= 3) OR "
+            "(data_class = 'SYNTHETIC_AGGREGATE_FIXTURE' AND report_count IS NULL)",
             name="ck_citizen_report_cells_minimum",
         ),
         CheckConstraint(
@@ -221,7 +224,7 @@ class CitizenReportCell(Base):
     cell_id: Mapped[str] = mapped_column(String(64), nullable=False)
     month: Mapped[str] = mapped_column(String(7), nullable=False)
     report_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    report_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    report_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     geometry: Mapped[Any] = mapped_column(
         Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=False), nullable=False

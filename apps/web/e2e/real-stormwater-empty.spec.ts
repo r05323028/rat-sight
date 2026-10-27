@@ -14,9 +14,7 @@ test("reports empty stormwater storage without fabricated lines", async ({ page 
   expect(body.data_state).toBe("empty");
   expect(body.features).toEqual([]);
   await expect(
-    page
-      .getByRole("region", { name: "Stormwater pipeline inspection" })
-      .getByText("No stormwater pipelines have been imported."),
+    page.getByRole("region", { name: "雨水下水道管線檢視" }).getByText("尚未匯入雨水下水道管線。"),
   ).toBeVisible();
-  await expect(page.getByLabel("Stormwater pipelines")).toBeDisabled();
+  await expect(page.getByRole("checkbox", { name: "雨水下水道管線" })).toBeDisabled();
 });

@@ -31,11 +31,21 @@ QA used disposable databases and API/web pairs, without touching shared database
 
 ## Findings and limits
 
-- **F1 pre-existing:** stormwater list accessible names do not start with visible segment IDs; axe reports `label-content-name-mismatch`. Not caused by origin/playback.
+- **F1 resolved (2026-10-27):** stormwater list accessible names now begin with the visible pipe label and append the stable segment ID. Focused dashboard coverage and isolated desktop/mobile `real-stormwater.spec.ts` checks assert the visible-name/accessible-name contract. No axe dependency was added; a full axe scan remains unverified.
 - **F2 resolved:** playback trajectory select was below 24px at mobile width; CSS now gives it a 44px minimum height.
 - Failed preview runs now clear prior trajectory output, preventing stale results after an origin error.
 - Preview now reports topology reachability and explicit termination reasons; UI distinguishes disconnected/unsampled graph areas without biological inference.
 - Screen reader, hardware touch, forced-colors, 200% zoom, and pixel-level trajectory alignment remain unverified.
 - One playback unit probe was flaky once in nine runs; no reproduction. Follow-up may replace timer reliance with fake-clock assertions.
 
-Verdict: **PASS WITH WARNINGS**, ready for human review only.
+## 2026-10-27 corrective addendum — OSM direction semantics and current regression
+
+- `/Users/seanchang/rat-sight/packages/geo/src/ratsight_geo/osm.py` now retains `oneway` as vehicle metadata instead of using it to decide movement direction. Candidate movement edges are bidirectional; reverse edges carry reversed source geometry; topology still comes only from shared OSM nodes, so visual/grade-separated crossings remain disconnected.
+- Added `test_vehicle_oneway_metadata_does_not_remove_reverse_movement` and `test_visual_crossings_without_shared_osm_nodes_remain_disconnected` in `/Users/seanchang/rat-sight/packages/geo/tests/test_osm.py`; focused tests pass and the pinned-source checksum is unchanged.
+- Current pinned expanded snapshot is `/Users/seanchang/.local/share/ratsight/network/taipei-expanded-ratdar-20261027.osm`, 26,485,976 bytes, SHA-256 `9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868`. The old songshan `faae4ffd...` and prior `5831ea28...` evidence are historical, not current-source evidence.
+- The earlier optional-origin/default wording in this change is superseded: public OSM requires an eligible `origin_cell_id`; only the isolated synthetic demo retains explicit graph/fixture origins.
+- Final regression after all code/test changes: `make test-py` 209 passed in 103.69s; `make test-js` 64 passed; typecheck, lint, format-check, and build passed; `bash scripts/geospatial_smoke.sh` passed 24 isolated desktop/mobile scenarios: 14 citizen-origin (including playback, origin switching, out-of-order, aggregate/simulation/OSM failures, unresolvable cell, refreshed-source disappearance), 2 empty fixture, and 8 admin/stormwater.
+- Blocker follow-up (2026-10-27): F1 and the synthetic-seed reprojection fix were verified by 209 Python tests, 64 web tests, typecheck/lint/format/build, and the 24-scenario isolated browser smoke. The seed produced a valid 250 m EPSG:4326 cell with no Shapely deprecation warning.
+- Task 12 remains open: Municipal Analyst re-evaluation is PASS, but Public Health/Modeler/Reviewer sign-off and formal CR-008 provenance authentication are pending. The gate now fails on incomplete required tasks. No biological validation is claimed.
+
+Verdict: **PASS WITH WARNINGS**, not ready for human acceptance until task 12 and independent review close.

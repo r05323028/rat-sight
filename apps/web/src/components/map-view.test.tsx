@@ -61,6 +61,8 @@ vi.mock("maplibre-gl", () => ({
       getEast: () => 121.63,
       getNorth: () => 25.09,
     });
+    getCenter = () => ({ lng: 121.565, lat: 25.035 });
+    getZoom = () => 13.5;
     getCanvas = () => ({ style: { cursor: "" } });
     remove = vi.fn();
     constructor(options: unknown) {
@@ -273,6 +275,8 @@ type MapViewProps = {
   onSelectCitizenCell?: (properties: unknown) => void;
   onSelectTrajectory?: (trajectoryId: number) => void;
   outputMode?: "aggregate" | "trajectory";
+  activeStep?: number | null;
+  selectedTrajectoryId?: number | null;
   onBoundsChange?: (bbox: [number, number, number, number]) => void;
 };
 
@@ -293,6 +297,8 @@ function mapElement({
   onSelectCitizenCell = vi.fn(),
   onSelectTrajectory = vi.fn(),
   outputMode = "aggregate",
+  activeStep = null,
+  selectedTrajectoryId = null,
   onBoundsChange = vi.fn(),
 }: MapViewProps = {}) {
   return (
@@ -313,6 +319,8 @@ function mapElement({
       onSelectCitizenCell={onSelectCitizenCell}
       onSelectTrajectory={onSelectTrajectory}
       outputMode={outputMode}
+      activeStep={activeStep}
+      selectedTrajectoryId={selectedTrajectoryId}
       onBoundsChange={onBoundsChange}
     />
   );
@@ -437,6 +445,96 @@ describe("MapView", () => {
         [121.58, 25.06],
       ],
       { padding: 56, duration: 500 },
+    );
+  });
+
+  it("renders only the selected walker and clamps to its own step count", () => {
+    const trajectoryPreview: SimulationPreview = {
+      ...preview,
+      trajectories: [
+        {
+          walker_id: 7,
+          classification: "SIMULATED",
+          edges: [
+            {
+              source: "a",
+              target: "b",
+              edge_id: "a-b",
+              classification: "SIMULATED",
+              geometry: [
+                [121.55, 25.02],
+                [121.56, 25.03],
+              ],
+            },
+            {
+              source: "b",
+              target: "c",
+              edge_id: "b-c",
+              classification: "SIMULATED",
+              geometry: [
+                [121.56, 25.03],
+                [121.57, 25.04],
+              ],
+            },
+            {
+              source: "c",
+              target: "d",
+              edge_id: "c-d",
+              classification: "SIMULATED",
+              geometry: [
+                [121.57, 25.04],
+                [121.58, 25.05],
+              ],
+            },
+          ],
+        },
+        {
+          walker_id: 8,
+          classification: "SIMULATED",
+          edges: [
+            {
+              source: "a",
+              target: "b",
+              edge_id: "a-b-short",
+              classification: "SIMULATED",
+              geometry: [
+                [121.55, 25.02],
+                [121.56, 25.03],
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    render(
+      mapElement({
+        preview: trajectoryPreview,
+        outputMode: "trajectory",
+        selectedTrajectoryId: 7,
+        activeStep: 2,
+      }),
+    );
+    const map = h.latest.current as { addSource: ReturnType<typeof vi.fn> };
+    expect(map.addSource).toHaveBeenCalledWith(
+      "ratsight-simulated-edges",
+      expect.objectContaining({
+        data: {
+          type: "FeatureCollection",
+          features: [
+            expect.objectContaining({
+              properties: expect.objectContaining({ trajectory_id: 7, step: 2 }),
+              geometry: {
+                type: "LineString",
+                coordinates: [
+                  [121.55, 25.02],
+                  [121.56, 25.03],
+                  [121.57, 25.04],
+                ],
+              },
+            }),
+          ],
+        },
+      }),
     );
   });
 
@@ -786,7 +884,14 @@ describe("MapView", () => {
         id: "ratsight-citizen-report-aggregates-point",
         type: "circle",
         layout: expect.objectContaining({ visibility: "visible" }),
-        paint: expect.objectContaining({ "circle-color": "#a3243c" }),
+        paint: expect.objectContaining({
+          "circle-color": [
+            "case",
+            ["==", ["get", "data_class"], "SYNTHETIC_AGGREGATE_FIXTURE"],
+            "#5b6b7a",
+            "#a3243c",
+          ],
+        }),
       }),
       undefined,
     );
@@ -833,6 +938,59 @@ describe("MapView", () => {
     expect(click).toBeDefined();
     click!.handler({ features: [{ properties: citizenAggregates.features[0].properties }] });
     expect(onSelectCitizenCell).toHaveBeenCalledWith(citizenAggregates.features[0].properties);
+  });
+
+  it("draws isolated synthetic fixtures with non-report styling", () => {
+    const fixture: CitizenReportAggregates = {
+      ...citizenAggregates,
+      data_class: "SYNTHETIC_AGGREGATE_FIXTURE",
+      classification: "SIMULATED",
+      notice: "SIMULATED local fixture; not citizen-report data.",
+      provenance: {
+        schema_version: "1",
+        source_kind: "synthetic_aggregate_fixture",
+        dataset_id: "ratsight-smoke-browser",
+        resource_version: "2026-10-27T00:00:00Z",
+        content_sha256: "c".repeat(64),
+        reference_source_id: "taipei-expanded-ratdar-20261027.osm",
+        reference_source_sha256: "d".repeat(64),
+        source_crs: "EPSG:4326",
+        target_crs: "EPSG:4326",
+        cell_size_meters: 250,
+        test_scope: "isolated_disposable_postgis_smoke",
+        synthetic: true,
+        note: "Synthetic fixture only; not citizen-report data.",
+      },
+      features: [
+        {
+          type: "Feature",
+          geometry: citizenAggregates.features[0].geometry,
+          properties: {
+            ...citizenAggregates.features[0].properties,
+            count: null,
+            data_class: "SYNTHETIC_AGGREGATE_FIXTURE",
+            classification: "SIMULATED",
+            attribution: "SIMULATED local fixture; not citizen-report data.",
+          },
+        },
+      ],
+    };
+    render(mapElement({ citizenAggregates: fixture, showCitizenAggregates: true }));
+    const map = h.latest.current as { addLayer: ReturnType<typeof vi.fn> };
+    expect(map.addLayer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "ratsight-citizen-report-aggregates-point",
+        paint: expect.objectContaining({
+          "circle-color": [
+            "case",
+            ["==", ["get", "data_class"], "SYNTHETIC_AGGREGATE_FIXTURE"],
+            "#5b6b7a",
+            "#a3243c",
+          ],
+        }),
+      }),
+      undefined,
+    );
   });
 
   it("honors an explicit caller opt-out for citizen-report cells", () => {

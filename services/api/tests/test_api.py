@@ -29,6 +29,13 @@ async def test_openapi_contains_required_routes(client: AsyncClient) -> None:
     assert "/api/v1/layers" in schema["paths"]
     assert "/api/v1/system/status" in schema["paths"]
     assert "/api/v1/rodent-reports" not in schema["paths"]
+    request = schema["components"]["schemas"]["SimulationPreviewRequest"]
+    assert request["allOf"][0]["then"]["required"] == ["origin_cell_id"]
+    assert request["allOf"][0]["then"]["not"]["required"] == ["origin_node_id"]
+    assert request["allOf"][1]["then"]["anyOf"] == [
+        {"required": ["origin_node_id"]},
+        {"required": ["origin_cell_id"]},
+    ]
 
 
 @pytest.mark.asyncio
@@ -58,6 +65,7 @@ async def test_preview_is_deterministic_and_carries_provenance(
         "walkers": 12,
         "duration_steps": 6,
         "random_seed": 99,
+        "origin_node_id": "n0",
     }
     first = await client.post("/api/v1/simulations/preview", json=payload)
     second = await client.post("/api/v1/simulations/preview", json=payload)
@@ -82,15 +90,19 @@ async def test_preview_requires_explicit_study_area(client: AsyncClient) -> None
 
 
 @pytest.mark.asyncio
-async def test_preview_uses_explicit_osm_study_area(client: AsyncClient) -> None:
-    response = await client.post(
+async def test_osm_preview_requires_a_citizen_cell_origin(client: AsyncClient) -> None:
+    missing = await client.post(
         "/api/v1/simulations/preview", json={"study_area": "taipei_osm_songshan"}
     )
+    graph_node = await client.post(
+        "/api/v1/simulations/preview",
+        json={"study_area": "taipei_osm_songshan", "origin_node_id": "n0"},
+    )
 
-    assert response.status_code == 200
-    result = response.json()
-    assert result["parameters"]["study_area"] == "taipei_osm_songshan"
-    assert result["provenance"]["source_type"] == "osm_surface_network"
+    assert missing.status_code == 422
+    assert "origin_cell_id is required" in missing.text
+    assert graph_node.status_code == 422
+    assert "origin_node_id is not accepted" in graph_node.text
 
 
 @pytest.mark.asyncio
@@ -108,7 +120,11 @@ async def test_preview_reports_a_missing_osm_source_instead_of_falling_back(
         missing_source,
     )
     response = await client.post(
-        "/api/v1/simulations/preview", json={"study_area": "taipei_osm_songshan"}
+        "/api/v1/simulations/preview",
+        json={
+            "study_area": "taipei_osm_songshan",
+            "origin_cell_id": "g250m:1:2:2026-05:sighting",
+        },
     )
 
     assert response.status_code == 503

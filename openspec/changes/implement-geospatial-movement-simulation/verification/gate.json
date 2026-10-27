@@ -7,7 +7,7 @@
           "id": "AR-GEO-001",
           "severity": "MAJOR",
           "status": "RESOLVED",
-          "note": "Origin is restricted to returned graph nodes and invalid IDs return 422."
+          "note": "Public OSM origins are restricted to eligible aggregate cells; missing/mixed/invalid origins return 422 without a default node."
         },
         {
           "id": "AR-GEO-002",
@@ -20,6 +20,12 @@
           "severity": "MAJOR",
           "status": "RESOLVED",
           "note": "Synthetic, unverified, unitless and non-biological boundaries remain disclosed."
+        },
+        {
+          "id": "AR-GEO-004",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "OSM oneway is retained as metadata; movement edges are bidirectional with reversed source geometry and shared-node-only topology."
         }
       ],
       "reference": "adversarial-review.md"
@@ -35,36 +41,43 @@
         }
       ],
       "reference": "verification/code-review.md",
-      "note": "Follow-up self-review covered sink/empty-trajectory tests, current source hash, and CR-008 resolution; role-specific sign-offs remain pending."
+      "note": "Follow-up self-review covered sink/empty-trajectory tests, current source hash, aggregate-origin enforcement, and OSM direction semantics; formal CR-008 provenance and role-specific sign-offs remain pending. The stormwater accessible-name finding is fixed and browser-verified."
     }
   },
   "verification": [
     {
-      "id": "V-PYTEST",
-      "command": "uv run pytest services/api/tests/test_api.py services/api/tests/test_simulation_preview.py packages/simulation/tests -q",
+      "id": "V-OSM-DIRECTION",
+      "command": "uv run pytest packages/geo/tests/test_osm.py packages/simulation/tests/test_random_walk.py -q",
       "exit_code": 0,
-      "result": "31 passed",
+      "result": "21 passed: bidirectional OSM edges, reversed geometry, oneway metadata, disconnected crossings, and deterministic topology",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-PYTEST",
+      "command": "make test-py",
+      "exit_code": 0,
+      "result": "209 passed in 103.69s",
       "reference": "verification/qa.md"
     },
     {
       "id": "V-WEB",
-      "command": "cd apps/web && npm test -- --run && npm run typecheck && npm run lint && npx prettier --check src/components/dashboard.test.tsx src/components/dashboard.tsx",
+      "command": "make test-js && make typecheck && make lint && make format-check",
       "exit_code": 0,
-      "result": "91 tests passed; typecheck, lint, and Prettier clean",
+      "result": "3 files / 64 web tests passed; TypeScript, basedpyright, ESLint, Ruff, and Prettier clean",
       "reference": "verification/qa.md"
     },
     {
       "id": "V-E2E",
-      "command": "PLAYWRIGHT_PORT=3000 PLAYWRIGHT_EXTERNAL_SERVERS=1 npx playwright test e2e/dashboard.spec.ts",
+      "command": "bash scripts/geospatial_smoke.sh",
       "exit_code": 0,
-      "result": "10 passed desktop/mobile",
+      "result": "24 passed desktop/mobile: 14 citizen-origin (playback, origin switching, out-of-order, aggregate/simulation/OSM failures, unresolvable cell, refreshed-source disappearance), 2 empty fixture, 8 admin/stormwater",
       "reference": "verification/qa.md"
     },
     {
       "id": "V-REAL-API",
-      "command": "QA isolated real API/browser origin-playback matrix",
+      "command": "bash scripts/geospatial_smoke.sh (real-citizen-origin.spec.ts and real-citizen-origin-empty.spec.ts)",
       "exit_code": 0,
-      "result": "Populated and empty environments passed; pointer/touch/playback/422/truncation checked",
+      "result": "Isolated disposable PostGIS synthetic fixture plus pinned OSM: desktop/mobile marker selection, explicit origin_cell_id run, playback, origin switching, held out-of-order responses, and empty fixture passed; no real Rat Radar data was used",
       "reference": "verification/qa.md"
     },
     {
@@ -76,9 +89,9 @@
     },
     {
       "id": "V-OSM-SOURCE",
-      "command": "shasum -a 256 /Users/seanchang/.local/share/ratsight/network/taipei-songshan-20261023.osm",
+      "command": "shasum -a 256 /Users/seanchang/.local/share/ratsight/network/taipei-expanded-ratdar-20261027.osm",
       "exit_code": 0,
-      "result": "faae4ffd1bd42e57871bdedbfdcc6e82b3324a458db95034d4ec40f0a019e67e matches loader expectation and current source records; prior QA prefix 5831ea28d78c remains unverified for earlier bytes",
+      "result": "9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868 matches loader expectation and current source records; old songshan faae4ffd and prior QA prefix 5831ea28 are historical, not current-source evidence",
       "reference": "verification/qa.md"
     },
     {
@@ -106,6 +119,22 @@
       "verification": [
         "V-PYTEST",
         "V-REAL-API"
+      ]
+    },
+    {
+      "requirement": "geospatial-movement#OSM topology and movement direction",
+      "status": "VERIFIED",
+      "implementation": [
+        "packages/geo/src/ratsight_geo/osm.py",
+        "packages/simulation/src/ratsight_simulation/graph/network.py"
+      ],
+      "tests": [
+        "packages/geo/tests/test_osm.py",
+        "packages/simulation/tests/test_random_walk.py"
+      ],
+      "verification": [
+        "V-PYTEST",
+        "V-OSM-DIRECTION"
       ]
     },
     {
@@ -195,12 +224,14 @@
       }
     ]
   },
-  "readiness": "READY_FOR_HUMAN_REVIEW",
+  "readiness": "BLOCKED",
   "human_acceptance_required": true,
   "notes": [
-    "Current pinned OSM file matches SHA-256 faae4ffd; historical QA prefix 5831ea28 is unverified for earlier bytes and not current-source evidence.",
-    "CR-008 resolved by owner decision; role-specific reviews and Municipal Analyst reevaluation remain pending.",
-    "Pre-existing stormwater accessible-name mismatch remains open.",
+    "Current pinned expanded OSM file matches SHA-256 9db94dd7; old songshan faae4ffd and historical QA prefix 5831ea28 are not current-source evidence.",
+    "CR-008 behavior is implemented, but formal provenance authentication and Public Health/Modeler/Reviewer sign-off remain open; required task 12 keeps the gate BLOCKED.",
+    "OSM oneway is vehicle metadata, not biological direction; bidirectional candidate edges are an uncalibrated hypothetical baseline.",
+    "Public OSM requires an explicit aggregate origin_cell_id; isolated synthetic fixtures retain explicit origins only.",
+    "Stormwater accessible-name mismatch is fixed and covered by focused dashboard and real-browser desktop/mobile checks; full axe coverage remains unverified.",
     "Sink termination and isolated-origin empty-trajectory tests pass.",
     "Do not archive, commit, push, or claim owner acceptance without approval."
   ]

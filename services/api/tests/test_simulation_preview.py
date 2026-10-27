@@ -10,10 +10,55 @@ from ratsight_api.application.citizen_report_aggregates import CitizenReportCell
 from ratsight_api.application.simulation_preview import (
     OriginCellResolutionError,
     UnknownOriginNodeError,
-    preview_simulation,
+)
+from ratsight_api.application.simulation_preview import (
+    preview_simulation as _preview_simulation,
 )
 from ratsight_geo.osm import load_osm_surface_graph
 from sqlalchemy.orm import Session
+
+OSM_TEST_CELL_ID = "fixture:osm-origin"
+
+
+def preview_simulation(
+    request: SimulationPreviewRequest, *, session: Session | None = None
+) -> dict[str, object]:
+    if request.study_area == "taipei_osm_songshan" and session is None:
+        session = cast(Session, object())
+    return _preview_simulation(request, session=session)
+
+
+@pytest.fixture(autouse=True)
+def _stub_osm_origin_cell(monkeypatch: pytest.MonkeyPatch) -> None:
+    graph = load_osm_surface_graph()
+    isolated: tuple[float, float] | None = None
+    for node_id, data in graph.nodes(data=True):
+        lon, lat = data["coordinates"]
+        if all(
+            abs(other["coordinates"][0] - lon) > 5e-7 or abs(other["coordinates"][1] - lat) > 5e-7
+            for other_id, other in graph.nodes(data=True)
+            if other_id != node_id
+        ):
+            isolated = (lon, lat)
+            break
+    assert isolated is not None, "pinned OSM graph has no isolated node for the fixture"
+    lon, lat = isolated
+    half = 1e-7
+    cell = CitizenReportCellPolygon(
+        coordinates=[
+            [
+                [lon - half, lat - half],
+                [lon - half, lat + half],
+                [lon + half, lat + half],
+                [lon + half, lat - half],
+                [lon - half, lat - half],
+            ]
+        ]
+    )
+    monkeypatch.setattr(
+        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
+        lambda _session, _feature_id: cell,
+    )
 
 
 def test_study_area_is_required() -> None:
@@ -24,7 +69,12 @@ def test_study_area_is_required() -> None:
 def test_default_preview_uses_the_pinned_osm_network() -> None:
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
-            SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
+            SimulationPreviewRequest(
+                study_area="taipei_osm_songshan",
+                origin_cell_id=OSM_TEST_CELL_ID,
+                walkers=2,
+                duration_steps=3,
+            )
         )
     )
     assert response.parameters.study_area == "taipei_osm_songshan"
@@ -42,7 +92,10 @@ def test_schematic_preview_does_not_load_osm_source(monkeypatch: pytest.MonkeyPa
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
             SimulationPreviewRequest(
-                study_area="taipei_synthetic_demo", walkers=2, duration_steps=3
+                study_area="taipei_synthetic_demo",
+                origin_node_id="n0",
+                walkers=2,
+                duration_steps=3,
             )
         )
     )
@@ -52,7 +105,12 @@ def test_schematic_preview_does_not_load_osm_source(monkeypatch: pytest.MonkeyPa
 
 def test_osm_preview_returns_simulated_geometry_and_trajectories() -> None:
     result = preview_simulation(
-        SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
+        SimulationPreviewRequest(
+            study_area="taipei_osm_songshan",
+            origin_cell_id=OSM_TEST_CELL_ID,
+            walkers=2,
+            duration_steps=3,
+        )
     )
     response = SimulationPreviewResponse.model_validate(result)
     assert response.provenance.source_type == "osm_surface_network"
@@ -67,47 +125,55 @@ def test_osm_preview_returns_simulated_geometry_and_trajectories() -> None:
     )
 
 
-def test_default_origin_is_reported_as_a_default() -> None:
-    result = preview_simulation(
-        SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
+def test_osm_origin_is_required_and_graph_nodes_are_rejected() -> None:
+    with pytest.raises(ValueError, match="origin_cell_id is required"):
+        SimulationPreviewRequest(study_area="taipei_osm_songshan")
+    with pytest.raises(ValueError, match="origin_node_id is not accepted"):
+        SimulationPreviewRequest(study_area="taipei_osm_songshan", origin_node_id="arbitrary-node")
+    invalid = SimulationPreviewRequest.model_construct(
+        study_area="taipei_osm_songshan", origin_node_id=None, origin_cell_id=None
     )
-    response = SimulationPreviewResponse.model_validate(result)
-    assert response.origin.selection == "default"
-    assert response.origin.classification == "SIMULATED"
-    assert response.parameters.origin_node_id == response.origin.node_id
-    assert response.origin.node_id in {node.id for node in response.nodes}
+    with pytest.raises(OriginCellResolutionError, match="origin_cell_id is required"):
+        _preview_simulation(invalid)
 
 
 def test_identical_requests_are_reproducible() -> None:
     first = preview_simulation(
-        SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
+        SimulationPreviewRequest(
+            study_area="taipei_osm_songshan",
+            origin_cell_id=OSM_TEST_CELL_ID,
+            walkers=2,
+            duration_steps=3,
+        )
     )
     second = preview_simulation(
-        SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
+        SimulationPreviewRequest(
+            study_area="taipei_osm_songshan",
+            origin_cell_id=OSM_TEST_CELL_ID,
+            walkers=2,
+            duration_steps=3,
+        )
     )
     assert first["origin"] == second["origin"]
     assert first["trajectories"] == second["trajectories"]
 
 
-def test_user_origin_starts_walks_there_and_is_echoed() -> None:
-    default = SimulationPreviewResponse.model_validate(
-        preview_simulation(
-            SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
-        )
-    )
-    chosen = next(node.id for node in default.nodes if node.id != default.origin.node_id)
+def test_cell_origin_starts_walkers_at_resolved_node_and_is_echoed() -> None:
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
             SimulationPreviewRequest(
-                study_area="taipei_osm_songshan", walkers=2, duration_steps=3, origin_node_id=chosen
+                study_area="taipei_osm_songshan",
+                origin_cell_id=OSM_TEST_CELL_ID,
+                walkers=2,
+                duration_steps=3,
             )
         )
     )
-    assert response.origin.node_id == chosen
-    assert response.origin.selection == "user"
-    assert response.parameters.origin_node_id == chosen
+    assert response.origin.selection == "cell"
+    assert response.origin.cell_id == OSM_TEST_CELL_ID
+    assert response.parameters.origin_cell_id == OSM_TEST_CELL_ID
     assert all(
-        trajectory.edges[0].source == chosen
+        trajectory.edges[0].source in response.origin.node_ids
         for trajectory in response.trajectories
         if trajectory.edges
     )
@@ -133,7 +199,7 @@ def test_synthetic_origin_cell_resolves_and_stays_distinct_from_node() -> None:
 
 def test_real_origin_cell_requires_database_access() -> None:
     with pytest.raises(OriginCellResolutionError, match="require database access"):
-        preview_simulation(
+        _preview_simulation(
             SimulationPreviewRequest(
                 study_area="taipei_osm_songshan", origin_cell_id="synthetic-cell-n0"
             )
@@ -190,12 +256,68 @@ def test_real_origin_cell_resolves_one_strictly_contained_node(
     assert response.origin.node_ids == [node_id]
     assert response.origin.cell_candidate_count == 1
     assert response.origin.cell_resolver_version == "strict-in-cell-v1"
+    assert response.origin.source_data_class == "CITIZEN_REPORT_AGGREGATE"
+    assert response.origin.source_classification == "UNVERIFIED"
+    assert response.origin.source_kind == "public_citizen_report_export"
     assert "one strictly in-cell graph node" in response.origin.note
     assert "UNVERIFIED" in response.origin.note
     assert any("suppressed aggregate of UNVERIFIED" in item for item in response.assumptions)
     assert response.parameters.origin_cell_id == feature_id
     assert response.parameters.origin_node_ids == [node_id]
     assert response.reachability.origin_node_ids == [node_id]
+
+
+def test_synthetic_aggregate_origin_remains_simulated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = load_osm_surface_graph()
+    isolated: tuple[float, float] | None = None
+    for node_id, data in graph.nodes(data=True):
+        lon, lat = data["coordinates"]
+        if all(
+            abs(other["coordinates"][0] - lon) > 5e-7 or abs(other["coordinates"][1] - lat) > 5e-7
+            for other_id, other in graph.nodes(data=True)
+            if other_id != node_id
+        ):
+            isolated = (lon, lat)
+            break
+    assert isolated is not None
+    lon, lat = isolated
+    half = 1e-7
+    fixture_cell = CitizenReportCellPolygon(
+        coordinates=[
+            [
+                [lon - half, lat - half],
+                [lon - half, lat + half],
+                [lon + half, lat + half],
+                [lon + half, lat - half],
+                [lon - half, lat - half],
+            ]
+        ],
+        data_class="SYNTHETIC_AGGREGATE_FIXTURE",
+        classification="SIMULATED",
+        source_kind="synthetic_aggregate_fixture",
+    )
+    monkeypatch.setattr(
+        "ratsight_api.application.simulation_preview.get_citizen_report_cell_polygon",
+        lambda _session, _feature_id: fixture_cell,
+    )
+    response = SimulationPreviewResponse.model_validate(
+        preview_simulation(
+            SimulationPreviewRequest(
+                study_area="taipei_osm_songshan",
+                origin_cell_id="ratsight-smoke-fixture:2026-05:sighting",
+                walkers=1,
+                duration_steps=1,
+            )
+        )
+    )
+    assert response.origin.source_data_class == "SYNTHETIC_AGGREGATE_FIXTURE"
+    assert response.origin.source_classification == "SIMULATED"
+    assert response.origin.source_kind == "synthetic_aggregate_fixture"
+    assert "SIMULATED aggregate test fixture" in response.origin.note
+    assert "UNVERIFIED" not in response.origin.note
+    assert any("SIMULATED smoke-test fixture" in item for item in response.assumptions)
 
 
 def test_real_origin_cell_seeds_every_in_cell_node(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -312,7 +434,7 @@ def test_unknown_synthetic_origin_cell_is_rejected_instead_of_mapped() -> None:
 
 
 def test_cell_and_node_origins_are_mutually_exclusive() -> None:
-    with pytest.raises(OriginCellResolutionError, match="mutually exclusive"):
+    with pytest.raises(ValueError, match="mutually exclusive"):
         preview_simulation(
             SimulationPreviewRequest(
                 study_area="taipei_synthetic_demo",
@@ -326,7 +448,7 @@ def test_unknown_origin_node_is_rejected_instead_of_snapped() -> None:
     with pytest.raises(UnknownOriginNodeError):
         preview_simulation(
             SimulationPreviewRequest(
-                study_area="taipei_osm_songshan", origin_node_id="not-a-real-node"
+                study_area="taipei_synthetic_demo", origin_node_id="not-a-real-node"
             )
         )
 
@@ -334,7 +456,12 @@ def test_unknown_origin_node_is_rejected_instead_of_snapped() -> None:
 def test_trajectory_steps_carry_zero_based_step_index() -> None:
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
-            SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
+            SimulationPreviewRequest(
+                study_area="taipei_osm_songshan",
+                origin_cell_id=OSM_TEST_CELL_ID,
+                walkers=2,
+                duration_steps=3,
+            )
         )
     )
     for trajectory in response.trajectories:
@@ -344,7 +471,12 @@ def test_trajectory_steps_carry_zero_based_step_index() -> None:
 def test_reachability_reports_directed_topology_from_the_origin() -> None:
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
-            SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=2, duration_steps=3)
+            SimulationPreviewRequest(
+                study_area="taipei_osm_songshan",
+                origin_cell_id=OSM_TEST_CELL_ID,
+                walkers=2,
+                duration_steps=3,
+            )
         )
     )
     reachability = response.reachability
@@ -364,17 +496,15 @@ def test_reachability_reports_directed_topology_from_the_origin() -> None:
     assert "not habitat" in reachability.note
 
 
-def test_reachability_follows_a_user_selected_origin() -> None:
-    default = SimulationPreviewResponse.model_validate(
-        preview_simulation(
-            SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=1, duration_steps=2)
-        )
-    )
-    chosen = next(node.id for node in default.nodes if node.id != default.origin.node_id)
+def test_reachability_follows_an_explicit_synthetic_origin() -> None:
+    chosen = "n2"
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
             SimulationPreviewRequest(
-                study_area="taipei_osm_songshan", walkers=1, duration_steps=2, origin_node_id=chosen
+                study_area="taipei_synthetic_demo",
+                origin_node_id=chosen,
+                walkers=1,
+                duration_steps=2,
             )
         )
     )
@@ -384,7 +514,12 @@ def test_reachability_follows_a_user_selected_origin() -> None:
 def test_termination_reason_is_consistent_with_terminated_early() -> None:
     response = SimulationPreviewResponse.model_validate(
         preview_simulation(
-            SimulationPreviewRequest(study_area="taipei_osm_songshan", walkers=3, duration_steps=3)
+            SimulationPreviewRequest(
+                study_area="taipei_osm_songshan",
+                origin_cell_id=OSM_TEST_CELL_ID,
+                walkers=3,
+                duration_steps=3,
+            )
         )
     )
     for trajectory in response.trajectories:

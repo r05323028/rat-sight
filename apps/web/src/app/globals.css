@@ -361,6 +361,83 @@ a {
     max-height: min(52vh, var(--map-cell-card-max-height, 52vh));
   }
 }
+.simulation-playback {
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--rule);
+  background: var(--surface);
+}
+.simulation-playback-heading,
+.simulation-playback-controls,
+.simulation-playback-modes,
+.simulation-playback-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.simulation-playback-heading {
+  justify-content: space-between;
+}
+.simulation-playback-origin {
+  margin: 0;
+  color: var(--simulated);
+  font-size: 11px;
+  font-weight: 700;
+}
+.simulation-playback button,
+.simulation-playback select {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.simulation-playback button[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--surface);
+}
+.simulation-playback button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.simulation-playback button:focus-visible,
+.simulation-playback select:focus-visible {
+  outline: 3px solid var(--simulated);
+  outline-offset: 2px;
+}
+.simulation-playback-walker {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+.simulation-playback-step,
+.simulation-playback-note,
+.simulation-playback-empty {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.simulation-playback-note {
+  color: var(--muted);
+}
+.simulation-playback-empty {
+  color: var(--seal);
+}
+@media (max-width: 760px) {
+  .simulation-playback-heading,
+  .simulation-playback-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .simulation-playback-actions button {
+    flex: 1 1 5rem;
+  }
+}
 .map-legend {
   display: flex;
   flex-wrap: wrap;
@@ -613,6 +690,9 @@ a {
   color: var(--muted);
   background: #f0ece0;
   opacity: 1;
+}
+.citizen-cell-picker select {
+  min-height: 44px;
 }
 .form-field small {
   color: var(--muted);

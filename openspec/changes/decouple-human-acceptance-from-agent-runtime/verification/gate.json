@@ -34,6 +34,13 @@
       "verification": ["acceptance-tests"]
     },
     {
+      "requirement": "human-acceptance#Evidence-derived readiness",
+      "status": "VERIFIED",
+      "implementation": ["scripts/change_acceptance.py", "scripts/openspec_quality_gate.py"],
+      "tests": ["scripts/tests/test_change_acceptance.py", "scripts/tests/test_openspec_quality_gate.py"],
+      "verification": ["acceptance-tests", "readiness-gate-tests"]
+    },
+    {
       "requirement": "human-acceptance#Archive requires current owner acceptance",
       "status": "VERIFIED",
       "implementation": ["scripts/change_acceptance.py", "Makefile"],
@@ -53,7 +60,14 @@
       "id": "acceptance-tests",
       "command": "uv run pytest scripts/tests/test_change_acceptance.py -q",
       "exit_code": 0,
-      "result": "5 passed",
+      "result": "13 passed",
+      "reference": "openspec/changes/decouple-human-acceptance-from-agent-runtime/verification/qa.md"
+    },
+    {
+      "id": "readiness-gate-tests",
+      "command": "uv run pytest scripts/tests/test_openspec_quality_gate.py scripts/tests/test_change_acceptance.py -q",
+      "exit_code": 0,
+      "result": "35 passed",
       "reference": "openspec/changes/decouple-human-acceptance-from-agent-runtime/verification/qa.md"
     }
   ],

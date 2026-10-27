@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -261,6 +262,59 @@ def check_openspec(
         "schema, change, status, and delta checks",
     )
     return expected
+
+
+def required_task_counts(change_dir: Path) -> tuple[int, int] | None:
+    path = change_dir / "tasks.md"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return None
+    done = total = 0
+    in_non_required_section = False
+    for line in lines:
+        heading = re.match(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$", line)
+        if heading:
+            in_non_required_section = bool(
+                re.search(
+                    r"\b(?:non[- ]?goals?|future follow[- ]?ups?|out of scope|not required)\b",
+                    heading.group(1),
+                    re.IGNORECASE,
+                )
+            )
+            continue
+        if in_non_required_section:
+            continue
+        checkbox = re.match(r"^\s*- \[([ xX])\]", line)
+        if checkbox:
+            total += 1
+            if checkbox.group(1).lower() == "x":
+                done += 1
+    return done, total
+
+
+def check_required_tasks(report: dict[str, Any], change_dir: Path) -> None:
+    path = change_dir / "tasks.md"
+    counts = required_task_counts(change_dir)
+    if counts is None:
+        issue(report, "GATE-TASKS-MISSING", path, "tasks.md is missing or unreadable")
+        check(report, "required tasks", False, "missing")
+        return
+    done, total = counts
+    if total == 0:
+        issue(report, "GATE-TASKS-EMPTY", path, "tasks.md has no required checkbox tasks")
+        check(report, "required tasks", False, "none declared")
+        return
+    if done != total:
+        issue(
+            report,
+            "GATE-TASKS-INCOMPLETE",
+            path,
+            f"{done}/{total} required tasks complete; incomplete tasks block readiness",
+        )
+        check(report, "required tasks", False, f"{done}/{total} complete")
+        return
+    check(report, "required tasks", True, f"{done}/{total} complete")
 
 
 def load_gate_record(report: dict[str, Any], change_dir: Path) -> dict[str, Any] | None:
@@ -851,6 +905,7 @@ def main(argv: list[str] | None = None) -> int:
         "warnings": [],
     }
     requirements = check_openspec(report, repo, change, args.skip_openspec)
+    check_required_tasks(report, change_dir)
     record = load_gate_record(report, change_dir)
     accepted: set[str] = set()
     if record is not None:

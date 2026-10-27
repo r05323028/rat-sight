@@ -50,6 +50,28 @@ After bounded activation, the primary workflow MUST select eligible aggregate ce
 - **WHEN** an analyst selects an eligible aggregate cell
 - **THEN** the UI shows coarse report-region semantics and enables simulation only after backend eligibility confirmation
 
+### Requirement: Explicit analyst origin contract
+Public OSM previews MUST require an explicit eligible `origin_cell_id` and reject missing, node-based, mixed, or ineligible origins. The API MUST NOT substitute a default graph origin or synthetic fallback. The isolated `taipei_synthetic_demo` MAY use explicit fixture origins only when separately selected.
+
+#### Scenario: missing or graph-node origin
+- **WHEN** a public OSM preview request omits `origin_cell_id` or supplies `origin_node_id`
+- **THEN** the API returns an actionable validation error and runs no simulation
+
+#### Scenario: ineligible cell
+- **WHEN** the supplied aggregate cell is unknown, suppressed, unavailable, stale, or has no eligible in-cell node
+- **THEN** the API fails closed with a specific error and does not choose another cell or default node
+
+### Requirement: Playback and stale-result isolation
+The dashboard MUST offer aggregate and individual views, walker selection, play/pause, previous/next, and reset over returned simulated steps. Steps MUST be labeled as sequence steps, playback MUST stop at the final step and clean up timers. Changing the focused cell, study area, or run MUST clear or identify prior output, disable or reset incompatible playback, and allow only the latest request to update results.
+
+#### Scenario: focused cell changes
+- **WHEN** a user selects a different citizen-report cell after a simulation completed
+- **THEN** the prior trajectories are not silently relabeled as that new cell's result and the next action is clear
+
+#### Scenario: out-of-order responses
+- **WHEN** an older preview response arrives after a newer request
+- **THEN** it cannot replace the newer result or its playback state
+
 ### Requirement: Focused aggregate-cell detail card
 The analyst UI MUST let an aggregate marker be focused to inspect aggregate-only details without treating focus as an origin selection or starting a run. The card MUST show cell identity, month, report type, published count, the 250 m centroid caveat, `UNVERIFIED` classification, and attribution.
 

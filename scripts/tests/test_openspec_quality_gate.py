@@ -74,6 +74,38 @@ def test_complete_change_passes_without_context_fields_and_acceptance_is_optiona
     assert not (change_dir(repo) / "verification/acceptance.md").exists()
 
 
+def test_incomplete_required_tasks_block_gate(tmp_path: Path) -> None:
+    repo = prepare_repo(tmp_path)
+    task_file = change_dir(repo) / "tasks.md"
+    task_file.write_text(
+        task_file.read_text(encoding="utf-8") + "- [ ] incomplete mandatory work\n",
+        encoding="utf-8",
+    )
+    result, report = run_gate(repo, "--skip-openspec")
+    assert result.returncode == 1
+    assert "GATE-TASKS-INCOMPLETE" in error_codes(report)
+
+
+def test_missing_required_tasks_block_gate(tmp_path: Path) -> None:
+    repo = prepare_repo(tmp_path)
+    (change_dir(repo) / "tasks.md").unlink()
+    result, report = run_gate(repo, "--skip-openspec")
+    assert result.returncode == 1
+    assert "GATE-TASKS-MISSING" in error_codes(report)
+
+
+def test_future_followup_tasks_do_not_block_readiness(tmp_path: Path) -> None:
+    repo = prepare_repo(tmp_path)
+    task_file = change_dir(repo) / "tasks.md"
+    task_file.write_text(
+        task_file.read_text(encoding="utf-8")
+        + "\n## Future follow-up\n- [ ] not part of this change\n",
+        encoding="utf-8",
+    )
+    result, report = run_gate(repo, "--skip-openspec")
+    assert result.returncode == 0, report["errors"]
+
+
 def test_gate_blocks_when_openspec_validation_fails(tmp_path: Path) -> None:
     if not (os.environ.get("RATSIGHT_OPENSPEC_BIN") or shutil.which("openspec")):
         pytest.skip("OpenSpec CLI unavailable")

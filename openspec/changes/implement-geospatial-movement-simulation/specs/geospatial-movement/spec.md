@@ -3,14 +3,14 @@
 ## ADDED Requirements
 
 ### Requirement: Explicit synthetic origin
-The simulation SHALL accept an optional eligible graph-node origin, validate it against the selected network, echo its node ID and coordinates, and label it as a synthetic model input rather than an observed animal origin.
+The simulation SHALL require an explicit origin, validate it against the selected network, echo its identity and coordinates, and label it as a synthetic model input rather than an observed animal origin. For the public OSM study area the origin MUST be an eligible aggregate `origin_cell_id`; for the isolated synthetic demo an explicit graph-node ID or fixture cell MAY be used. Omitted origins, mixed origin fields, arbitrary default nodes, and invalid identities MUST be rejected.
 
 #### Scenario: selected origin
-- **WHEN** a user selects a returned eligible network node and runs a simulation
-- **THEN** all trajectories use that node, the response records it, and the UI shows its synthetic/non-observational meaning
+- **WHEN** a user selects an eligible returned origin and runs a simulation
+- **THEN** all trajectories use that origin, the response records it, and the UI shows its synthetic/non-observational meaning
 
-#### Scenario: invalid origin
-- **WHEN** a request names a node absent from the selected graph
+#### Scenario: missing or invalid origin
+- **WHEN** a request omits an origin, mixes origin fields, or names an identity absent from the selected graph or eligible cells
 - **THEN** the API returns a validation error and does not silently snap or substitute another origin
 
 ### Requirement: Deterministic step identity
@@ -37,6 +37,17 @@ The UI and API SHALL distinguish graph dead-end termination, disconnected/unvisi
 #### Scenario: dead end
 - **WHEN** a synthetic walker reaches a graph dead end
 - **THEN** the result reports graph termination and does not render a biological arrival or movement finding
+
+### Requirement: OSM topology and movement direction
+Road-network topology SHALL be derived only from OSM shared-node connections. For the uncalibrated surface-movement baseline, an OSM `oneway` tag is retained as vehicle metadata and SHALL NOT constrain rodent movement direction. Where source geometry supports a connection, the candidate movement graph SHALL provide both directions with the reverse edge carrying reversed source geometry; visual crossings without a shared OSM node SHALL remain disconnected.
+
+#### Scenario: vehicle one-way road
+- **WHEN** an OSM way is tagged `oneway=yes`, `true`, `1`, or `-1`
+- **THEN** both movement directions remain available, the original tag remains visible as metadata, and reverse geometry is correctly reversed
+
+#### Scenario: grade-separated visual crossing
+- **WHEN** two OSM ways cross geometrically without a shared node
+- **THEN** no movement edge is fabricated between them
 
 ### Requirement: Preserve evidence boundaries
 The simulation SHALL retain source/license/CRS/provenance, bounded surface-network scope, `SIMULATED` output classification, independent report fixtures, and no stormwater traversability inference.

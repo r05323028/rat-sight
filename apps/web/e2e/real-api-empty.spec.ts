@@ -15,9 +15,7 @@ test("reports an empty administrative dataset from the running FastAPI API", asy
   expect(body.data_state).toBe("empty");
   expect(body.features).toEqual([]);
   await expect(
-    page
-      .getByRole("region", { name: "Administrative reference" })
-      .getByText("No boundaries imported"),
+    page.getByRole("region", { name: "行政區參考檢視" }).getByText("尚未匯入邊界"),
   ).toBeVisible();
-  await expect(page.getByLabel("Administrative districts")).toBeDisabled();
+  await expect(page.getByRole("checkbox", { name: "行政區" })).toBeDisabled();
 });

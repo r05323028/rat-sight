@@ -4,12 +4,13 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Dashboard } from "@/components/dashboard";
+import type { CitizenReportCellProperties } from "@/lib/api";
 
 const mockState = vi.hoisted(() => ({
   layerCatalogMode: "available" as "available" | "error" | "unknown",
   boundaryMode: "empty" as "empty" | "available" | "error",
   stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
-  citizenMode: "available" as "available" | "empty" | "error",
+  citizenMode: "available" as "available" | "empty" | "error" | "fixture",
   previewMode: "available" as
     "available" | "osm_unavailable" | "ui_error" | "unknown_origin" | "cell_origin",
   // Absent by default: the API does not ship termination_reason yet.
@@ -24,6 +25,15 @@ const mockState = vi.hoisted(() => ({
     data_class: "CITIZEN_REPORT_AGGREGATE" as const,
     classification: "UNVERIFIED" as const,
     attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+  },
+  citizenFixtureCell: {
+    cell_id: "g250m:1:2",
+    month: "fixture-1",
+    report_type: "sighting" as const,
+    count: null,
+    data_class: "SYNTHETIC_AGGREGATE_FIXTURE" as const,
+    classification: "SIMULATED" as const,
+    attribution: "SIMULATED local fixture; not citizen-report data.",
   },
   district: {
     district_id: "63000010",
@@ -52,16 +62,53 @@ vi.mock("@/components/map-view", () => ({
   MapView: ({
     onSelectCitizenCell,
     citizenCellCard,
+    outputMode = "aggregate",
+    activeStep,
+    selectedTrajectoryId,
+    onSelectTrajectory,
   }: {
-    onSelectCitizenCell?: (properties: typeof mockState.citizenCell) => void;
+    onSelectCitizenCell?: (properties: CitizenReportCellProperties) => void;
     citizenCellCard?: ReactNode;
+    outputMode?: "aggregate" | "trajectory";
+    activeStep?: number | null;
+    selectedTrajectoryId?: number | null;
+    onSelectTrajectory?: (walkerId: number) => void;
   }) => (
     <div role="region" aria-label="互動式 GIS 地圖">
+      <div
+        data-testid="map-playback-state"
+        data-mode={outputMode}
+        data-active-step={activeStep ?? ""}
+        data-selected-trajectory={selectedTrajectoryId ?? ""}
+      />
       {onSelectCitizenCell && (
-        <button type="button" onClick={() => onSelectCitizenCell(mockState.citizenCell)}>
-          Select citizen report cell
-        </button>
+        <>
+          <button type="button" onClick={() => onSelectCitizenCell(mockState.citizenCell)}>
+            Select citizen report cell
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onSelectCitizenCell({
+                ...mockState.citizenCell,
+                cell_id: "g250m:1:3",
+              } as typeof mockState.citizenCell)
+            }
+          >
+            Select another citizen report cell
+          </button>
+          <button type="button" onClick={() => onSelectCitizenCell(mockState.citizenFixtureCell)}>
+            Select synthetic fixture cell
+          </button>
+        </>
       )}
+      {outputMode === "trajectory" &&
+        onSelectTrajectory &&
+        [1, 2, 3].map((walkerId) => (
+          <button key={walkerId} type="button" onClick={() => onSelectTrajectory(walkerId)}>
+            Map walker {walkerId}
+          </button>
+        ))}
       {citizenCellCard}
     </div>
   ),
@@ -291,6 +338,54 @@ beforeEach(() => {
               features: [],
               feature_count: 0,
               bbox: null,
+              truncated: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (mockState.citizenMode === "fixture") {
+          return new Response(
+            JSON.stringify({
+              type: "FeatureCollection",
+              data_state: "available",
+              data_class: "SYNTHETIC_AGGREGATE_FIXTURE",
+              classification: "SIMULATED",
+              notice: "SIMULATED local fixture; not citizen-report data.",
+              provenance: {
+                schema_version: "1",
+                source_kind: "synthetic_aggregate_fixture",
+                dataset_id: "ratsight-smoke-browser",
+                resource_version: "2026-10-27T00:00:00Z",
+                content_sha256: "c".repeat(64),
+                reference_source_id: "taipei-expanded-ratdar-20261027.osm",
+                reference_source_sha256: "d".repeat(64),
+                source_crs: "EPSG:4326",
+                target_crs: "EPSG:4326",
+                cell_size_meters: 250,
+                test_scope: "isolated_disposable_postgis_smoke",
+                synthetic: true,
+                note: "Synthetic fixture only; not citizen-report data.",
+              },
+              features: [
+                {
+                  type: "Feature",
+                  geometry: {
+                    type: "Polygon",
+                    coordinates: [
+                      [
+                        [121.51, 25.0112],
+                        [121.51, 25.0135],
+                        [121.508, 25.0135],
+                        [121.508, 25.0112],
+                        [121.51, 25.0112],
+                      ],
+                    ],
+                  },
+                  properties: mockState.citizenFixtureCell,
+                },
+              ],
+              feature_count: 1,
+              bbox: [121.5, 25.0, 121.53, 25.02],
               truncated: false,
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
@@ -575,8 +670,14 @@ beforeEach(() => {
                 },
               ],
             },
+            {
+              walker_id: 3,
+              classification: "SIMULATED",
+              terminated_early: true,
+              edges: [],
+            },
           ],
-          trajectory_count: 2,
+          trajectory_count: 3,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
@@ -692,7 +793,9 @@ describe("RatSight dashboard", () => {
     renderDashboard();
     expect(screen.queryByLabelText("模擬移動路徑")).not.toBeInTheDocument();
     await runSelectedCitizenCell();
-    const status = await screen.findByRole("status");
+    await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+    const card = screen.getByLabelText("公民通報彙整格詳細資料");
+    const status = within(card).getByRole("status");
     expect(status).toHaveTextContent("可重現執行完成");
     expect(status).toHaveTextContent("模擬路徑已顯示");
     expect(screen.queryByLabelText("模擬移動路徑")).not.toBeInTheDocument();
@@ -749,7 +852,10 @@ describe("RatSight dashboard", () => {
   it("clears an earlier successful preview when a later report-cell run fails", async () => {
     renderDashboard();
     await runSelectedCitizenCell();
-    expect(await screen.findByRole("status")).toHaveTextContent("模擬路徑已顯示");
+    await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+    expect(
+      within(screen.getByLabelText("公民通報彙整格詳細資料")).getByRole("status"),
+    ).toHaveTextContent("模擬路徑已顯示");
 
     mockState.previewMode = "unknown_origin";
     fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
@@ -880,7 +986,9 @@ describe("RatSight dashboard", () => {
     fireEvent.click(toggle);
     expect(toggle).toBeChecked();
 
-    const segmentButton = screen.getByRole("button", { name: "S-1" });
+    const segmentButton = screen.getByRole("button", { name: "P-1（管段 S-1）" });
+    expect(segmentButton).toHaveTextContent(/^P-1$/);
+    expect(segmentButton).toHaveAccessibleName(/^P-1（管段 S-1）$/);
     segmentButton.focus();
     expect(segmentButton).toHaveFocus();
     fireEvent.click(segmentButton);
@@ -916,6 +1024,36 @@ describe("RatSight dashboard", () => {
     ).toBeInTheDocument();
   });
 
+  it("labels isolated synthetic fixtures as SIMULATED without report counts", async () => {
+    mockState.citizenMode = "fixture";
+    renderDashboard();
+    const panel = await screen.findByRole("region", { name: "本機合成測試格檢視" });
+    expect(
+      await within(panel).findByText("SIMULATED · 本機合成測試格（不含公民通報）"),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(/回傳 1 個 250 公尺 SIMULATED/)).toBeInTheDocument();
+    expect(within(panel).queryByText(/筆已發布的通報計數/)).not.toBeInTheDocument();
+    expect(within(panel).getByText("SIMULATED · 合成測試")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Select synthetic fixture cell" }));
+    const card = screen.getByLabelText("本機合成測試格詳細資料");
+    expect(within(card).getByText("SIMULATED · 本機測試")).toBeInTheDocument();
+    expect(within(card).queryByText("發布通報計數")).not.toBeInTheDocument();
+    expect(within(card).getByText(/不含公民通報、通報計數或動物觀測/)).toBeInTheDocument();
+    expect(screen.getByText(/SIMULATED 本機測試格（非公民通報）/)).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("button", { name: "以此格網起點執行模擬" }));
+    await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+    const previewCall = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).includes("/api/v1/simulations/preview"))
+      .at(-1);
+    expect(JSON.parse(String(previewCall?.[1]?.body))).toMatchObject({
+      study_area: "taipei_osm_songshan",
+      origin_cell_id: "g250m:1:2:fixture-1:sighting",
+    });
+  });
+
   it("opens aggregate details on marker focus without running a simulation", async () => {
     renderDashboard();
     const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
@@ -947,7 +1085,8 @@ describe("RatSight dashboard", () => {
     expect(await within(panel).findByText(/回傳 2 個/)).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Select citizen report cell" }));
     fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
-    const status = await screen.findByRole("status");
+    await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+    const status = within(screen.getByLabelText("公民通報彙整格詳細資料")).getByRole("status");
     expect(status).toHaveTextContent("可重現執行完成 · 種子 42 · 模擬路徑已顯示");
 
     const previewCall = vi
@@ -960,6 +1099,99 @@ describe("RatSight dashboard", () => {
       origin_cell_id: "g250m:1:2:2026-05:sighting",
     });
     expect(body).not.toHaveProperty("origin_node_id");
+  });
+
+  it("clears the previous result when another published cell is focused", async () => {
+    renderDashboard();
+    await runSelectedCitizenCell();
+    expect(await screen.findByRole("region", { name: "模擬軌跡播放控制" })).toHaveTextContent(
+      "起點 g250m:1:2:2026-05:sighting",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Select another citizen report cell" }));
+
+    const card = screen.getByLabelText("公民通報彙整格詳細資料");
+    expect(within(card).getByText("g250m:1:3")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "模擬軌跡播放控制" })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByTestId("map-playback-state")).toHaveAttribute("data-mode", "aggregate");
+  });
+
+  it("plays individual trajectories and resets safely for each walker", async () => {
+    renderDashboard();
+    await runSelectedCitizenCell();
+    const controls = await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+    fireEvent.click(within(controls).getByRole("button", { name: "個別路徑" }));
+    expect(screen.getByTestId("map-playback-state")).toHaveAttribute("data-mode", "trajectory");
+
+    const walker = within(controls).getByRole("combobox", { name: "選擇行走者" });
+    fireEvent.change(walker, { target: { value: "1" } });
+    expect(within(controls).getByText("步驟 0 / 1 · 非實際時間")).toBeInTheDocument();
+    fireEvent.click(within(controls).getByRole("button", { name: "下一步" }));
+    expect(within(controls).getByText("步驟 1 / 1 · 非實際時間")).toBeInTheDocument();
+    expect(screen.getByTestId("map-playback-state")).toHaveAttribute("data-active-step", "1");
+    fireEvent.click(within(controls).getByRole("button", { name: "上一步" }));
+    expect(within(controls).getByText("步驟 0 / 1 · 非實際時間")).toBeInTheDocument();
+    fireEvent.click(within(controls).getByRole("button", { name: "下一步" }));
+    fireEvent.click(within(controls).getByRole("button", { name: "重設" }));
+    expect(within(controls).getByText("步驟 0 / 1 · 非實際時間")).toBeInTheDocument();
+
+    fireEvent.change(walker, { target: { value: "2" } });
+    expect(within(controls).getByText("步驟 0 / 1 · 非實際時間")).toBeInTheDocument();
+    fireEvent.click(within(controls).getByRole("button", { name: "播放" }));
+    expect(within(controls).getByRole("button", { name: "暫停" })).toBeInTheDocument();
+    fireEvent.click(within(controls).getByRole("button", { name: "暫停" }));
+    expect(within(controls).getByText("步驟 0 / 1 · 非實際時間")).toBeInTheDocument();
+    fireEvent.click(within(controls).getByRole("button", { name: "播放" }));
+    await waitFor(() =>
+      expect(within(controls).getByText("步驟 1 / 1 · 非實際時間")).toBeInTheDocument(),
+    );
+    expect(within(controls).getByRole("button", { name: "播放" })).toBeDisabled();
+
+    fireEvent.change(walker, { target: { value: "3" } });
+    expect(within(controls).getByText("此路徑沒有可播放的移動步驟。")).toBeInTheDocument();
+    expect(within(controls).getByRole("button", { name: "下一步" })).toBeDisabled();
+    fireEvent.click(within(controls).getByRole("button", { name: "彙整路線" }));
+    expect(screen.getByTestId("map-playback-state")).toHaveAttribute("data-mode", "aggregate");
+  });
+
+  it("ignores a slower response after a newer origin run succeeds", async () => {
+    const fetchMock = vi.mocked(fetch);
+    const originalFetch = fetchMock.getMockImplementation();
+    if (!originalFetch) throw new Error("Dashboard fetch fixture is not installed");
+    const pending = new Map<string, () => Promise<void>>();
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith("/api/v1/simulations/preview")) {
+        const body = JSON.parse(String(init?.body)) as { origin_cell_id: string };
+        return await new Promise<Response>((resolve) => {
+          pending.set(body.origin_cell_id, async () => {
+            resolve(await originalFetch(input, init));
+          });
+        });
+      }
+      return originalFetch(input, init);
+    });
+
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    expect(await within(panel).findByText(/回傳 2 個/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select citizen report cell" }));
+    fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
+    const originA = "g250m:1:2:2026-05:sighting";
+    await waitFor(() => expect(pending.has(originA)).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: "Select another citizen report cell" }));
+    fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
+    const originB = "g250m:1:3:2026-05:sighting";
+    await waitFor(() => expect(pending.has(originB)).toBe(true));
+    await pending.get(originB)?.();
+    const controls = await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+    expect(controls).toHaveTextContent(`起點 ${originB}`);
+
+    await pending.get(originA)?.();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(controls).toHaveTextContent(`起點 ${originB}`);
+    expect(controls).not.toHaveTextContent(`起點 ${originA}`);
   });
 
   it("clears a selected aggregate cell when refreshed viewport data drops it", async () => {

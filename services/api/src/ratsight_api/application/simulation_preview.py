@@ -126,13 +126,26 @@ def preview_simulation(
     request: SimulationPreviewRequest, *, session: Session | None = None
 ) -> dict[str, object]:
     osm = request.study_area == "taipei_osm_songshan"
+    if request.origin_node_id is not None and request.origin_cell_id is not None:
+        raise OriginCellResolutionError("origin_node_id and origin_cell_id are mutually exclusive")
+    if osm and request.origin_node_id is not None:
+        raise OriginCellResolutionError(
+            "origin_node_id is not accepted for taipei_osm_songshan; provide origin_cell_id"
+        )
+    if osm and request.origin_cell_id is None:
+        raise OriginCellResolutionError("origin_cell_id is required for taipei_osm_songshan")
+    if not osm and request.origin_node_id is None and request.origin_cell_id is None:
+        raise OriginCellResolutionError(
+            "an explicit origin_node_id or origin_cell_id is required for taipei_synthetic_demo"
+        )
     graph = load_osm_surface_graph() if osm else create_synthetic_graph()
     # Resolve by exact IDs; never snap an unknown node or cell to another origin.
     node_by_id = {str(node_id): node_id for node_id in graph.nodes}
     requested_origin = request.origin_node_id
-    if requested_origin is not None and request.origin_cell_id is not None:
-        raise OriginCellResolutionError("origin_node_id and origin_cell_id are mutually exclusive")
     resolved_cell: dict[str, object] | None = None
+    origin_source_data_class: str | None = None
+    origin_source_classification: str | None = None
+    origin_source_kind: str | None = None
     requested_origins: list[str] | None = None
     if request.origin_cell_id is not None:
         if osm:
@@ -151,6 +164,9 @@ def preview_simulation(
             ) as exc:
                 raise OriginCellResolutionError(str(exc)) from exc
             polygon = [(float(x), float(y)) for x, y in stored.coordinates[0]]
+            origin_source_data_class = stored.data_class
+            origin_source_classification = stored.classification
+            origin_source_kind = stored.source_kind
         else:
             polygon = SYNTHETIC_ORIGIN_CELLS.get(request.origin_cell_id)
             if polygon is None:
@@ -178,9 +194,9 @@ def preview_simulation(
             raise UnknownOriginNodeError(
                 f"origin nodes {unknown!r} are not nodes in study area {request.study_area!r}"
             )
-    start_node = (
-        node_by_id[requested_origin] if requested_origin is not None else next(iter(graph.nodes))
-    )
+    if requested_origin is None:
+        raise OriginCellResolutionError("the requested origin did not resolve to a graph node")
+    start_node = node_by_id[requested_origin]
     walk_start_nodes = (
         requested_origins if requested_origins is not None and len(requested_origins) > 1 else None
     )
@@ -258,23 +274,33 @@ def preview_simulation(
             "node_id": str(start_node),
             "node_ids": requested_origins if requested_origins is not None else [str(start_node)],
             "coordinates": tuple(graph.nodes[start_node]["coordinates"]),
-            "selection": (
-                "cell" if resolved_cell else ("user" if requested_origin is not None else "default")
-            ),
+            "selection": ("cell" if resolved_cell else "user"),
             "cell_id": request.origin_cell_id,
             "cell_candidate_count": (resolved_cell["candidate_count"] if resolved_cell else None),
             "cell_resolver_version": (resolved_cell["resolver_version"] if resolved_cell else None),
+            "source_data_class": origin_source_data_class,
+            "source_classification": origin_source_classification,
+            "source_kind": origin_source_kind,
             "classification": "SIMULATED",
             "note": (
                 (
-                    "Citizen-report aggregate cell input is UNVERIFIED; one strictly in-cell "
-                    "graph node seeds the walkers. Movement output is SIMULATED and is not an "
-                    "observed animal origin or migration."
-                    if resolved_cell["candidate_count"] == 1
-                    else f"Citizen-report aggregate cell input is UNVERIFIED; "
-                    f"{resolved_cell['candidate_count']} eligible in-cell graph nodes seed "
-                    "walkers uniformly; the marker is the first sorted node. Movement output "
-                    "is SIMULATED and is not an observed animal origin or migration."
+                    (
+                        "Citizen-report aggregate cell input is UNVERIFIED; "
+                        + (
+                            "one strictly in-cell graph node seeds the walkers. "
+                            if resolved_cell["candidate_count"] == 1
+                            else f"{resolved_cell['candidate_count']} eligible in-cell graph nodes "
+                            "seed walkers uniformly; the marker is the first sorted node. "
+                        )
+                        + "Movement output is SIMULATED and is not an observed animal origin "
+                        "or migration."
+                    )
+                    if origin_source_classification == "UNVERIFIED"
+                    else (
+                        "Origin is an isolated SIMULATED aggregate test fixture with no citizen "
+                        "reports or report counts. Movement output is SIMULATED and is not an "
+                        "observed animal origin or migration."
+                    )
                 )
                 if osm and resolved_cell
                 else "Synthetic model input; not an observed or reported animal origin."
@@ -344,12 +370,21 @@ def preview_simulation(
         },
         "assumptions": (
             OSM_ASSUMPTIONS
-            + [
-                "The origin cell is a suppressed aggregate of UNVERIFIED citizen reports; "
-                "it is not an observed animal location.",
-                "For a cell origin, walkers start uniformly from all eligible in-cell graph "
-                "nodes; the cell does not identify one observed animal location.",
-            ]
+            + (
+                [
+                    "The origin cell is a suppressed aggregate of UNVERIFIED citizen reports; "
+                    "it is not an observed animal location.",
+                    "For a cell origin, walkers start uniformly from all eligible in-cell graph "
+                    "nodes; the cell does not identify one observed animal location.",
+                ]
+                if origin_source_classification == "UNVERIFIED"
+                else [
+                    "The selected cell is a SIMULATED smoke-test fixture, not citizen-report data "
+                    "or an observation.",
+                    "For a fixture cell, walkers start uniformly from eligible in-cell graph "
+                    "nodes; the fixture is not evidence of animal location or movement.",
+                ]
+            )
             if osm and resolved_cell
             else (OSM_ASSUMPTIONS if osm else SYNTHETIC_ASSUMPTIONS)
         ),

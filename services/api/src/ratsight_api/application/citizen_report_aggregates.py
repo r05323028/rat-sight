@@ -16,11 +16,16 @@ from typing import Any
 
 from pydantic import ValidationError
 from ratsight_api.api.schemas import (
+    CitizenReportAggregateProvenance,
     CitizenReportAggregateResponse,
     CitizenReportCellFeature,
     CitizenReportCellPolygon,
     CitizenReportCellProperties,
+    CitizenReportClassification,
+    CitizenReportDataClass,
     CitizenReportProvenanceV1,
+    CitizenReportSourceKind,
+    SyntheticAggregateFixtureProvenance,
 )
 from ratsight_api.domain.citizen_report_aggregates import (
     ATTRIBUTION,
@@ -35,6 +40,14 @@ from ratsight_api.domain.citizen_report_aggregates import (
     LON_MIN,
     MONTH_PATTERN,
     NOTICE,
+    SOURCE_KIND,
+    SYNTHETIC_FIXTURE_ATTRIBUTION,
+    SYNTHETIC_FIXTURE_CLASSIFICATION,
+    SYNTHETIC_FIXTURE_DATA_CLASS,
+    SYNTHETIC_FIXTURE_DATASET_PREFIX,
+    SYNTHETIC_FIXTURE_NOTICE,
+    SYNTHETIC_FIXTURE_SOURCE_KIND,
+    synthetic_aggregate_fixture_enabled,
 )
 from ratsight_api.infrastructure.database.models import CitizenReportCell
 from sqlalchemy import func, select
@@ -94,7 +107,13 @@ def parse_months(value: str | None) -> tuple[str, ...] | None:
     return tuple(sorted(set(months)))
 
 
-def _parse_polygon(payload: Any) -> CitizenReportCellPolygon:
+def _parse_polygon(
+    payload: Any,
+    *,
+    data_class: CitizenReportDataClass = CITIZEN_REPORT_DATA_CLASS,
+    classification: CitizenReportClassification = CITIZEN_REPORT_CLASSIFICATION,
+    source_kind: CitizenReportSourceKind = SOURCE_KIND,
+) -> CitizenReportCellPolygon:
     if isinstance(payload, (str, bytes)):
         try:
             payload = json.loads(payload)
@@ -120,7 +139,36 @@ def _parse_polygon(payload: Any) -> CitizenReportCellPolygon:
                 )
             ):
                 raise CitizenReportDataError(INVALID_GEOMETRY_MESSAGE)
-    return CitizenReportCellPolygon(coordinates=coordinates)
+    return CitizenReportCellPolygon(
+        coordinates=coordinates,
+        data_class=data_class,
+        classification=classification,
+        source_kind=source_kind,
+    )
+
+
+def _ensure_dataset_allowed(dataset_id: str) -> bool:
+    is_fixture = dataset_id.startswith(SYNTHETIC_FIXTURE_DATASET_PREFIX)
+    if is_fixture and not synthetic_aggregate_fixture_enabled(dataset_id):
+        raise CitizenReportQueryError(
+            "synthetic aggregate fixtures require an explicit ratsight-smoke dataset and opt-in"
+        )
+    return is_fixture
+
+
+def _validated_provenance(dataset_id: str, payload: Any) -> CitizenReportAggregateProvenance:
+    is_fixture = _ensure_dataset_allowed(dataset_id)
+    try:
+        provenance = (
+            SyntheticAggregateFixtureProvenance.model_validate(payload)
+            if is_fixture
+            else CitizenReportProvenanceV1.model_validate(payload)
+        )
+    except ValidationError as exc:
+        raise CitizenReportDataError("stored citizen report provenance failed validation") from exc
+    if provenance.dataset_id != dataset_id:
+        raise CitizenReportDataError("stored aggregate provenance dataset identity does not match")
+    return provenance
 
 
 class CitizenReportCellNotFound(LookupError):
@@ -143,6 +191,7 @@ def get_citizen_report_cell_polygon(
     if not cell_id or MONTH_RE.fullmatch(month) is None or not report_type:
         raise CitizenReportQueryError("origin cell id must be cell_id:month:report_type")
     resolved_dataset_id = dataset_id or DATASET_ID
+    _ensure_dataset_allowed(resolved_dataset_id)
     try:
         meta = (
             session.execute(
@@ -158,14 +207,18 @@ def get_citizen_report_cell_polygon(
         raise CitizenReportStorageError("citizen report storage unavailable") from exc
     if meta is None:
         raise CitizenReportCellNotFound("no citizen report aggregate version is stored")
-    try:
-        CitizenReportProvenanceV1.model_validate(meta["provenance"])
-    except ValidationError as exc:
-        raise CitizenReportDataError("stored citizen report provenance failed validation") from exc
+    provenance = _validated_provenance(resolved_dataset_id, meta["provenance"])
+    if provenance.resource_version != meta["resource_version"]:
+        raise CitizenReportDataError("stored aggregate provenance version does not match")
     try:
         row = (
             session.execute(
-                select(func.ST_AsGeoJSON(CitizenReportCell.geometry).label("geometry"))
+                select(
+                    CitizenReportCell.data_class,
+                    CitizenReportCell.classification,
+                    CitizenReportCell.report_count,
+                    func.ST_AsGeoJSON(CitizenReportCell.geometry).label("geometry"),
+                )
                 .where(CitizenReportCell.dataset_id == resolved_dataset_id)
                 .where(CitizenReportCell.resource_version == meta["resource_version"])
                 .where(CitizenReportCell.cell_id == cell_id)
@@ -182,17 +235,46 @@ def get_citizen_report_cell_polygon(
         raise CitizenReportCellNotFound(
             "origin cell is not present in the latest citizen report aggregate version"
         )
-    return _parse_polygon(row["geometry"])
+    expected_data_class = (
+        SYNTHETIC_FIXTURE_DATA_CLASS
+        if isinstance(provenance, SyntheticAggregateFixtureProvenance)
+        else CITIZEN_REPORT_DATA_CLASS
+    )
+    expected_classification = (
+        SYNTHETIC_FIXTURE_CLASSIFICATION
+        if isinstance(provenance, SyntheticAggregateFixtureProvenance)
+        else CITIZEN_REPORT_CLASSIFICATION
+    )
+    if row["data_class"] != expected_data_class or row["classification"] != expected_classification:
+        raise CitizenReportDataError("stored origin cell classification is invalid")
+    if isinstance(provenance, SyntheticAggregateFixtureProvenance):
+        if row["report_count"] is not None:
+            raise CitizenReportDataError("synthetic fixture origin must not contain report counts")
+    elif row["report_count"] is None or row["report_count"] < 3:
+        raise CitizenReportDataError(
+            "stored citizen report origin does not meet suppression minimum"
+        )
+    return _parse_polygon(
+        row["geometry"],
+        data_class=expected_data_class,
+        classification=expected_classification,
+        source_kind=provenance.source_kind,
+    )
 
 
 def _empty_response(
     bbox: tuple[float, float, float, float] | None,
-    months: tuple[str, ...] | None,
+    *,
+    is_fixture: bool = False,
 ) -> CitizenReportAggregateResponse:
     return CitizenReportAggregateResponse(
         features=[],
         data_state="empty",
-        notice=NOTICE,
+        data_class=(SYNTHETIC_FIXTURE_DATA_CLASS if is_fixture else CITIZEN_REPORT_DATA_CLASS),
+        classification=(
+            SYNTHETIC_FIXTURE_CLASSIFICATION if is_fixture else CITIZEN_REPORT_CLASSIFICATION
+        ),
+        notice=SYNTHETIC_FIXTURE_NOTICE if is_fixture else NOTICE,
         provenance=None,
         feature_count=0,
         bbox=bbox,
@@ -212,6 +294,7 @@ def list_citizen_report_aggregates(
     parsed_bbox = parse_bbox(bbox)
     parsed_months = parse_months(months)
     resolved_dataset_id = dataset_id or DATASET_ID
+    is_fixture = _ensure_dataset_allowed(resolved_dataset_id)
     if report_type is not None and not report_type.strip():
         raise CitizenReportQueryError("report_type must not be empty")
 
@@ -228,13 +311,13 @@ def list_citizen_report_aggregates(
         )
     except SQLAlchemyError as exc:
         raise CitizenReportStorageError("citizen report storage unavailable") from exc
-    if meta is None:
-        return _empty_response(parsed_bbox, parsed_months)
 
-    try:
-        CitizenReportProvenanceV1.model_validate(meta["provenance"])
-    except ValidationError as exc:
-        raise CitizenReportDataError("stored citizen report provenance failed validation") from exc
+    if meta is None:
+        return _empty_response(parsed_bbox, is_fixture=is_fixture)
+
+    provenance = _validated_provenance(resolved_dataset_id, meta["provenance"])
+    if provenance.resource_version != meta["resource_version"]:
+        raise CitizenReportDataError("stored aggregate provenance version does not match")
 
     statement = (
         select(
@@ -271,21 +354,39 @@ def list_citizen_report_aggregates(
 
     truncated = len(rows) > FEATURE_CAP
     features: list[CitizenReportCellFeature] = []
+    expected_data_class = SYNTHETIC_FIXTURE_DATA_CLASS if is_fixture else CITIZEN_REPORT_DATA_CLASS
+    expected_classification = (
+        SYNTHETIC_FIXTURE_CLASSIFICATION if is_fixture else CITIZEN_REPORT_CLASSIFICATION
+    )
+    expected_source_kind = SYNTHETIC_FIXTURE_SOURCE_KIND if is_fixture else SOURCE_KIND
     for row in rows[:FEATURE_CAP]:
-        if row["data_class"] != CITIZEN_REPORT_DATA_CLASS:
-            raise CitizenReportDataError("stored citizen report data_class is invalid")
-        if row["classification"] != CITIZEN_REPORT_CLASSIFICATION:
-            raise CitizenReportDataError("stored citizen report classification is invalid")
+        if row["data_class"] != expected_data_class:
+            raise CitizenReportDataError("stored aggregate data_class is invalid")
+        if row["classification"] != expected_classification:
+            raise CitizenReportDataError("stored aggregate classification is invalid")
+        if is_fixture and row["report_count"] is not None:
+            raise CitizenReportDataError("synthetic fixtures must not contain report counts")
+        if not is_fixture and (row["report_count"] is None or row["report_count"] < 3):
+            raise CitizenReportDataError(
+                "stored citizen report aggregate is below suppression minimum"
+            )
         features.append(
             CitizenReportCellFeature(
                 id=f"{row['cell_id']}:{row['month']}:{row['report_type']}",
-                geometry=_parse_polygon(row["geometry"]),
+                geometry=_parse_polygon(
+                    row["geometry"],
+                    data_class=expected_data_class,
+                    classification=expected_classification,
+                    source_kind=expected_source_kind,
+                ),
                 properties=CitizenReportCellProperties(
                     cell_id=row["cell_id"],
                     month=row["month"],
                     report_type=row["report_type"],
-                    count=int(row["report_count"]),
-                    attribution=ATTRIBUTION,
+                    count=row["report_count"],
+                    data_class=expected_data_class,
+                    classification=expected_classification,
+                    attribution=(SYNTHETIC_FIXTURE_ATTRIBUTION if is_fixture else ATTRIBUTION),
                 ),
             )
         )
@@ -293,8 +394,10 @@ def list_citizen_report_aggregates(
     return CitizenReportAggregateResponse(
         features=features,
         data_state="available" if features else "empty",
-        notice=NOTICE,
-        provenance=CitizenReportProvenanceV1.model_validate(meta["provenance"]),
+        data_class=expected_data_class,
+        classification=expected_classification,
+        notice=SYNTHETIC_FIXTURE_NOTICE if is_fixture else NOTICE,
+        provenance=provenance,
         feature_count=len(features),
         bbox=parsed_bbox,
         truncated=truncated,
