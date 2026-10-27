@@ -110,7 +110,6 @@ esac
         shims,
         "uv",
         """case "$*" in
-  *rodent_reports*) exit 0 ;;
   *stormwater_pipelines*--inspect-only*)
     echo '{"record_count": 19747, "z_handling": "dropped",' \
       '"provenance": {"target_crs": "EPSG:4326"}}' ;;

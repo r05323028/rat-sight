@@ -1,6 +1,6 @@
 # Rat Radar reuse claim — asserted, not verified (2026-10-26)
 
-- Evidence ID: `EVID-RATDAR-REUSE-CLAIM-2026-10-26`
+- Evidence ID: EVID-RATDAR-REUSE-CLAIM-2026-10-26
 - Source: Rat Radar / 見鼠雷達, `https://ratdar.taipei/` (public citizen-report platform)
 - Local export: `data/raw/ratdar_20261026_172226.csv` (not committed; `data/raw/` raw inputs stay out of Git)
 - Export SHA-256: `eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b`
@@ -55,9 +55,31 @@ What exists now:
 - Small-cell protection: a cell-month needs ≥3 reports, and each (cell, month, report type) row also needs ≥3; both are enforced by importer logic and database `CHECK` constraints (`report_count >= 3`).
 - Measured on the 2026-10-26 export: 1,435 parsed, 319 reports published, 1,116 records suppressed, 946 cell-month groups suppressed, 91 rows. Only 2026-05 is dense enough to survive; the May spike is portal promotion/backfill, not a measured rodent increase.
 - Classification: `data_class=CITIZEN_REPORT_AGGREGATE`, `classification=UNVERIFIED`. Attribution `公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）` is carried in every payload and in the UI.
-- The layer is never a simulation input, never OBSERVED or SIMULATED, and its counts are report counts — not abundance, density, prevalence, movement, or risk.
+- Before the origin change below, the layer was never a simulation input, never OBSERVED or SIMULATED, and its counts are report counts — not abundance, density, prevalence, movement, or risk.
+
+**Subsequent origin change:** `openspec/changes/citizen-report-driven-simulation-origins` now permits one explicitly selected aggregate cell to resolve the graph nodes strictly inside it. A single candidate uses `strict-in-cell-v1`; multiple candidates use `uniform-in-cell-v1`, with walkers starting uniformly across the candidate set under the recorded seed. Counts still never become walker counts or transition weights, and cells with zero candidates fail closed without snapping. Candidate/ambiguity approval remains open. Statements above that the layer is "never a simulation input" are preserved as the pre-origin boundary and are superseded only for that selected-cell resolver.
 
 Residual or new risk introduced by the override: reuse licence, grantor identity, retention/deletion obligations, and dedicated redistribution permission are still unverified, so attribution credits the platform without licensing the data. The published artifact is therefore limited to suppressed counts with no exact coordinates, no free text, and no photographs. Reverting is one migration/table-drop plus removing the layer if evidence later shows the reuse is not permitted.
+
+## Owner-directed real-cell origin activation (2026-10-27)
+
+On 2026-10-27 the project owner directed that the published aggregate layer be usable as an explicit simulation origin, not only as a display layer. This is a second recorded override, not new evidence: `AUTHORIZATION=ASSERTED_BY_PROJECT_OWNER`, `EVIDENCE=ABSENT`, `REUSE=UNVERIFIED` remain unchanged, and approval tasks 3–5 in `openspec/changes/citizen-report-driven-simulation-origins/tasks.md` remain open.
+
+What changed:
+
+- `POST /api/v1/simulations/preview` accepts `origin_cell_id` on `taipei_osm_songshan` when it identifies a currently published aggregate feature.
+- Resolution is strictly in-cell: one candidate uses `strict-in-cell-v1`; multiple candidates use `uniform-in-cell-v1` and every walker starts uniformly from the eligible set with the seeded RNG. Zero candidates fail closed; there is no centroid or nearest-node snapping. The current pinned network covers all 91 published cells; eligible counts range from 3 to 286 nodes (median 60).
+- The dashboard adds an advanced `公民通報彙整格起點` select populated only from current-viewport aggregate features. Marker selection alone remains display-only.
+- Response provenance includes `cell_candidate_count`, `cell_resolver_version`, the representative `node_id`, and the full `node_ids`; origin remains `UNVERIFIED`, movement remains `SIMULATED`. Reachability is the union over all candidate origins.
+- Report counts never become walker counts, transition weights, abundance, prevalence, or risk.
+- The pinned OSM snapshot is `$HOME/.local/share/ratsight/network/taipei-expanded-ratdar-20261027.osm`, SHA-256 `9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868`, coverage `EPSG:4326 bbox 121.2786025,24.9821164,121.6725037,25.1249122` (30 clustered 500 m-buffered neighborhoods), OSM base timestamp `2026-10-27T13:20:28Z`. It has 71,281 graph nodes and 185,503 edges. The earlier 0.004° Songshan extract had zero nodes in every published cell, so it could not execute a real-cell origin.
+- The map may receive a 750 m `local_reference` subset of nodes and edges; simulation and reachability still run on the full graph, and response provenance discloses returned versus full totals.
+
+Residual risk: reuse licence, grantor identity, retention/deletion, redistribution, CRS/coverage approval, and report-category semantics remain unapproved. Any public or scientific claim about the resulting simulation remains unsupported. Reverting the activation requires removing the OSM cell select/API branch and its tests; the aggregate layer can remain display-only.
+
+## Follow-up owner clarification (2026-10-26)
+
+The project owner clarified that Rat Radar citizen-report data is understood to be reusable when properly attributed and directed RatSight to use this attribution: `資料來源：見鼠雷達 Rat Radar — https://ratdar.taipei/`. This is an owner attestation and attribution instruction; it does not become written publisher permission, licence text, or proof that derived simulation analysis or redistribution is covered. Existing privacy protections and `CITIZEN_REPORT_AGGREGATE / UNVERIFIED` classification remain in force.
 
 ## What would convert this claim into verified authorization
 

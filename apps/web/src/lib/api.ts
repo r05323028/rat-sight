@@ -42,6 +42,9 @@ export type SimulationPreview = {
   model_version: string;
   parameters: {
     study_area: string;
+    origin_node_id?: string;
+    origin_node_ids?: string[];
+    origin_cell_id?: string;
     duration_steps: number;
     walkers: number;
     random_seed: number;
@@ -68,21 +71,39 @@ export type SimulationPreview = {
   // default origin from one the analyst chose.
   origin?: {
     node_id: string;
+    node_ids?: string[];
     coordinates: [number, number];
     classification: "SIMULATED";
-    selection: "default" | "user";
+    selection: "default" | "user" | "cell";
+    cell_id?: string;
+    /** Present only when a real aggregate cell resolved the origin. */
+    cell_candidate_count?: number | null;
+    cell_resolver_version?: string | null;
     note?: string;
   };
   origin_node_id?: string;
   /** Server-side counts over the returned graph; follows the resolved origin. */
   reachability?: {
     origin_node_id: string;
+    origin_node_ids?: string[];
     reachable_nodes: number;
     total_nodes: number;
     reachable_edges: number;
     total_edges: number;
     component_count: number;
+    /** Full-graph nodes with at least one simulation visit; absent on older API builds. */
+    sampled_nodes?: number;
     classification: "SIMULATED";
+    note: string;
+  };
+  /** Absent on older API builds that returned the full graph as map geometry. */
+  visualization?: {
+    mode: "full_graph" | "local_reference";
+    radius_meters?: number | null;
+    returned_nodes: number;
+    returned_edges: number;
+    total_nodes: number;
+    total_edges: number;
     note: string;
   };
   nodes: {
@@ -206,6 +227,7 @@ export async function requestPreview(input: {
   movement_model: string;
   intervention_scenario: string;
   origin_node_id?: string;
+  origin_cell_id?: string;
 }): Promise<SimulationPreview> {
   const response = await fetch(`${API_BASE_URL}/api/v1/simulations/preview`, {
     method: "POST",
@@ -224,7 +246,11 @@ export async function requestPreview(input: {
           }`
         : detail?.code === "ORIGIN_NODE_NOT_IN_GRAPH"
           ? `合成起點不在模型網路內：${detail.message ?? "未知錯誤"}`
-          : `Simulation preview failed (${response.status})`,
+          : detail?.code === "ORIGIN_CELL_NOT_RESOLVABLE"
+            ? `公民通報格網起點無法解析：${detail.message ?? "未知錯誤"}`
+            : detail?.code === "ORIGIN_CELL_STORAGE_UNAVAILABLE"
+              ? `公民通報彙整儲存無法使用：${detail.message ?? "未知錯誤"}`
+              : `Simulation preview failed (${response.status})`,
     );
   }
   return response.json() as Promise<SimulationPreview>;
@@ -333,66 +359,11 @@ export async function fetchStormwaterPipelines(bbox?: StormwaterBbox): Promise<S
   return response.json() as Promise<StormwaterNetwork>;
 }
 
-// Synthetic rodent report-shaped fixtures. These are SIMULATED report records,
-// not verified observations, prevalence, population, movement, or risk evidence.
-export type RodentReportGeometry = { type: "Point"; coordinates: [number, number] };
-
-export type RodentReportProperties = {
-  report_id: string;
-  source: "synthetic_fixture";
-  report_type: "sighting_report" | "nuisance_report" | "service_request" | "unknown";
-  reported_at: string;
-  location_precision: "synthetic_point" | "coarse_grid_100m" | "coarse_grid_1km" | "unknown";
-  review_status: "unreviewed" | "platform_moderated" | "municipal_reviewed" | "unknown";
-  municipal_status: "not_assessed" | "confirmed_by_authority" | "rejected" | "unknown";
-  action_status: "none_reported" | "inspection" | "treatment" | "unknown";
-  data_class: "RODENT_REPORT";
-  classification: "SIMULATED";
-  provenance_schema_version: string;
-  dataset_id: string;
-  resource_version: string;
-  content_sha256: string;
-};
-
-export type RodentReportProvenance = {
-  schema_version: "1";
-  source_kind: "synthetic_fixture";
-  dataset_id: string;
-  resource_version: string;
-  retrieved_at: string;
-  content_sha256: string;
-  license: string;
-  attribution: string;
-  source_crs: "EPSG:4326";
-  target_crs: "EPSG:4326";
-  processing: ProvenanceProcessing;
-  synthetic: true;
-  uncertainty: ProvenanceUncertainty;
-};
-
-export type RodentReports = ReferenceFeatureCollection<
-  RodentReportGeometry,
-  RodentReportProperties,
-  "RODENT_REPORT",
-  RodentReportProvenance
-> & {
-  classification: "SIMULATED";
-  feature_count: number;
-  bbox: Bbox | null;
-  reported_from: string | null;
-  reported_to: string | null;
-  truncated: boolean;
-};
-
-export type RodentReportFilters = {
-  bbox?: Bbox;
-  reportedFrom?: string | null;
-  reportedTo?: string | null;
-};
-
 // Citizen-report aggregates are derived from a public citizen export: 250 m cell
 // counts per month, with small cells suppressed. They are UNVERIFIED citizen
-// reports, never observations, and never a simulation input.
+// reports, never observations. Counts never become simulation weights; the bounded
+// origin path may resolve one selected cell to every strictly in-cell node, with one
+// strict candidate or uniform seeded starts across multiple candidates.
 export type CitizenReportCellGeometry = { type: "Polygon"; coordinates: number[][][] };
 
 export type CitizenReportCellProperties = {
@@ -466,54 +437,4 @@ export async function fetchCitizenReportAggregates(
     throw new Error(`Citizen report aggregates request failed (${response.status})`);
   }
   return response.json() as Promise<CitizenReportAggregates>;
-}
-
-// Asia/Taipei has been a fixed UTC+08:00 offset since 1979, so the conversion is
-// plain arithmetic: no machine timezone, DST rule, or locale can change it.
-const TAIPEI_UTC_OFFSET_HOURS = 8;
-
-// datetime-local values are Asia/Taipei wall-clock; the backend filter contract
-// takes RFC3339 UTC bounds at minute precision, so convert before sending.
-export function taipeiLocalToUtc(value: string): string | null {
-  if (!value) return null;
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-  if (!match) return null;
-  const [, year, month, day, hour, minute] = match;
-  const [y, m, d, h, min] = [year, month, day, hour, minute].map(Number);
-  const converted = new Date(Date.UTC(y, m - 1, d, h - TAIPEI_UTC_OFFSET_HOURS, min));
-  const backToLocal = new Date(converted.getTime() + TAIPEI_UTC_OFFSET_HOURS * 3_600_000);
-  // Date.UTC rolls impossible values over (month 13, year 0050 -> 1950), which
-  // would silently query a different date; refuse them instead.
-  if (
-    backToLocal.getUTCFullYear() !== y ||
-    backToLocal.getUTCMonth() !== m - 1 ||
-    backToLocal.getUTCDate() !== d ||
-    backToLocal.getUTCHours() !== h ||
-    backToLocal.getUTCMinutes() !== min
-  ) {
-    return null;
-  }
-  return `${converted.toISOString().slice(0, 16)}:00Z`;
-}
-
-// Client-side guard so a reversed range never reaches the API. Both inputs are
-// already normalized to the same RFC3339 Z shape, so lexical comparison is safe,
-// and equal boundaries stay valid because both ends are inclusive.
-export function isReportedRangeInvalid(from: string | null, to: string | null): boolean {
-  return Boolean(from && to && from > to);
-}
-
-export async function fetchRodentReports(
-  filters: RodentReportFilters = {},
-): Promise<RodentReports> {
-  const params = new URLSearchParams();
-  if (filters.bbox) params.set("bbox", filters.bbox.join(","));
-  if (filters.reportedFrom) params.set("reported_from", filters.reportedFrom);
-  if (filters.reportedTo) params.set("reported_to", filters.reportedTo);
-  const query = params.toString();
-  const response = await fetch(`${API_BASE_URL}/api/v1/rodent-reports${query ? `?${query}` : ""}`);
-  if (!response.ok) {
-    throw new Error(`Rodent reports request failed (${response.status})`);
-  }
-  return response.json() as Promise<RodentReports>;
 }

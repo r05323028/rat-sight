@@ -33,7 +33,6 @@ make data-bootstrap ARGS=--inspect-only  # verify sources only: no DB writes, no
 make data-bootstrap ARGS=status          # container state, counts, provenance, local sources
 make data-bootstrap ARGS=down            # stop containers, keep data
 make data-bootstrap ARGS="down --purge"  # explicitly recreate from empty (destructive)
-make data-bootstrap ARGS=--synthetic     # additionally load the SYNTHETIC rodent fixture
 make data-bootstrap ARGS="up --citizen-reports"  # suppressed 250 m citizen counts (never downloads)
 ```
 
@@ -53,12 +52,12 @@ ${XDG_DATA_HOME:-$HOME/.local/share}/ratsight/full-local/
   stormwater-5240223d-2026-02-23.xml
 ```
 
-The default simulation study area also needs the pinned OSM surface extract at
-`${XDG_DATA_HOME:-$HOME/.local/share}/ratsight/network/taipei-songshan-20261023.osm`
-(SHA-256 `faae4ffd1bd42e57871bdedbfdcc6e82b3324a458db95034d4ec40f0a019e67e`). This profile
+The `taipei_osm_songshan` simulation study area also needs the pinned OSM surface extract at
+`${XDG_DATA_HOME:-$HOME/.local/share}/ratsight/network/taipei-expanded-ratdar-20261027.osm`
+(SHA-256 `9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868`). This profile
 does not download it: provision it with `scripts/fetch_taipei_osm_source.sh` (see
 `docs/infrastructure/taipei-osm-network-source.md`). Without it the default preview returns
-`503 SOURCE_NETWORK_UNAVAILABLE` instead of falling back to the schematic graph.
+`503 SOURCE_NETWORK_UNAVAILABLE` instead of falling back to the schematic graph. The API requires an explicit `study_area`; there is no default study area.
 
 Overrides: `RATSIGHT_FULL_LOCAL_DATA_DIR`, `RATSIGHT_DISTRICTS_ARCHIVE`,
 `RATSIGHT_STORMWATER_SOURCE`, `RATSIGHT_CITIZEN_REPORT_SOURCE`. The base data directory is
@@ -68,7 +67,7 @@ If a file is missing, `up` downloads only the two documented verified URLs, veri
 exact pinned SHA-256, and aborts before any import on mismatch (`*.part` is removed). It
 never substitutes a different source. `--inspect-only` never downloads.
 
-Before any write, both sources are validated by the importers' own inspect-only mode:
+Before any write, both pinned base sources are validated by the importers' own inspect-only mode:
 archive/file hash, required shapefile components, CRS transformation (`EPSG:3826` →
 `EPSG:4326`), geometry types, zone-3D handling for stormwater, source identity, and the
 pinned record counts.
@@ -91,10 +90,10 @@ volume explicitly with `ARGS="down --purge"`, then `make data-bootstrap`.
 ### Not atomic across layers
 
 Each importer commits in its own transaction, so the profile is **not** atomic across the
-two layers. If stormwater fails after administrative boundaries committed, exit `3`/`4`
-is returned, the boundary rows stay imported, and the script says so instead of claiming a
-clean rollback. Rerunning completes the remaining layer; `ARGS=status` shows what is
-present. Nothing is ever replaced to "repair" a partial run.
+core or optional layers. If stormwater fails after administrative boundaries committed,
+exit `3`/`4` is returned, the boundary rows stay imported, and the script says so instead
+of claiming a clean rollback. Rerunning completes the remaining layer; `ARGS=status` shows
+what is present. Nothing is ever replaced to "repair" a partial run.
 
 ## Runtime tier
 
@@ -115,12 +114,12 @@ The repository `.env` ships `DATABASE_URL` on port 54330 (this profile) so `make
 `uvicorn --reload` reach the populated database without an extra export; the shared `infra`
 profile on 54329 starts empty and lacks the citizen-aggregate table until migrated.
 
-## Optional synthetic layer
+## Retired synthetic report layer
 
-`--synthetic` imports the immutable committed rodent-report fixture. It stays
-`RODENT_REPORT` / `SIMULATED`, and the default profile leaves `rodent_reports` empty so
-simulated rodent movement is never mistaken for observation. See
-`docs/infrastructure/rodent-reports-import.md`.
+The synthetic rodent-report importer, API route, dashboard layer, and fixture were removed.
+Migration `0008_remove_rodent_reports` drops the old `rodent_reports` table and its
+immutability guard on upgrade; earlier migrations remain in history for existing databases.
+Citizen-report aggregates are the only remaining report layer.
 
 ## Optional citizen-report aggregate layer
 
@@ -130,7 +129,7 @@ per-report rows. Optional fields present in the export (地點, 說明, 照片�
 the importer and never reach the database. Cells with fewer than 3 reports are excluded
 entirely, so absence means "suppressed or unreported", not zero.
 
-The layer stays `CITIZEN_REPORT_AGGREGATE` / `UNVERIFIED` and is never a simulation input.
+The layer stays `CITIZEN_REPORT_AGGREGATE` / `UNVERIFIED`. Counts never become simulation inputs or weights. The bounded owner-directed origin path may use one selected cell to resolve every graph node strictly inside it: one candidate is `strict-in-cell-v1`, multiple candidates use `uniform-in-cell-v1` with seeded uniform starts, and zero candidates fail closed. The uniform rule and source reuse remain unapproved.
 Reuse terms for the export are **unverified** (owner assertion recorded in
 `docs/evidence/ratdar-reuse-claim-2026-10-26.md`), which is why the import is opt-in and the
 source file stays outside Git (`data/raw/*` is ignored).

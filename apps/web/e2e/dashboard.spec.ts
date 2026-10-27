@@ -4,13 +4,6 @@ import { expect, test } from "@playwright/test";
 // API-to-simulation behavior is covered by services/api/tests/test_api.py.
 const LAYERS_RESPONSE = [
   {
-    id: "rodent_observations",
-    label: "Rodent observations",
-    available: false,
-    classification: null,
-    message: "No observation dataset loaded.",
-  },
-  {
     id: "sewer_networks",
     label: "Sewer networks",
     available: false,
@@ -238,59 +231,6 @@ const STORMWATER_RESPONSE = {
   ],
 };
 
-const RODENT_RESPONSE = {
-  type: "FeatureCollection",
-  data_state: "available",
-  data_class: "RODENT_REPORT",
-  classification: "SIMULATED",
-  feature_count: 1,
-  bbox: [121.5, 24.98, 121.63, 25.09],
-  reported_from: null,
-  reported_to: null,
-  truncated: false,
-  provenance: {
-    schema_version: "1",
-    source_kind: "synthetic_fixture",
-    dataset_id: "00000000-0000-4000-8000-000000000002",
-    resource_version: "2026-10-17T00:00:00Z",
-    retrieved_at: "2026-10-17T00:00:00Z",
-    content_sha256: "c".repeat(64),
-    license: "Synthetic fixture only; no real report data.",
-    attribution: "RatSight synthetic report fixture",
-    source_crs: "EPSG:4326",
-    target_crs: "EPSG:4326",
-    processing: { tool: "test", tool_version: "0", steps: ["fixture"] },
-    synthetic: true,
-    uncertainty: {
-      currentness: "Synthetic fixture; not a real reporting system.",
-      note: "fixture",
-    },
-  },
-  features: [
-    {
-      type: "Feature",
-      id: "report-1",
-      geometry: { type: "Point", coordinates: [121.55, 25.02] },
-      properties: {
-        report_id: "report-1",
-        source: "synthetic_fixture",
-        report_type: "sighting_report",
-        reported_at: "2026-10-01T00:00:00Z",
-        location_precision: "synthetic_point",
-        review_status: "unreviewed",
-        municipal_status: "not_assessed",
-        action_status: "none_reported",
-        data_class: "RODENT_REPORT",
-        classification: "SIMULATED",
-        provenance_schema_version: "1",
-        dataset_id: "00000000-0000-4000-8000-000000000002",
-        resource_version: "2026-10-17T00:00:00Z",
-        content_sha256: "c".repeat(64),
-      },
-    },
-  ],
-};
-
 async function mockDashboardServices(page: import("@playwright/test").Page, boundaries: unknown) {
   await page.route("**/gl/positron-gl-style/style.json", (route) =>
     route.fulfill({ json: { version: 8, sources: {}, layers: [] } }),
@@ -320,9 +260,6 @@ async function mockDashboardServices(page: import("@playwright/test").Page, boun
   );
   await page.route("**/api/v1/stormwater-pipelines**", (route) =>
     route.fulfill({ json: STORMWATER_RESPONSE }),
-  );
-  await page.route("**/api/v1/rodent-reports**", (route) =>
-    route.fulfill({ json: RODENT_RESPONSE }),
   );
 }
 
@@ -449,19 +386,4 @@ test("enables the stormwater reference layer and shows its provenance", async ({
   await expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
   await expect(page.getByText("臺北市政府工務局")).toBeVisible();
   await expect(page.getByText(/發布機關僅供參考警示/)).toBeVisible();
-});
-
-test("enables the rodent report layer and shows synthetic provenance", async ({ page }) => {
-  await mockDashboardServices(page, AVAILABLE_BOUNDARIES);
-  await page.goto("/");
-  const toggle = page.getByLabel("鼠類回報", { exact: true });
-  await expect(toggle).toBeEnabled();
-  await toggle.click();
-  await expect(toggle).toBeChecked();
-  await expect(page.getByText(/非經查證的觀測、盛行率、族群、移動或風險證據/)).toBeVisible();
-  const report = page.getByRole("button", { name: "report-1" });
-  await report.click();
-  await expect(report).toHaveAttribute("aria-pressed", "true");
-  await page.getByText("鼠類回報來源、授權與現勢性").click();
-  await expect(page.getByText("RatSight synthetic report fixture")).toBeVisible();
 });

@@ -123,6 +123,68 @@ def _parse_polygon(payload: Any) -> CitizenReportCellPolygon:
     return CitizenReportCellPolygon(coordinates=coordinates)
 
 
+class CitizenReportCellNotFound(LookupError):
+    """Raised when a requested aggregate cell identity is not stored."""
+
+
+def get_citizen_report_cell_polygon(
+    session: Session, feature_id: str, *, dataset_id: str | None = None
+) -> CitizenReportCellPolygon:
+    """Return one latest-version aggregate cell polygon by feature identity.
+
+    The feature id is 'cell_id:month:report_type'; cell ids may themselves
+    contain colons, so the identity is split from the right. There is no
+    fallback, nearest-cell search, or geometry synthesis.
+    """
+    parts = feature_id.rsplit(":", 2)
+    if len(parts) != 3:
+        raise CitizenReportQueryError("origin cell id must be cell_id:month:report_type")
+    cell_id, month, report_type = parts
+    if not cell_id or MONTH_RE.fullmatch(month) is None or not report_type:
+        raise CitizenReportQueryError("origin cell id must be cell_id:month:report_type")
+    resolved_dataset_id = dataset_id or DATASET_ID
+    try:
+        meta = (
+            session.execute(
+                select(CitizenReportCell.resource_version, CitizenReportCell.provenance)
+                .where(CitizenReportCell.dataset_id == resolved_dataset_id)
+                .order_by(CitizenReportCell.resource_version.desc())
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+    except SQLAlchemyError as exc:
+        raise CitizenReportStorageError("citizen report storage unavailable") from exc
+    if meta is None:
+        raise CitizenReportCellNotFound("no citizen report aggregate version is stored")
+    try:
+        CitizenReportProvenanceV1.model_validate(meta["provenance"])
+    except ValidationError as exc:
+        raise CitizenReportDataError("stored citizen report provenance failed validation") from exc
+    try:
+        row = (
+            session.execute(
+                select(func.ST_AsGeoJSON(CitizenReportCell.geometry).label("geometry"))
+                .where(CitizenReportCell.dataset_id == resolved_dataset_id)
+                .where(CitizenReportCell.resource_version == meta["resource_version"])
+                .where(CitizenReportCell.cell_id == cell_id)
+                .where(CitizenReportCell.month == month)
+                .where(CitizenReportCell.report_type == report_type)
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+    except SQLAlchemyError as exc:
+        raise CitizenReportStorageError("citizen report storage unavailable") from exc
+    if row is None:
+        raise CitizenReportCellNotFound(
+            "origin cell is not present in the latest citizen report aggregate version"
+        )
+    return _parse_polygon(row["geometry"])
+
+
 def _empty_response(
     bbox: tuple[float, float, float, float] | None,
     months: tuple[str, ...] | None,

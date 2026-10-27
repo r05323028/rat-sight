@@ -1,0 +1,268 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "BLOCKED",
+      "findings": [
+        {
+          "id": "CR-ORIGIN-001",
+          "severity": "BLOCKING",
+          "status": "OPEN"
+        },
+        {
+          "id": "CR-ORIGIN-002",
+          "severity": "BLOCKING",
+          "status": "OPEN"
+        },
+        {
+          "id": "CR-ORIGIN-003",
+          "severity": "BLOCKING",
+          "status": "OPEN"
+        },
+        {
+          "id": "CR-ORIGIN-004",
+          "severity": "BLOCKING",
+          "status": "OPEN"
+        },
+        {
+          "id": "CR-ORIGIN-005",
+          "severity": "MAJOR",
+          "status": "RESOLVED"
+        }
+      ]
+    },
+    "code": {
+      "decision": "PASS_WITH_WARNINGS",
+      "findings": []
+    }
+  },
+  "engineering": [
+    {
+      "requirement": "citizen-origin#Approved aggregate origin use",
+      "status": "PARTIALLY_VERIFIED",
+      "gap": "Owner override enables bounded real aggregate-cell execution; source reuse, privacy, and scientific approvals remain open.",
+      "implementation": [
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/lib/api.ts"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "real-cell-backend-tests",
+        "real-cell-dashboard-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Privacy-preserving cell identity",
+      "status": "PARTIALLY_VERIFIED",
+      "gap": "Published-cell identity and strict in-cell resolution are tested; database cell/version validation and an approved spatial-precision policy remain pending.",
+      "implementation": [
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "packages/simulation/src/ratsight_simulation/graph/network.py"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py"
+      ],
+      "verification": [
+        "real-cell-backend-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Deterministic candidate resolution",
+      "status": "VERIFIED",
+      "implementation": [
+        "packages/simulation/src/ratsight_simulation/graph/network.py"
+      ],
+      "tests": [
+        "packages/simulation/tests/test_random_walk.py",
+        "services/api/tests/test_simulation_preview.py"
+      ],
+      "verification": [
+        "origin-slice-tests",
+        "real-cell-backend-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Published-cell coverage and map subset disclosure",
+      "status": "PARTIALLY_VERIFIED",
+      "gap": "A read-only probe resolved all 91 currently published cells, but no automated coverage regression test guards future dataset growth; the CRS/coverage policy itself remains unapproved.",
+      "implementation": [
+        "packages/geo/src/ratsight_geo/osm.py",
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "services/api/src/ratsight_api/api/schemas.py",
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "all-cell-coverage-probe",
+        "real-cell-backend-tests",
+        "real-cell-dashboard-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Separate cell and simulation origin",
+      "status": "PARTIALLY_VERIFIED",
+      "gap": "Real-cell response now carries candidate count and resolver version; approval of report-to-origin semantics remains pending.",
+      "implementation": [
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "real-cell-backend-tests",
+        "real-cell-dashboard-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Focused aggregate-cell detail card",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/app/globals.css"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/src/components/map-view.test.tsx"
+      ],
+      "verification": [
+        "focused-card-dashboard-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Synthetic fixture origin isolation",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "web-origin-slice-tests"
+      ]
+    },
+    {
+      "requirement": "citizen-origin#Analyst workflow hides technical graph nodes",
+      "status": "PARTIALLY_VERIFIED",
+      "gap": "Explicit aggregate-cell control added; technical graph-node control remains available and approved workflow review is pending.",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/src/components/map-view.test.tsx"
+      ],
+      "verification": [
+        "real-cell-dashboard-tests",
+        "web-origin-slice-tests"
+      ]
+    }
+  ],
+  "verification": [
+    {
+      "id": "origin-slice-tests",
+      "command": "uv run pytest packages/simulation/tests/test_random_walk.py services/api/tests/test_simulation_preview.py services/api/tests/test_citizen_report_aggregates_api.py services/api/tests/test_citizen_report_aggregates_import.py -q",
+      "exit_code": 0,
+      "result": "62 passed",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "api-origin-typecheck",
+      "command": "uv run basedpyright packages/simulation/tests/test_random_walk.py services/api/tests/test_simulation_preview.py",
+      "exit_code": 0,
+      "result": "0 errors, 0 warnings, 0 notes",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "web-origin-slice-tests",
+      "command": "cd apps/web && corepack pnpm exec vitest run src/components/dashboard.test.tsx src/components/map-view.test.tsx",
+      "exit_code": 0,
+      "result": "70 passed",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "real-cell-backend-tests",
+      "command": "uv run pytest services/api/tests/test_simulation_preview.py -q",
+      "exit_code": 0,
+      "result": "20 passed",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "all-cell-coverage-probe",
+      "command": "uv run python /tmp/probe_all_cells.py",
+      "exit_code": 0,
+      "result": "91/91 published cells resolved; candidates min 3, median 60, max 286; reported cell 61 candidates",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "focused-card-dashboard-tests",
+      "command": "corepack pnpm --filter @ratsight/web test src/components/map-view.test.tsx src/components/dashboard.test.tsx",
+      "exit_code": 0,
+      "result": "70 passed",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "real-cell-dashboard-tests",
+      "command": "corepack pnpm --filter @ratsight/web test src/components/dashboard.test.tsx",
+      "exit_code": 0,
+      "result": "49 passed",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "full-js-tests",
+      "command": "make test-js",
+      "exit_code": 0,
+      "result": "3 files, 78 tests passed",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    },
+    {
+      "id": "full-python-tests",
+      "command": "make test-py",
+      "exit_code": 0,
+      "result": "191 passed in 99.61s",
+      "reference": "openspec/changes/citizen-report-driven-simulation-origins/verification/qa.md"
+    }
+  ],
+  "science": {
+    "applicable": true,
+    "claims": [
+      {
+        "evidence_id": "EVID-RATDAR-REUSE-CLAIM-2026-10-26",
+        "source": "docs/evidence/ratdar-reuse-claim-2026-10-26.md",
+        "assumption": "One published 250 m aggregate cell may seed synthetic walkers from all graph nodes strictly inside it; a single node is strict, multiple nodes seed uniformly, and the cell is an UNVERIFIED report aggregate, not an observed rat location.",
+        "parameter": "origin_cell_id; strict-in-cell-v1 for one candidate; uniform-in-cell-v1 for multiple candidates; counts never become weights",
+        "model": "weighted_random_walk simulation preview",
+        "data_class": "UNVERIFIED",
+        "status": "PARTIALLY_VERIFIED",
+        "limitation": "Reuse authorization, CRS/coverage policy, and report-category semantics lack approval; the origin remains UNVERIFIED and the movement SIMULATED.",
+        "validation": [
+          "real-cell-backend-tests",
+          "real-cell-dashboard-tests",
+          "all-cell-coverage-probe"
+        ]
+      }
+    ]
+  },
+  "approval": {
+    "required": true,
+    "trigger": "SENSITIVE_DATA_POLICY",
+    "decision": "PENDING",
+    "approver": null,
+    "reference": null,
+    "scope": "Any real Rat Radar reuse, spatially derived display, redistribution, or report-to-simulation origin use; the 2026-10-27 owner-directed origin activation is a recorded override, not an authorization.",
+    "findings": []
+  }
+}

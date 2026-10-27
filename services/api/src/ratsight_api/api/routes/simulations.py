@@ -1,11 +1,20 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 from ratsight_api.api.schemas import (
     ModelCatalogItem,
     SimulationPreviewRequest,
     SimulationPreviewResponse,
 )
-from ratsight_api.application.simulation_preview import UnknownOriginNodeError, preview_simulation
+from ratsight_api.application.simulation_preview import (
+    OriginCellResolutionError,
+    OriginCellStorageError,
+    UnknownOriginNodeError,
+    preview_simulation,
+)
+from ratsight_api.infrastructure.database.connection import get_session
 from ratsight_simulation.models.metadata import MODEL_ID, MODEL_VERSION
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/api/v1/simulations", tags=["simulations"])
 
@@ -27,9 +36,31 @@ def get_models() -> list[ModelCatalogItem]:
 
 
 @router.post("/preview", response_model=SimulationPreviewResponse)
-def create_preview(request: SimulationPreviewRequest) -> dict[str, object]:
+def create_preview(
+    request: SimulationPreviewRequest,
+    session: Annotated[Session, Depends(get_session)],
+) -> dict[str, object]:
     try:
-        return preview_simulation(request)
+        return preview_simulation(request, session=session)
+    except OriginCellResolutionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "ORIGIN_CELL_NOT_RESOLVABLE",
+                "message": str(exc),
+                "origin_cell_id": request.origin_cell_id,
+                "classification": "UNVERIFIED",
+            },
+        ) from exc
+    except OriginCellStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ORIGIN_CELL_STORAGE_UNAVAILABLE",
+                "message": str(exc),
+                "origin_cell_id": request.origin_cell_id,
+            },
+        ) from exc
     except UnknownOriginNodeError as exc:
         raise HTTPException(
             status_code=422,
@@ -49,7 +80,7 @@ def create_preview(request: SimulationPreviewRequest) -> dict[str, object]:
                 "message": str(exc),
                 "provisioning": (
                     "Place the pinned extract at "
-                    "~/.local/share/ratsight/network/taipei-songshan-20261023.osm; "
+                    "~/.local/share/ratsight/network/taipei-expanded-ratdar-20261027.osm; "
                     "see docs/infrastructure/taipei-osm-network-source.md."
                 ),
             },

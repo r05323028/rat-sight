@@ -26,15 +26,15 @@ A provenance-first analysis workspace that grows into municipal decision support
 
 - Desktop browser against a single FastAPI service; Next.js, MapLibre, and TanStack Query dashboard; local PostgreSQL/PostGIS development database.
 - Basemap: CARTO Positron (free, no key), configurable through NEXT_PUBLIC_MAP_STYLE_URL; provider attribution retained.
-- Data arrives by local-file importers only — official Taipei administrative district boundaries (EPSG:3826 to EPSG:4326), stormwater pipeline data, rodent reports — and is served through versioned JSON contracts. Map layer requests are viewport-bbox bounded.
+- Data arrives by local-file importers only — official Taipei administrative district boundaries (EPSG:3826 to EPSG:4326), stormwater pipeline data, and suppressed 250 m citizen-report aggregates — and is served through versioned JSON contracts. Map layer requests are viewport-bbox bounded.
 - Local development: make db-up, make migrate, make api, make web; the dashboard is served at http://localhost:3000.
 - Work is governed by the repository's evidence-driven OpenSpec workflow and by the OBSERVED / INFERRED / SIMULATED / UNVERIFIED contract in AGENTS.md.
-- Analyst tasks observed in review: run the synthetic preview, inspect layers and feature attributes, filter rodent reports by a UTC date range, read the analysis panel.
+- Analyst tasks observed in review: run the synthetic preview, inspect layers and feature attributes, review suppressed citizen-report aggregate cells, read the analysis panel.
 
 ## Capabilities and Constraints
 
 - Layer catalog with availability state, classification badge, and per-layer status message (not imported, zoom required, service unavailable).
-- Map panels: 圖層 (visibility controls), 行政區檢視 (ADMINISTRATIVE_REFERENCE, UNVERIFIED), 雨水下水道管線 (INFRASTRUCTURE_REFERENCE, UNVERIFIED, bounded bbox, allowlisted publisher attributes, no topology), 鼠類回報 (synthetic fixture, SIMULATED), 模擬預覽, 分析.
+- Map panels: 圖層 (visibility controls), 行政區檢視 (ADMINISTRATIVE_REFERENCE, UNVERIFIED), 雨水下水道管線 (INFRASTRUCTURE_REFERENCE, UNVERIFIED, bounded bbox, allowlisted publisher attributes, no topology), 公民通報彙整 (CITIZEN_REPORT_AGGREGATE, UNVERIFIED, suppressed 250 m cells), 模擬預覽, 分析.
 - Deterministic synthetic simulation preview carrying model id and version, parameters, random seed, synthetic provenance, assumptions, and node/edge visit counts with normalized frequencies; status SIMULATED.
 - Constraints: no real Taipei rodent observations; no biological parameters, calibration, or model-accuracy metrics; no statistical summaries, risk estimates, or quantified uncertainty; simulated paths are never observed migration; stormwater connectivity is UNVERIFIED; source and target CRS stay explicit; importers are local-file only; no live data ingestion and no fabricated Taipei counts; the UI is Taiwan Traditional Chinese (zh-Hant) with the English classification tokens preserved verbatim.
 - Repository-enforced scientific integrity (AGENTS.md): simulated rodent movement must never be presented as an observed migration or real-world event, and absence of data is not a zero count.
@@ -49,9 +49,10 @@ A provenance-first analysis workspace that grows into municipal decision support
 ## Evidence on Hand
 
 - docs/rat-sight-first-black-box-usability-review.md — black-box usability review using a simulated municipal persona; observed findings UX-001 to UX-003; screenshots were written to /tmp and are ephemeral; reproduced by an independent QA pass and bounded by a public-health interpretation review.
-- docs/evidence/ — dated acceptance, feasibility, and source-investigation reports for Taipei district boundaries, the stormwater network, rodent report source and public-health suitability, official complaint activity, and public trash bins.
+- docs/evidence/ — dated acceptance, feasibility, and source-investigation reports for Taipei district boundaries, the stormwater network, citizen-report source and public-health suitability, official complaint activity, and public trash bins. Historical reports describe the retired synthetic rodent-report fixture.
 - Imported real reference data: official Taipei administrative districts and stormwater pipelines, each carrying dataset_id, resource version, license, attribution, archive SHA-256, and source/target CRS.
-- Synthetic fixture: five synthetic rodent reports; the seed-42 preview reproducibly reports 312 node visits and 16 synthetic edges.
+- Synthetic simulation fixture: the seed-42 preview reproducibly reports 312 node visits and 16 synthetic edges over a schematic graph; it is a movement-mechanics demonstration, not an observed rodent layer.
+- Citizen-report aggregate layer: suppressed 250 m cell × month × report-type counts only; UNVERIFIED, attributed, and never rendered as observations, abundance, or movement. Real aggregate-cell simulation origins remain disabled in the UI pending approval gates.
 - Absences future work must not fill by invention: no real rodent observations, no prevalence/incidence/population estimates, no validated model accuracy, no quantified uncertainty, and no municipal endorsement or deployment.
 
 ## Product Principles

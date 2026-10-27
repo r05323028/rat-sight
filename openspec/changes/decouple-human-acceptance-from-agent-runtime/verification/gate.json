@@ -1,0 +1,66 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS_WITH_WARNINGS",
+      "findings": [
+        {"id": "CR-001", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-002", "severity": "MAJOR", "status": "RESOLVED"},
+        {"id": "CR-003", "severity": "MINOR", "status": "RESOLVED"},
+        {"id": "CR-004", "severity": "MINOR", "status": "RESOLVED"}
+      ]
+    },
+    "code": {"decision": "PASS_WITH_WARNINGS", "findings": []}
+  },
+  "engineering": [
+    {
+      "requirement": "human-acceptance#Read-only change review",
+      "status": "VERIFIED",
+      "implementation": ["scripts/change_acceptance.py", "Makefile"],
+      "tests": ["scripts/tests/test_change_acceptance.py"],
+      "verification": ["acceptance-tests"]
+    },
+    {
+      "requirement": "human-acceptance#Interactive owner decision",
+      "status": "VERIFIED",
+      "implementation": ["scripts/change_acceptance.py", "Makefile"],
+      "tests": ["scripts/tests/test_change_acceptance.py"],
+      "verification": ["acceptance-tests"]
+    },
+    {
+      "requirement": "human-acceptance#Revision-bound decision record",
+      "status": "VERIFIED",
+      "implementation": ["scripts/change_acceptance.py"],
+      "tests": ["scripts/tests/test_change_acceptance.py"],
+      "verification": ["acceptance-tests"]
+    },
+    {
+      "requirement": "human-acceptance#Archive requires current owner acceptance",
+      "status": "VERIFIED",
+      "implementation": ["scripts/change_acceptance.py", "Makefile"],
+      "tests": ["scripts/tests/test_change_acceptance.py"],
+      "verification": ["acceptance-tests"]
+    },
+    {
+      "requirement": "human-acceptance#Durable workflow boundary",
+      "status": "VERIFIED",
+      "implementation": ["guidance/openspec-workflow.md", "guidance/human-escalation.md", "guidance/lead.md"],
+      "tests": ["scripts/tests/test_change_acceptance.py"],
+      "verification": ["acceptance-tests"]
+    }
+  ],
+  "verification": [
+    {
+      "id": "acceptance-tests",
+      "command": "uv run pytest scripts/tests/test_change_acceptance.py -q",
+      "exit_code": 0,
+      "result": "5 passed",
+      "reference": "openspec/changes/decouple-human-acceptance-from-agent-runtime/verification/qa.md"
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "reason": "Developer workflow change; no scientific claim or model behavior changed.",
+    "claims": []
+  },
+  "approval": null
+}

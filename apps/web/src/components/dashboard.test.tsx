@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Dashboard } from "@/components/dashboard";
@@ -8,12 +9,22 @@ const mockState = vi.hoisted(() => ({
   layerCatalogMode: "available" as "available" | "error" | "unknown",
   boundaryMode: "empty" as "empty" | "available" | "error",
   stormwaterMode: "available" as "available" | "empty" | "in_view" | "truncated" | "error",
-  rodentMode: "available" as "available" | "empty" | "in_filters" | "truncated" | "error" | "many",
   citizenMode: "available" as "available" | "empty" | "error",
-  previewMode: "available" as "available" | "osm_unavailable" | "ui_error" | "unknown_origin",
+  previewMode: "available" as
+    "available" | "osm_unavailable" | "ui_error" | "unknown_origin" | "cell_origin",
   // Absent by default: the API does not ship termination_reason yet.
   previewTerminationReason: undefined as "dead_end" | "no_eligible_transition" | undefined,
   previewReachability: true,
+  previewVisualization: false,
+  citizenCell: {
+    cell_id: "g250m:1:2",
+    month: "2026-05",
+    report_type: "sighting" as const,
+    count: 4,
+    data_class: "CITIZEN_REPORT_AGGREGATE" as const,
+    classification: "UNVERIFIED" as const,
+    attribution: "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
+  },
   district: {
     district_id: "63000010",
     district_name: "松山區",
@@ -35,41 +46,42 @@ const mockState = vi.hoisted(() => ({
     pipe_number: "P-1",
     material: "RCP",
   },
-  rodentFeature: {
-    report_id: "report-1",
-    source: "synthetic_fixture",
-    report_type: "sighting_report",
-    reported_at: "2026-10-01T00:00:00Z",
-    location_precision: "synthetic_point",
-    review_status: "unreviewed",
-    municipal_status: "not_assessed",
-    action_status: "none_reported",
-    data_class: "RODENT_REPORT",
-    classification: "SIMULATED",
-    provenance_schema_version: "1",
-    dataset_id: "00000000-0000-4000-8000-000000000002",
-    resource_version: "2026-10-17T00:00:00Z",
-    content_sha256: "c".repeat(64),
-  },
 }));
 
 vi.mock("@/components/map-view", () => ({
-  MapView: ({ rodentReports }: { rodentReports?: unknown }) => (
-    <div
-      role="region"
-      aria-label="互動式 GIS 地圖"
-      data-has-rodent-reports={rodentReports ? "yes" : "no"}
-    />
+  MapView: ({
+    onSelectCitizenCell,
+    citizenCellCard,
+  }: {
+    onSelectCitizenCell?: (properties: typeof mockState.citizenCell) => void;
+    citizenCellCard?: ReactNode;
+  }) => (
+    <div role="region" aria-label="互動式 GIS 地圖">
+      {onSelectCitizenCell && (
+        <button type="button" onClick={() => onSelectCitizenCell(mockState.citizenCell)}>
+          Select citizen report cell
+        </button>
+      )}
+      {citizenCellCard}
+    </div>
   ),
 }));
 
+async function runSelectedCitizenCell() {
+  const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+  await within(panel).findByText(/回傳 2 個/);
+  fireEvent.click(await screen.findByRole("button", { name: "Select citizen report cell" }));
+  fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
+}
+
 function renderDashboard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const rendered = render(
     <QueryClientProvider client={queryClient}>
       <Dashboard />
     </QueryClientProvider>,
   );
+  return { ...rendered, queryClient };
 }
 
 const PROVENANCE = {
@@ -113,31 +125,15 @@ const STORMWATER_PROVENANCE = {
   uncertainty: { currentness: "Publisher reference-only; currentness UNVERIFIED", note: "fixture" },
 };
 
-const RODENT_PROVENANCE = {
-  schema_version: "1",
-  source_kind: "synthetic_fixture",
-  dataset_id: "00000000-0000-4000-8000-000000000002",
-  resource_version: "2026-10-17T00:00:00Z",
-  retrieved_at: "2026-10-17T00:00:00Z",
-  content_sha256: "c".repeat(64),
-  license: "僅為合成測試資料；不含真實回報資料。",
-  attribution: "RatSight synthetic report fixture",
-  source_crs: "EPSG:4326",
-  target_crs: "EPSG:4326",
-  processing: { tool: "test", tool_version: "0", steps: ["fixture"] },
-  synthetic: true,
-  uncertainty: { currentness: "Synthetic fixture; not a real reporting system.", note: "fixture" },
-};
-
 beforeEach(() => {
   mockState.layerCatalogMode = "available";
   mockState.boundaryMode = "empty";
   mockState.stormwaterMode = "available";
-  mockState.rodentMode = "available";
   mockState.citizenMode = "available";
   mockState.previewMode = "available";
   mockState.previewTerminationReason = undefined;
   mockState.previewReachability = true;
+  mockState.previewVisualization = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -162,13 +158,6 @@ beforeEach(() => {
         }
         return new Response(
           JSON.stringify([
-            {
-              id: "rodent_observations",
-              label: "鼠類觀測",
-              available: false,
-              classification: null,
-              message: "尚未載入觀測資料集。",
-            },
             {
               id: "sewer_networks",
               label: "污水下水道",
@@ -358,16 +347,7 @@ beforeEach(() => {
                     ],
                   ],
                 },
-                properties: {
-                  cell_id: "g250m:1:2",
-                  month: "2026-05",
-                  report_type: "sighting",
-                  count: 4,
-                  data_class: "CITIZEN_REPORT_AGGREGATE",
-                  classification: "UNVERIFIED",
-                  attribution:
-                    "公民通報資料來源：見鼠雷達 ratdar.taipei（公開通報匯出，未經平台授權）",
-                },
+                properties: mockState.citizenCell,
               },
               {
                 type: "Feature",
@@ -402,52 +382,10 @@ beforeEach(() => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
-      if (url.includes("/api/v1/rodent-reports")) {
-        if (mockState.rodentMode === "error") {
-          return new Response("storage unavailable", { status: 503 });
-        }
-        const many = mockState.rodentMode === "many";
-        const features =
-          mockState.rodentMode === "empty" || mockState.rodentMode === "in_filters"
-            ? []
-            : many
-              ? Array.from({ length: 150 }, (_, index) => {
-                  const reportId = `RR-${String(index).padStart(4, "0")}`;
-                  return {
-                    type: "Feature",
-                    id: reportId,
-                    geometry: { type: "Point", coordinates: [121.55, 25.02] },
-                    properties: { ...mockState.rodentFeature, report_id: reportId },
-                  };
-                })
-              : [
-                  {
-                    type: "Feature",
-                    id: mockState.rodentFeature.report_id,
-                    geometry: { type: "Point", coordinates: [121.55, 25.02] },
-                    properties: mockState.rodentFeature,
-                  },
-                ];
-        return new Response(
-          JSON.stringify({
-            type: "FeatureCollection",
-            data_state: mockState.rodentMode === "empty" ? "empty" : "available",
-            data_class: "RODENT_REPORT",
-            classification: "SIMULATED",
-            provenance: mockState.rodentMode === "empty" ? null : RODENT_PROVENANCE,
-            feature_count: features.length,
-            bbox: [121.5, 24.98, 121.63, 25.09],
-            reported_from: null,
-            reported_to: null,
-            truncated: mockState.rodentMode === "truncated",
-            features,
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
       const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
         study_area?: string;
         origin_node_id?: string;
+        origin_cell_id?: string;
       };
       if (mockState.previewMode === "ui_error") {
         return new Response("preview exploded", { status: 500 });
@@ -506,16 +444,37 @@ beforeEach(() => {
               : {
                   classification: "SIMULATED",
                   source_type: "osm_surface_network",
-                  source_id: "taipei-songshan-20261023.osm",
+                  source_id: "taipei-expanded-ratdar-20261027.osm",
                   source_crs: "EPSG:4326",
                   note: "bounded OSM surface extract",
                 },
           assumptions: ["synthetic fixture"],
           origin: {
-            node_id: requestBody.origin_node_id ?? "n1",
-            coordinates: requestBody.origin_node_id === "n2" ? [121.52, 25.02] : [121.5, 25],
+            node_id: requestBody.origin_cell_id ? "n0" : (requestBody.origin_node_id ?? "n1"),
+            coordinates: requestBody.origin_cell_id
+              ? [121.53, 25.04]
+              : requestBody.origin_node_id === "n2"
+                ? [121.52, 25.02]
+                : [121.5, 25],
             classification: "SIMULATED",
-            selection: requestBody.origin_node_id ? "user" : "default",
+            selection:
+              requestBody.origin_cell_id || mockState.previewMode === "cell_origin"
+                ? "cell"
+                : requestBody.origin_node_id
+                  ? "user"
+                  : "default",
+            ...(requestBody.origin_cell_id
+              ? { cell_id: requestBody.origin_cell_id }
+              : mockState.previewMode === "cell_origin"
+                ? { cell_id: "synthetic-cell-n0" }
+                : {}),
+            ...(requestBody.origin_cell_id && requestBody.study_area === "taipei_osm_songshan"
+              ? {
+                  node_ids: Array.from({ length: 83 }, (_, index) => `n${index}`),
+                  cell_candidate_count: 83,
+                  cell_resolver_version: "uniform-in-cell-v1",
+                }
+              : {}),
             note: "Synthetic model input; not an observed or reported animal origin.",
           },
           nodes: [
@@ -546,11 +505,23 @@ beforeEach(() => {
                 origin_node_id: requestBody.origin_node_id ?? "n1",
                 reachable_nodes: 2,
                 total_nodes: 3,
-                reachable_edges: 1,
-                total_edges: 1,
+                reachable_edges: 3,
+                total_edges: 4,
+                sampled_nodes: 1,
                 component_count: 2,
                 classification: "SIMULATED",
                 note: "Graph reachability from the resolved origin; synthetic model input.",
+              }
+            : undefined,
+          visualization: mockState.previewVisualization
+            ? {
+                mode: "local_reference",
+                radius_meters: 750,
+                returned_nodes: 3,
+                returned_edges: 1,
+                total_nodes: 3,
+                total_edges: 4,
+                note: "Map geometry is a local reference subset.",
               }
             : undefined,
           // n1 -> n3 only: n2 is disconnected and n3 is reachable but unsampled.
@@ -619,18 +590,16 @@ afterEach(() => {
 });
 
 describe("RatSight dashboard", () => {
-  it("renders map, layer controls, and simulation controls", async () => {
+  it("renders the map, layers, and report-driven simulation controls", async () => {
     renderDashboard();
     expect(screen.getByRole("heading", { name: "見光鼠" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toBeInTheDocument();
-    // Planned catalog entries carry status text, never a dead control.
-    expect(screen.queryByLabelText("鼠類觀測")).not.toBeInTheDocument();
-    expect(await screen.findByText("尚未載入觀測資料集。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "開始模擬" })).toBeInTheDocument();
+    // Simulation is only reachable from a selected citizen-report cell.
+    expect(screen.queryByRole("button", { name: "開始模擬" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "合成模擬示範" })).not.toBeInTheDocument();
     expect(screen.getByText("尚未載入真實觀測資料")).toBeInTheDocument();
     expect(screen.getByText(/目前尚未載入已查證的鼠類觀測資料/)).toBeInTheDocument();
     expect(screen.getByText(/模擬結果不代表真實移動、風險或熱區/)).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "合成模擬示範" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "工作區狀態" })).toBeInTheDocument();
   });
 
@@ -662,13 +631,25 @@ describe("RatSight dashboard", () => {
 
     const index = screen.getByRole("navigation", { name: "章節索引" });
     const links = within(index).getAllByRole("link");
-    expect(links).toHaveLength(6);
+    expect(links).toHaveLength(5);
     expect(within(index).getByRole("link", { name: "02 圖層" })).toHaveAttribute(
       "href",
       "#panel-layers",
     );
+    expect(within(index).getByRole("link", { name: "03 行政區" })).toHaveAttribute(
+      "href",
+      "#panel-reference",
+    );
+    expect(within(index).getByRole("link", { name: "04 下水道" })).toHaveAttribute(
+      "href",
+      "#panel-stormwater",
+    );
+    expect(within(index).getByRole("link", { name: "05 公民通報" })).toHaveAttribute(
+      "href",
+      "#panel-citizen-aggregates",
+    );
+    expect(document.getElementById("panel-simulation")).toBeNull();
     expect(document.getElementById("panel-layers")).not.toBeNull();
-    expect(document.getElementById("panel-rodent")).not.toBeNull();
 
     const glyphs = document.querySelectorAll(".layer-glyph");
     expect(glyphs.length).toBeGreaterThan(0);
@@ -679,7 +660,6 @@ describe("RatSight dashboard", () => {
     mockState.layerCatalogMode = "error";
     renderDashboard();
     expect(await screen.findByText("圖層目錄無法使用")).toBeInTheDocument();
-    expect(screen.queryByLabelText("鼠類觀測")).not.toBeInTheDocument();
     expect(screen.getByText(/不得推論任何圖層可用性/)).toBeInTheDocument();
     expect(screen.queryByText(/顯示空的圖層目錄/)).not.toBeInTheDocument();
   });
@@ -695,33 +675,31 @@ describe("RatSight dashboard", () => {
   it("groups planned layers with honest source-readiness guidance", async () => {
     renderDashboard();
     expect(await screen.findByText("此版本尚未載入")).toBeInTheDocument();
-    expect(screen.getByText("尚未載入觀測資料集。")).toBeInTheDocument();
     expect(screen.getByText(/尚未記錄核准的資料來源或匯入程式/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "資料來源整備指南" })).toHaveAttribute(
       "href",
       "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure/data-sources.md",
     );
-    expect(screen.getByText("SIMULATED · 合成測試資料；請執行預覽以產生")).toBeInTheDocument();
+    expect(
+      screen.getByText("公民通報彙整與模擬移動路徑會在資料載入或預覽完成後自動顯示。"),
+    ).toBeInTheDocument();
     const unavailableGroup = screen.getByText("此版本尚未載入").parentElement;
     if (!unavailableGroup) throw new Error("Unavailable layer group was not rendered");
     expect(within(unavailableGroup).queryByLabelText("模擬移動路徑")).not.toBeInTheDocument();
   });
 
-  it("keeps simulated paths separate and labeled as a fixture before and after preview", async () => {
+  it("shows simulated paths automatically after a report-cell run without a layer switch", async () => {
     renderDashboard();
-    expect(screen.getByText("合成模擬")).toBeInTheDocument();
     expect(screen.queryByLabelText("模擬移動路徑")).not.toBeInTheDocument();
-    expect(screen.getByText("SIMULATED · 合成測試資料；請執行預覽以產生")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    await waitFor(() => expect(screen.getByLabelText("模擬移動路徑")).toBeEnabled());
-    expect(screen.getByText("SIMULATED · 合成測試資料")).toBeInTheDocument();
-    expect(screen.getByText("此版本尚未載入")).toBeInTheDocument();
+    await runSelectedCitizenCell();
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("可重現執行完成");
+    expect(status).toHaveTextContent("模擬路徑已顯示");
+    expect(screen.queryByLabelText("模擬移動路徑")).not.toBeInTheDocument();
   });
 
   it("links to operator-only import guides for supported layers", async () => {
     mockState.stormwaterMode = "empty";
-    mockState.rodentMode = "empty";
     renderDashboard();
     expect(await screen.findByRole("link", { name: "行政區邊界匯入指南" })).toHaveAttribute(
       "href",
@@ -731,109 +709,28 @@ describe("RatSight dashboard", () => {
       "href",
       "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure/stormwater-pipelines-import.md",
     );
-    expect(await screen.findByRole("link", { name: "合成回報測試資料匯入指南" })).toHaveAttribute(
-      "href",
-      "https://github.com/r05323028/rat-sight/blob/main/docs/infrastructure/rodent-reports-import.md",
-    );
-  });
-
-  it("defaults to the pinned OSM study area", () => {
-    renderDashboard();
-    expect(screen.getByLabelText("研究範圍")).toHaveValue("taipei_osm_songshan");
-  });
-
-  it("explains the schematic network as straight-line topology, not road geometry", async () => {
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    // The OSM default follows surveyed edge geometry, so no schematic caveat is shown.
-    expect(screen.queryByText(/示意拓撲：/)).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("研究範圍"), {
-      target: { value: "taipei_synthetic_demo" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    expect(await screen.findByText(/示意拓撲：.*直線（虛線）連接/)).toBeInTheDocument();
-  });
-
-  it("states synthetic preview limitations beside the analysis metrics", async () => {
-    renderDashboard();
-    expect(screen.getByText(/合成預覽 — 僅為模擬測試資料；不含真實觀測/)).toBeInTheDocument();
-    expect(screen.getByText(/請勿推論盛行率、移動、風險/)).toBeInTheDocument();
-    expect(screen.getByText("模型網路邊")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    expect(screen.getByText(/次無單位、假設性的節點造訪/)).toBeInTheDocument();
-  });
-
-  it("labels the reported-date filter as Asia/Taipei and counts returned reports", async () => {
-    mockState.rodentMode = "available";
-    renderDashboard();
-    expect(screen.getByLabelText("回報起時間（Asia/Taipei，含端點）")).toBeInTheDocument();
-    expect(screen.getByLabelText("回報迄時間（Asia/Taipei，含端點）")).toBeInTheDocument();
-    expect(screen.getByText(/Asia\/Taipei（UTC\+8，無日光節約時間）/)).toBeInTheDocument();
-    expect(await screen.findByText(/內回傳 1 筆 SIMULATED\s+合成報告形資料/)).toBeInTheDocument();
   });
 
   it("counts visible layer rows once and offers no dead layer checkboxes", async () => {
     renderDashboard();
-    await screen.findByText("尚未載入觀測資料集。");
-    for (const label of ["鼠類觀測", "污水下水道", "地表移動廊道", "人類活動", "環境條件"]) {
+    for (const label of ["污水下水道", "地表移動廊道", "人類活動", "環境條件"]) {
       expect(screen.getAllByText(label)).toHaveLength(1);
       expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
     }
-    // Five built-in map rows plus five catalog entries plus synthetic paths.
+    // Three switchable built-in rows plus four catalog entries.
     const badge = screen.getByLabelText(/個圖層列/);
-    expect(badge).toHaveTextContent("11");
+    expect(badge).toHaveTextContent("7");
     // The displayed count must equal the rows actually rendered, not a stale total.
     expect(document.querySelectorAll(".layer-row")).toHaveLength(Number(badge.textContent));
-    expect(screen.getAllByRole("checkbox")).toHaveLength(5);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    expect(screen.queryByLabelText("公民通報彙整")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("模擬移動路徑")).not.toBeInTheDocument();
   });
 
-  it("qualifies a truncated response without claiming a total", async () => {
-    mockState.rodentMode = "truncated";
-    renderDashboard();
-    const panel = screen.getByRole("region", { name: "鼠類回報檢視" });
-    expect(await within(panel).findByText("回傳資料已截斷")).toBeInTheDocument();
-    expect(within(panel).getByText(/內回傳 1 筆 SIMULATED\s+合成報告形資料/)).toBeInTheDocument();
-    expect(within(panel).getByText(/已達回傳上限/)).toBeInTheDocument();
-  });
-
-  it("requests and labels synthetic preview output", async () => {
+  it("surfaces an unavailable OSM network on the report-cell card", async () => {
     mockState.previewMode = "osm_unavailable";
     renderDashboard();
-    // The schematic graph is now an explicit choice, so select it rather than relying on the default.
-    fireEvent.change(screen.getByLabelText("研究範圍"), {
-      target: { value: "taipei_synthetic_demo" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("可重現執行完成 · 種子 42");
-    expect(screen.getByText("ratsight-synthetic-graph-v1")).toBeInTheDocument();
-  });
-
-  it("shows only the simulation provenance the API returns and marks the rest unavailable", async () => {
-    renderDashboard();
-    fireEvent.change(screen.getByLabelText("研究範圍"), {
-      target: { value: "taipei_synthetic_demo" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    const panel = screen.getByRole("region", { name: "合成模擬示範" });
-    fireEvent.click(within(panel).getByText("模擬來源與版本"));
-    expect(within(panel).getByText("來源類型")).toBeInTheDocument();
-    expect(within(panel).getByText("synthetic_fixture")).toBeInTheDocument();
-    expect(within(panel).getByText("來源 ID")).toBeInTheDocument();
-    expect(within(panel).getByText("內容 SHA-256")).toBeInTheDocument();
-    // Fields the fixture omits are stated as absent, never guessed.
-    expect(within(panel).getAllByText("未提供").length).toBeGreaterThan(0);
-  });
-
-  it("states that an unavailable OSM network is not replaced by the schematic network", async () => {
-    mockState.previewMode = "osm_unavailable";
-    renderDashboard();
-    fireEvent.change(screen.getByLabelText("研究範圍"), {
-      target: { value: "taipei_osm_songshan" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
+    await runSelectedCitizenCell();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/來源網路無法使用：extract missing/);
     expect(alert).toHaveTextContent(/系統未以示意網路替代 OSM 結果/);
@@ -842,132 +739,23 @@ describe("RatSight dashboard", () => {
   it("keeps the failure generic when the OSM source itself is not the reported cause", async () => {
     mockState.previewMode = "ui_error";
     renderDashboard();
-    fireEvent.change(screen.getByLabelText("研究範圍"), {
-      target: { value: "taipei_osm_songshan" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
+    await runSelectedCitizenCell();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Simulation preview failed (500)");
     expect(alert).not.toHaveTextContent(/來源網路無法使用/);
     expect(alert).not.toHaveTextContent(/未以示意網路替代/);
   });
 
-  it("reports synthetic trajectories instead of aggregate visits in trajectory mode", async () => {
+  it("clears an earlier successful preview when a later report-cell run fails", async () => {
     renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    fireEvent.change(screen.getByLabelText("輸出模式"), { target: { value: "trajectory" } });
-    const summary = screen.getByLabelText("模擬摘要");
-    expect(within(summary).getByText("2 條合成軌跡（SIMULATED）")).toBeInTheDocument();
-    expect(within(summary).queryByText(/節點造訪/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("合成軌跡")).toHaveValue("1");
-    expect(screen.getByText("步驟 0 / 1")).toBeInTheDocument();
-    expect(screen.getByText(/只顯示已回傳的合成邊幾何累積到第 0 步/)).toBeInTheDocument();
-    // Selecting trajectories turns the paths layer on, otherwise the map shows nothing.
-    expect(screen.getByLabelText("模擬移動路徑")).toBeChecked();
-  });
+    await runSelectedCitizenCell();
+    expect(await screen.findByRole("status")).toHaveTextContent("模擬路徑已顯示");
 
-  it("advances playback through returned steps without implying elapsed time", async () => {
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    fireEvent.change(screen.getByLabelText("輸出模式"), { target: { value: "trajectory" } });
-    expect(screen.getByRole("button", { name: "上一步" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "下一步" }));
-    expect(screen.getByText("步驟 1 / 1")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "下一步" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /步驟 1（step_index 0）/ })).toHaveAttribute(
-      "aria-current",
-      "step",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "重設" }));
-    expect(screen.getByText("步驟 0 / 1")).toBeInTheDocument();
-    // Playback switches trajectory without re-running the model.
-    fireEvent.change(screen.getByLabelText("合成軌跡"), { target: { value: "2" } });
-    expect(screen.getByText(/此合成代理模型規則下無可用轉移而提前終止/)).toBeInTheDocument();
-  });
-
-  it("uses the API termination reason when the payload carries one", async () => {
-    mockState.previewTerminationReason = "dead_end";
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    fireEvent.change(screen.getByLabelText("輸出模式"), { target: { value: "trajectory" } });
-    fireEvent.change(screen.getByLabelText("合成軌跡"), { target: { value: "2" } });
-    expect(screen.getByText(/此合成代理模型網路死路（無可用出邊）終止/)).toBeInTheDocument();
-  });
-
-  it("discloses graph-derived reachability without implying absence", async () => {
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    // Fixture graph: n1 -> n3, so n2 is unreachable and n3 is reachable but unsampled.
-    expect(screen.getByText("2 / 3 個模型節點")).toBeInTheDocument();
-    const note = screen.getByText(/可達性由 API 回傳的模型節點與邊計算（SIMULATED，非觀測或調查）/);
-    expect(note).toHaveTextContent(/1 個節點不可達/);
-    expect(note).toHaveTextContent(/未被取樣/);
-    expect(note).toHaveTextContent(/1 個可達節點也未被取樣/);
-    expect(note).toHaveTextContent(/模型網路有 2 個互不相連的分量/);
-    expect(note).toHaveTextContent(/未取樣或不可達不代表沒有動物/);
-  });
-
-  it("falls back to graph-derived reachability when the API omits it", async () => {
-    mockState.previewReachability = false;
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    expect(screen.getByText("2 / 3 個模型節點")).toBeInTheDocument();
-    expect(screen.queryByText(/互不相連的分量/)).not.toBeInTheDocument();
-  });
-
-  it("discloses the default origin chosen by the API", async () => {
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    expect(
-      screen.getByText(/^n1 · 25\.00000, 121\.50000 · 預設固定起點 · SIMULATED$/),
-    ).toBeInTheDocument();
-  });
-
-  it("sends a chosen origin and discloses it as a user selection", async () => {
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    fireEvent.change(screen.getByLabelText("合成起點節點"), { target: { value: "n2" } });
-    expect(screen.getByText(/已選擇，尚未以此外起點執行/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await waitFor(() =>
-      expect(
-        screen.getByText(/^n2 · 25\.02000, 121\.52000 · 使用者選擇 · SIMULATED$/),
-      ).toBeInTheDocument(),
-    );
-    const previewCall = vi
-      .mocked(fetch)
-      .mock.calls.filter(([input]) => String(input).includes("/api/v1/simulations/preview"))
-      .at(-1);
-    expect(JSON.parse(String(previewCall?.[1]?.body))).toMatchObject({ origin_node_id: "n2" });
-  });
-
-  it("surfaces a rejected origin instead of silently snapping to a node", async () => {
     mockState.previewMode = "unknown_origin";
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
+    fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("合成起點不在模型網路內：origin_node_id 'n1' is not a node");
-    expect(alert).not.toHaveTextContent(/來源網路無法使用/);
-  });
-
-  it("clears an earlier trajectory when a later origin run fails", async () => {
-    renderDashboard();
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("status");
-    fireEvent.change(screen.getByLabelText("輸出模式"), { target: { value: "trajectory" } });
-    expect(screen.getByText("步驟 0 / 1")).toBeInTheDocument();
-    mockState.previewMode = "unknown_origin";
-    fireEvent.change(screen.getByLabelText("合成起點節點"), { target: { value: "n2" } });
-    fireEvent.click(screen.getByRole("button", { name: "開始模擬" }));
-    await screen.findByRole("alert");
-    expect(screen.queryByText("步驟 0 / 1")).not.toBeInTheDocument();
+    expect(alert).toHaveTextContent("合成起點不在模型網路內");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("summarizes evidence state and prohibited conclusions before any action", async () => {
@@ -975,57 +763,14 @@ describe("RatSight dashboard", () => {
     const orientation = screen.getByRole("region", { name: "工作區狀態" });
     expect(within(orientation).getByText(/行政區邊界 · UNVERIFIED（未驗證）/)).toBeInTheDocument();
     expect(
-      within(orientation).getByText("鼠類回報格式測試資料 · RODENT_REPORT · SIMULATED"),
-    ).toBeInTheDocument();
-    expect(
       await within(orientation).findByText(
-        "尚未載入：鼠類觀測、污水下水道、地表移動廊道、人類活動、環境條件。",
+        "尚未載入：污水下水道、地表移動廊道、人類活動、環境條件。",
       ),
     ).toBeInTheDocument();
     expect(within(orientation).getByText("目前可回答")).toBeInTheDocument();
     expect(within(orientation).getByText("目前無法回答")).toBeInTheDocument();
     expect(within(orientation).getByText("真實移動路徑、熱區或介入效果")).toBeInTheDocument();
     expect(within(orientation).getByText(/未載入也不代表數量為零/)).toBeInTheDocument();
-  });
-
-  it("keeps advanced simulation settings collapsed behind stated defaults", () => {
-    renderDashboard();
-    const summary = screen.getByText(
-      /進階設定 · 松山 OSM 來源網路 · 12 步 · 種子 42 · 24 個合成代理/,
-    );
-    expect(summary.closest("details")).not.toHaveAttribute("open");
-    expect(
-      screen.getByText(/預設示範參數：松山 OSM 來源網路 · 12 步 · 種子 42/),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/合成預覽 — 僅為模擬測試資料/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "開始模擬" })).toBeEnabled();
-  });
-
-  it("applies Asia/Taipei date presets and reports the active filter", () => {
-    mockState.rodentMode = "available";
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-26T02:10:00Z"));
-    try {
-      renderDashboard();
-      const panel = screen.getByRole("region", { name: "鼠類回報檢視" });
-      fireEvent.click(within(panel).getByRole("button", { name: "近 7 天" }));
-      expect(screen.getByLabelText("回報起時間（Asia/Taipei，含端點）")).toHaveValue(
-        "2026-10-20T00:00",
-      );
-      expect(screen.getByLabelText("回報迄時間（Asia/Taipei，含端點）")).toHaveValue(
-        "2026-10-26T10:10",
-      );
-      expect(
-        within(panel).getByText(
-          /目前篩選：近 7 天（2026-10-20T00:00 ～ 2026-10-26T10:10 · Asia\/Taipei，起迄皆含）/,
-        ),
-      ).toBeInTheDocument();
-      fireEvent.click(within(panel).getByRole("button", { name: "全部" }));
-      expect(screen.getByLabelText("回報起時間（Asia/Taipei，含端點）")).toHaveValue("");
-      expect(within(panel).getByText(/目前篩選：自訂或未設定/)).toBeInTheDocument();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("keeps provenance details collapsed until opened", async () => {
@@ -1149,138 +894,96 @@ describe("RatSight dashboard", () => {
     expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
   });
 
-  it("reports the storage-empty rodent report state", async () => {
-    mockState.rodentMode = "empty";
-    renderDashboard();
-    expect(await screen.findByText("尚未匯入回報")).toBeInTheDocument();
-    expect(await screen.findByText("尚未匯入合成鼠類回報。")).toBeInTheDocument();
-    expect(screen.getByLabelText("鼠類回報")).toBeDisabled();
-  });
-
-  it("distinguishes an in-filter rodent report miss from storage-empty", async () => {
-    mockState.rodentMode = "in_filters";
-    renderDashboard();
-    const panel = screen.getByRole("region", { name: "鼠類回報檢視" });
-    expect(
-      await within(panel).findByText(/沒有回傳的 SIMULATED\s+合成報告形資料/),
-    ).toBeInTheDocument();
-    expect(within(panel).getByText(/這不是事件計數/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("鼠類回報")).toBeEnabled());
-  });
-
-  it("shows the capped rodent report state", async () => {
-    mockState.rodentMode = "truncated";
-    renderDashboard();
-    const panel = screen.getByRole("region", { name: "鼠類回報檢視" });
-    expect(await within(panel).findByText("回傳資料已截斷")).toBeInTheDocument();
-  });
-
-  it("communicates an unavailable rodent report service", async () => {
-    mockState.rodentMode = "error";
-    renderDashboard();
-    const panel = screen.getByRole("region", { name: "鼠類回報檢視" });
-    expect(await within(panel).findByText("鼠類回報服務無法使用")).toBeInTheDocument();
-    expect(screen.getByLabelText("鼠類回報")).toBeDisabled();
-  });
-
-  it("inspects a selected synthetic report with provenance and disclaimer", async () => {
-    mockState.rodentMode = "available";
-    renderDashboard();
-    const toggle = await screen.findByLabelText("鼠類回報");
-    await waitFor(() => expect(toggle).toBeEnabled());
-    fireEvent.click(toggle);
-    expect(toggle).toBeChecked();
-
-    const reportButton = screen.getByRole("button", { name: "report-1" });
-    reportButton.focus();
-    expect(reportButton).toHaveFocus();
-    fireEvent.click(reportButton);
-    expect(reportButton).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("unreviewed")).toBeInTheDocument();
-    expect(screen.getByText("not_assessed")).toBeInTheDocument();
-    expect(screen.getByText("none_reported")).toBeInTheDocument();
-    expect(screen.getByText("synthetic_point")).toBeInTheDocument();
-    expect(screen.getByText("00000000-0000-4000-8000-000000000002")).toBeInTheDocument();
-    expect(screen.getByText("僅為合成測試資料；不含真實回報資料。")).toBeInTheDocument();
-    expect(
-      screen.getByText("合成回報格式的測試資料。非經查證的觀測、盛行率、族群、移動或風險證據。"),
-    ).toBeInTheDocument();
-  });
-
-  it("converts a Taipei-local filter to an RFC3339 Z query value", async () => {
-    mockState.rodentMode = "available";
-    renderDashboard();
-    fireEvent.change(screen.getByLabelText("回報起時間（Asia/Taipei，含端點）"), {
-      target: { value: "2026-10-01T08:30" },
-    });
-    await waitFor(() => {
-      const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
-      expect(urls.some((url) => url.includes("reported_from=2026-10-01T00%3A30%3A00Z"))).toBe(true);
-    });
-  });
-
-  it("caps the auxiliary report list at 100 with a clear notice", async () => {
-    mockState.rodentMode = "many";
-    renderDashboard();
-    const toggle = await screen.findByLabelText("鼠類回報");
-    await waitFor(() => expect(toggle).toBeEnabled());
-    const panel = screen.getByRole("region", { name: "鼠類回報檢視" });
-    const reportList = within(panel).getByRole("list", { name: "回報 · 選取以檢視" });
-    await waitFor(() => expect(within(reportList).getAllByRole("button")).toHaveLength(100));
-    expect(within(panel).getByText(/僅顯示前 100 筆，共回傳/)).toBeInTheDocument();
-  });
-
-  it("rejects a reversed Taipei-local range locally without an API request", async () => {
-    mockState.rodentMode = "available";
-    renderDashboard();
-    await waitFor(() => expect(screen.getByLabelText("鼠類回報")).toBeEnabled());
-    fireEvent.change(screen.getByLabelText("回報起時間（Asia/Taipei，含端點）"), {
-      target: { value: "2026-10-10T00:00" },
-    });
-    fireEvent.change(screen.getByLabelText("回報迄時間（Asia/Taipei，含端點）"), {
-      target: { value: "2026-10-01T00:00" },
-    });
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "回報起時間必須早於或等於回報迄時間。",
-    );
-    await waitFor(() => expect(screen.getByLabelText("鼠類回報")).toBeDisabled());
-    // No stale points reach the map while the range is invalid.
-    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
-      "data-has-rodent-reports",
-      "no",
-    );
-    const urls = vi.mocked(fetch).mock.calls.map((call) => String(call[0]));
-    expect(
-      urls.some(
-        (url) => url.includes("reported_from=2026-10-09") && url.includes("reported_to=2026-09-30"),
-      ),
-    ).toBe(false);
-  });
-
-
   it("shows suppressed citizen-report cell counts without presenting reports", async () => {
     renderDashboard();
     const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
-    expect(await within(panel).findByText("CITIZEN_REPORT_AGGREGATE · UNVERIFIED（未驗證）"))
-      .toBeInTheDocument();
+    expect(
+      await within(panel).findByText("CITIZEN_REPORT_AGGREGATE · UNVERIFIED（未驗證）"),
+    ).toBeInTheDocument();
     expect(
       within(panel).getByText(/回傳 2 個\s*250 公尺網格、7 筆已發布的通報計數/),
     ).toBeInTheDocument();
     expect(within(panel).getByText(/每格每月每類型至少\s*3\s*筆才發布/)).toBeInTheDocument();
-    expect(within(panel).getByText(/不是鼠類觀測、盛行率、族群、移動或風險估計/)).toBeInTheDocument();
+    expect(
+      within(panel).getByText(/不是鼠類觀測、盛行率、族群、移動或風險估計/),
+    ).toBeInTheDocument();
     fireEvent.click(within(panel).getByText("來源、授權、精度與抑制"));
     expect(within(panel).getByText("地點、說明、照片網址")).toBeInTheDocument();
     expect(within(panel).getByText(/解析 1435 筆 · 採用\s*319 筆 · 抑制/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("公民通報彙整")).toBeEnabled());
-    fireEvent.click(screen.getByLabelText("公民通報彙整"));
-    expect(screen.getByLabelText("公民通報彙整")).toBeChecked();
+    expect(screen.queryByLabelText("公民通報彙整")).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Select citizen report cell" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens aggregate details on marker focus without running a simulation", async () => {
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    expect(await within(panel).findByText(/回傳 2 個/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Select citizen report cell" }));
+
+    const card = screen.getByLabelText("公民通報彙整格詳細資料");
+    expect(within(card).getByText("g250m:1:2")).toBeInTheDocument();
+    expect(within(card).getByText("鼠蹤通報")).toBeInTheDocument();
+    expect(within(card).getByText("4 筆")).toBeInTheDocument();
+    expect(within(card).getByText(/250 公尺格網 · 標記在格網中心/)).toBeInTheDocument();
+    expect(within(card).getByText(/不是個別通報點位/)).toBeInTheDocument();
+    expect(within(card).getByText(mockState.citizenCell.attribution)).toBeInTheDocument();
+    expect(screen.getByText(/公民通報彙整格焦點 · UNVERIFIED/)).toBeInTheDocument();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([input]) => String(input).includes("/api/v1/simulations/preview")),
+    ).toHaveLength(0);
+
+    fireEvent.click(within(card).getByRole("button", { name: "關閉公民通報彙整格詳細資料" }));
+    expect(screen.queryByLabelText("公民通報彙整格詳細資料")).not.toBeInTheDocument();
+    expect(screen.getByText(/尚未選取圖徵/)).toBeInTheDocument();
+  });
+
+  it("runs the simulation from the focused aggregate cell", async () => {
+    renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    expect(await within(panel).findByText(/回傳 2 個/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Select citizen report cell" }));
+    fireEvent.click(screen.getByRole("button", { name: "以此格網起點執行模擬" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("可重現執行完成 · 種子 42 · 模擬路徑已顯示");
+
+    const previewCall = vi
+      .mocked(fetch)
+      .mock.calls.filter(([input]) => String(input).includes("/api/v1/simulations/preview"))
+      .at(-1);
+    const body = JSON.parse(String(previewCall?.[1]?.body));
+    expect(body).toMatchObject({
+      study_area: "taipei_osm_songshan",
+      origin_cell_id: "g250m:1:2:2026-05:sighting",
+    });
+    expect(body).not.toHaveProperty("origin_node_id");
+  });
+
+  it("clears a selected aggregate cell when refreshed viewport data drops it", async () => {
+    const { queryClient } = renderDashboard();
+    const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
+    expect(await within(panel).findByText(/回傳 2 個/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Select citizen report cell" }));
+    expect(
+      screen.getByText(/g250m:1:2 · 2026-05 · 鼠蹤通報 · 公民通報彙整格焦點/),
+    ).toBeInTheDocument();
+
+    mockState.citizenMode = "empty";
+    await queryClient.refetchQueries({ queryKey: ["citizen-report-aggregates"] });
+    await waitFor(() => expect(screen.queryByText(/g250m:1:2/)).not.toBeInTheDocument());
+    expect(screen.getByText(/尚未選取圖徵/)).toBeInTheDocument();
   });
 
   it("states that no aggregate is imported instead of substituting another layer", async () => {
     mockState.citizenMode = "empty";
     renderDashboard();
     const panel = screen.getByRole("region", { name: "公民通報彙整檢視" });
-    expect(await within(panel).findByText(/尚未匯入公民通報彙整：資料庫尚未匯入/)).toBeInTheDocument();
-    expect(screen.getByLabelText("公民通報彙整")).toBeDisabled();
+    expect(
+      await within(panel).findByText(/尚未匯入公民通報彙整：資料庫尚未匯入/),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("公民通報彙整")).not.toBeInTheDocument();
   });
 });

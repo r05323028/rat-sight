@@ -34,11 +34,19 @@
 
 ## Dashboard
 
-- Independent layer with its own toggle (no coupling to rodent reports, stormwater, or simulation), rendered as a translucent 250 m fill plus outline beneath simulated paths.
+- Independent layer with its own toggle (no coupling to stormwater or simulation rendering), rendered as a translucent 250 m fill plus outline beneath simulated paths. Explicit cell selection may feed the separate origin resolver described by `citizen-report-driven-simulation-origins`; the layers never merge semantics.
 - Panel discloses: cell/report/month counts, `UNVERIFIED` badge, the suppression rule, exactly which fields were dropped, attribution, source URL, licence text, resource version, content SHA-256, parsed/used/suppressed counts, the month-timezone assumption, and currentness.
 - The empty state says no aggregate is imported instead of substituting another layer; the error state never renders a zero count.
-- Copy states plainly that the layer is not a rodent observation, prevalence, population, movement, or risk estimate, and not a simulation input.
+- Copy states plainly that the layer is not a rodent observation, prevalence, population, movement, or risk estimate. Counts are not simulation inputs: a separately approved origin contract may use one selected cell only to resolve a single strictly in-cell graph node, never walker counts or transition weights.
 
 ## Reversibility
 
-Dropping the table and removing the layer reverts the publication completely. Nothing in the simulation, geo, or rodent-report packages reads this data.
+Dropping the table and removing the layer reverts the publication completely. Only the separate origin resolver reads a selected cell; it fails closed when no single graph node lies strictly inside the cell.
+
+## Decision: no report-derived origins (2026-10-26)
+
+Orchestration verdict, recorded after a read-only readiness assessment (`/tmp/citizen-origin-readiness-2026-10-26.md`):
+
+- The aggregate stays display-only and independent of every other layer. Simulation origins remain exact, validated pinned-OSM node ids only.
+- No `origin-candidates` endpoint, no cell-to-network mapping, no aggregate-derived eligibility, and no aggregate as simulation input. A scoped synthetic-only origin contract/resolver is tracked separately and does not change this boundary.
+- Blocked pending: owner/source terms for the export (grantor identity, licence, retention), independent privacy review, scientific approval of any report-to-presence inference, and a spec change. The measured join also argues against it: 0 of 91 published cells contain a pinned-OSM node and 1 lies within 250 m, so a report-derived origin would rest on a single cell at the suppression floor.

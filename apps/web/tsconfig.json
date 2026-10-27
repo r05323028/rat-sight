@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
+    "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": false,
     "skipLibCheck": true,
     "strict": true,
@@ -24,9 +20,7 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./src/*"
-      ]
+      "@/*": ["./src/*"]
     }
   },
   "include": [
@@ -37,12 +31,8 @@
     "**/*.tsx",
     ".next-ratsight-geospatial-smoke/types/**/*.ts",
     ".next-ratsight-geospatial-smoke/dev/types/**/*.ts",
-    ".next-ratsight-rodent-report-smoke/types/**/*.ts",
-    ".next-ratsight-rodent-report-smoke/dev/types/**/*.ts",
     ".next-ratsight-qa-analyst/types/**/*.ts",
     ".next-ratsight-qa-analyst/dev/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules"]
 }

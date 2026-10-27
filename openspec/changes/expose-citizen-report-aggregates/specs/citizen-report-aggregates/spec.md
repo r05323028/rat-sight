@@ -49,7 +49,7 @@ Every non-empty response MUST carry an immutable `CitizenReportProvenanceV1` wit
 
 ### Requirement: Aggregate dashboard inspection
 
-The dashboard MUST provide an independent citizen-report aggregate layer with its own toggle, viewport-bounded loading, and an `UNVERIFIED` badge. The panel MUST disclose published cell and report counts, the suppression rule, the dropped fields, attribution, source URL, licence status, resource version, content hash, and the month-timezone assumption, and MUST state that the layer is not an observation, prevalence, population, movement, or risk estimate and not a simulation input. Empty, loading, error, and unavailable states MUST NOT render a zero count or substitute another dataset.
+The dashboard MUST provide an independent citizen-report aggregate layer with its own toggle, viewport-bounded loading, and an `UNVERIFIED` badge. The panel MUST disclose published cell and report counts, the suppression rule, the dropped fields, attribution, source URL, licence status, resource version, content hash, and the month-timezone assumption, and MUST state that the layer is not an observation, prevalence, population, movement, or risk estimate. Counts MUST NOT become simulation inputs. Under a separately approved origin contract, one explicitly selected cell MAY resolve a single graph node strictly inside it; no-node and ambiguous-node cases MUST fail closed without snapping. Empty, loading, error, and unavailable states MUST NOT render a zero count or substitute another dataset.
 
 #### Scenario: Toggle the aggregate layer
 

@@ -10,7 +10,6 @@ set -euo pipefail
 PROFILE="${PROFILE:-full-local}"
 ACTION="up"
 INSPECT_ONLY=0
-SYNTHETIC=0
 CITIZEN=0
 PURGE=0
 
@@ -18,7 +17,6 @@ for arg in "$@"; do
   case "$arg" in
     up | status | down) ACTION="$arg" ;;
     --inspect-only) INSPECT_ONLY=1 ;;
-    --synthetic) SYNTHETIC=1 ;;
     --citizen-reports) CITIZEN=1 ;;
     --purge) PURGE=1 ;;
     *)
@@ -206,10 +204,6 @@ inventory() {
     select 'stormwater_pipelines', count(*),
            coalesce(min(dataset_id) || '@' || min(resource_version), '-')
       from stormwater_pipelines
-    union all
-    select 'rodent_reports', count(*),
-           coalesce(min(dataset_id) || '@' || min(resource_version), '-')
-      from rodent_reports
     order by 1"
   # The aggregate table only exists after migration 0007; older profiles must not
   # fail the inventory, so its row is emitted separately and only when present.
@@ -260,9 +254,6 @@ do_inspect() {
   ensure_source "$STORMWATER_PATH" "$STORMWATER_URL" "$STORMWATER_SHA256"
   verify_sources
   inspect_sources
-  if [[ "$SYNTHETIC" == "1" ]]; then
-    uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports --inspect-only
-  fi
   if [[ "$CITIZEN" == "1" ]]; then
     require_citizen_source
     import_citizen_reports --inspect-only
@@ -312,18 +303,13 @@ do_up() {
     exit "$status"
   fi
 
-  if [[ "$SYNTHETIC" == "1" ]]; then
-    echo "note: importing the committed SYNTHETIC rodent fixture (opt-in; SIMULATED, not observed)"
-    uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports
-  fi
-
   if [[ "$CITIZEN" == "1" ]]; then
     require_citizen_source
     echo "note: importing suppressed CITIZEN_REPORT_AGGREGATE counts from ${CITIZEN_REPORT_PATH} ($(sha_of "$CITIZEN_REPORT_PATH"))"
     echo "      counts are UNVERIFIED citizen reports: not observations, not prevalence, not a simulation input"
     import_citizen_reports || {
       echo "error: citizen-report aggregate import failed (exit $?)" >&2
-      echo "       administrative, stormwater, and rodent layers are unaffected" >&2
+      echo "       administrative and stormwater layers are unaffected" >&2
       exit 1
     }
   fi
@@ -341,8 +327,6 @@ do_up() {
   inventory | while IFS='|' read -r table rows identity; do
     printf '  %-26s %8s rows  %s\n' "$table" "$rows" "$identity"
   done
-  [[ "$SYNTHETIC" == "1" ]] ||
-    echo "  rodent_reports is empty: synthetic fixtures stay opt-in (pass --synthetic)"
   print_next_steps
 }
 

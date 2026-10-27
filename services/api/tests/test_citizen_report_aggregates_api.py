@@ -18,9 +18,11 @@ from ratsight_api.api.schemas import (
     CitizenReportUncertainty,
 )
 from ratsight_api.application.citizen_report_aggregates import (
+    CitizenReportCellNotFound,
     CitizenReportDataError,
     CitizenReportQueryError,
     CitizenReportStorageError,
+    get_citizen_report_cell_polygon,
     list_citizen_report_aggregates,
     parse_bbox,
     parse_months,
@@ -208,7 +210,26 @@ def test_month_buckets_are_validated_and_sorted() -> None:
 
 def test_invalid_data_class_fails_closed() -> None:
     with pytest.raises(CitizenReportDataError):
-        _list([[_meta_row()], [_feature_row(data_class="RODENT_REPORT")]])
+        _list([[_meta_row()], [_feature_row(data_class="ADMINISTRATIVE_REFERENCE")]])
+
+
+def test_origin_cell_resolver_returns_the_exact_stored_polygon() -> None:
+    polygon = get_citizen_report_cell_polygon(
+        cast(Session, _FakeSession([[_meta_row()], [{"geometry": json.dumps(POLYGON)}]])),
+        "g250m:1:2:2026-05:sighting",
+    )
+    assert polygon.coordinates == POLYGON["coordinates"]
+
+
+def test_origin_cell_resolver_fails_closed_when_no_version_or_cell_exists() -> None:
+    with pytest.raises(CitizenReportCellNotFound, match="no citizen report aggregate version"):
+        get_citizen_report_cell_polygon(
+            cast(Session, _FakeSession([[]])), "g250m:1:2:2026-05:sighting"
+        )
+    with pytest.raises(CitizenReportCellNotFound, match="not present in the latest"):
+        get_citizen_report_cell_polygon(
+            cast(Session, _FakeSession([[_meta_row()], []])), "g250m:1:2:2026-05:sighting"
+        )
 
 
 def test_invalid_classification_fails_closed() -> None:

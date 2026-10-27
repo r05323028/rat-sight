@@ -2,22 +2,75 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import networkx as nx
 
 SYNTHETIC_FIXTURE_ID = "ratsight-synthetic-graph-v1"
 
 
-def reachability_summary(graph: nx.MultiDiGraph, origin: str) -> dict[str, int | str]:
-    """Directed reachability from `origin` plus whole-graph topology counts.
+def _point_in_polygon(point: tuple[float, float], polygon: list[tuple[float, float]]) -> bool:
+    """Strictly test a point in a simple polygon; boundary points are ineligible."""
+    x, y = point
+    inside = False
+    for (x1, y1), (x2, y2) in zip(polygon, polygon[1:] + polygon[:1], strict=True):
+        if y1 == y2 and y == y1 and min(x1, x2) <= x <= max(x1, x2):
+            return False
+        if (y1 > y) != (y2 > y):
+            crossing = (x2 - x1) * (y - y1) / (y2 - y1) + x1
+            if x == crossing:
+                return False
+            if x < crossing:
+                inside = not inside
+    return inside
+
+
+def resolve_origin_cell(
+    graph: nx.MultiDiGraph,
+    cell_id: str,
+    polygon: list[tuple[float, float]],
+) -> dict[str, object]:
+    """Resolve strictly in-cell graph nodes; multiple nodes seed uniformly, never snap."""
+    if len(polygon) < 4 or polygon[0] != polygon[-1]:
+        raise ValueError("origin cell polygon must be closed and contain at least four points")
+    candidates = sorted(
+        str(node_id)
+        for node_id, data in graph.nodes(data=True)
+        if _point_in_polygon(tuple(data["coordinates"]), polygon)
+    )
+    if not candidates:
+        raise ValueError(f"origin cell {cell_id!r} has 0 eligible graph nodes")
+    return {
+        "origin_cell_id": cell_id,
+        "origin_node_id": candidates[0],
+        "origin_node_ids": candidates,
+        "candidate_count": len(candidates),
+        "resolver_version": ("strict-in-cell-v1" if len(candidates) == 1 else "uniform-in-cell-v1"),
+        "classification": "UNVERIFIED",
+    }
+
+
+def reachability_summary(
+    graph: nx.MultiDiGraph, origin: str | Sequence[str]
+) -> dict[str, int | str | list[str]]:
+    """Directed reachability from one or more origins plus whole-graph counts.
 
     Topology only: it reports which nodes a walk can reach, never which habitat,
-    food source, or movement is biologically plausible.
+    food source, or movement is biologically plausible. For a cell origin the
+    union is reported because every eligible node can seed a walker.
     """
-    if origin not in graph:
-        raise ValueError(f"origin node {origin!r} is not in graph")
-    reachable = nx.descendants(graph, origin) | {str(origin)}
+    origins = [str(origin)] if isinstance(origin, str) else [str(item) for item in origin]
+    if not origins:
+        raise ValueError("reachability requires at least one origin node")
+    for node_id in origins:
+        if node_id not in graph:
+            raise ValueError(f"origin node {node_id!r} is not in graph")
+    reachable = set(origins)
+    for node_id in origins:
+        reachable |= nx.descendants(graph, node_id)
     return {
-        "origin_node_id": str(origin),
+        "origin_node_id": origins[0],
+        "origin_node_ids": origins,
         "reachable_nodes": len(reachable),
         "total_nodes": int(graph.number_of_nodes()),
         "reachable_edges": int(graph.subgraph(reachable).number_of_edges()),

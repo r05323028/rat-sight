@@ -49,8 +49,9 @@ class ModelCatalogItem(BaseModel):
 class SimulationPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    study_area: Literal["taipei_synthetic_demo", "taipei_osm_songshan"] = "taipei_osm_songshan"
+    study_area: Literal["taipei_synthetic_demo", "taipei_osm_songshan"]
     origin_node_id: str | None = Field(default=None, min_length=1)
+    origin_cell_id: str | None = Field(default=None, min_length=1)
     duration_steps: int = Field(default=12, ge=1, le=100)
     walkers: int = Field(default=24, ge=1, le=1000)
     random_seed: int = Field(default=42, ge=0, le=18_446_744_073_709_551_615)
@@ -61,6 +62,8 @@ class SimulationPreviewRequest(BaseModel):
 class PreviewParameters(BaseModel):
     study_area: str
     origin_node_id: str
+    origin_node_ids: list[str] = Field(default_factory=list)
+    origin_cell_id: str | None = None
     duration_steps: int
     walkers: int
     random_seed: int
@@ -138,12 +141,26 @@ class SimulationReachability(BaseModel):
     """Directed graph topology from the resolved origin; not habitat or movement evidence."""
 
     origin_node_id: str
+    origin_node_ids: list[str] = Field(default_factory=list)
     reachable_nodes: int
     total_nodes: int
     reachable_edges: int
     total_edges: int
     component_count: int
+    sampled_nodes: int = Field(ge=0)
     classification: Literal["SIMULATED"]
+    note: str
+
+
+class SimulationVisualization(BaseModel):
+    """Whether returned map geometry is the full graph or a bounded reference subset."""
+
+    mode: Literal["full_graph", "local_reference"]
+    radius_meters: float | None = Field(default=None, gt=0)
+    returned_nodes: int = Field(ge=0)
+    returned_edges: int = Field(ge=0)
+    total_nodes: int = Field(ge=0)
+    total_edges: int = Field(ge=0)
     note: str
 
 
@@ -151,8 +168,12 @@ class PreviewOrigin(BaseModel):
     """Resolved walk origin: a synthetic model input, never an observed animal origin."""
 
     node_id: str
+    node_ids: list[str] = Field(default_factory=list)
     coordinates: tuple[float, float]
-    selection: Literal["default", "user"]
+    selection: Literal["default", "user", "cell"]
+    cell_id: str | None = None
+    cell_candidate_count: int | None = Field(default=None, ge=1)
+    cell_resolver_version: str | None = None
     classification: Literal["SIMULATED"]
     note: str
 
@@ -164,6 +185,7 @@ class SimulationPreviewResponse(BaseModel):
     model_version: str
     origin: PreviewOrigin
     reachability: SimulationReachability
+    visualization: SimulationVisualization
     parameters: PreviewParameters
     provenance: SimulationProvenance
     assumptions: list[str]
@@ -455,130 +477,8 @@ class StormwaterResponse(BaseModel):
     truncated: bool = False
 
 
-# --- Fixture-only rodent reports ---------------------------------------------
-# Synthetic report-shaped records are SIMULATED report events, never rodent
-# observations, prevalence, population, movement, disease risk, or intervention
-# evidence. ``data_class`` stays separate from epistemic ``classification``.
-
-RodentReportDataClass = Literal["RODENT_REPORT"]
-ReportType = Literal["sighting_report", "nuisance_report", "service_request", "unknown"]
-LocationPrecision = Literal["synthetic_point", "coarse_grid_100m", "coarse_grid_1km", "unknown"]
-ReviewStatus = Literal["unreviewed", "platform_moderated", "municipal_reviewed", "unknown"]
-MunicipalStatus = Literal["not_assessed", "confirmed_by_authority", "rejected", "unknown"]
-ActionStatus = Literal["none_reported", "inspection", "treatment", "unknown"]
-
-
-class RodentReportProcessing(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    tool: str = Field(min_length=1)
-    tool_version: str = Field(min_length=1)
-    steps: list[str] = Field(min_length=1)
-
-    @field_validator("steps")
-    @classmethod
-    def _steps_are_non_empty(cls, value: list[str]) -> list[str]:
-        if any(not step.strip() for step in value):
-            raise ValueError("processing steps must be non-empty strings")
-        return value
-
-
-class RodentReportUncertainty(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    currentness: str = Field(min_length=1)
-    note: str = Field(min_length=1)
-
-
-class RodentReportProvenanceV1(BaseModel):
-    """Immutable version-1 provenance object for synthetic rodent-report fixtures."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: ProvenanceSchemaVersion = "1"
-    source_kind: Literal["synthetic_fixture"]
-    dataset_id: str
-    resource_version: str
-    retrieved_at: str
-    content_sha256: str
-    license: str = Field(min_length=1)
-    attribution: str = Field(min_length=1)
-    source_crs: Literal["EPSG:4326"] = "EPSG:4326"
-    target_crs: Literal["EPSG:4326"] = "EPSG:4326"
-    processing: RodentReportProcessing
-    synthetic: Literal[True] = True
-    uncertainty: RodentReportUncertainty
-
-    @field_validator("dataset_id")
-    @classmethod
-    def _dataset_uuid(cls, value: str) -> str:
-        return _validate_uuid(value)
-
-    @field_validator("resource_version", "retrieved_at")
-    @classmethod
-    def _timestamps(cls, value: str) -> str:
-        return _validate_rfc3339_utc(value)
-
-    @field_validator("content_sha256")
-    @classmethod
-    def _content_hash(cls, value: str) -> str:
-        return _validate_sha256(value)
-
-
-class RodentReportProperties(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    report_id: str = Field(min_length=1)
-    source: Literal["synthetic_fixture"]
-    report_type: ReportType
-    reported_at: str = Field(min_length=1)
-    location_precision: LocationPrecision
-    review_status: ReviewStatus
-    municipal_status: MunicipalStatus
-    action_status: ActionStatus
-    data_class: RodentReportDataClass
-    classification: Literal["SIMULATED"]
-    provenance_schema_version: ProvenanceSchemaVersion
-    dataset_id: str
-    resource_version: str
-    content_sha256: str
-
-
-class RodentReportPoint(BaseModel):
-    type: Literal["Point"] = "Point"
-    coordinates: list[float]
-
-    @field_validator("coordinates")
-    @classmethod
-    def _two_numbers(cls, value: list[float]) -> list[float]:
-        if len(value) != 2:
-            raise ValueError("Point coordinates must be [longitude, latitude]")
-        return value
-
-
-class RodentReportFeature(BaseModel):
-    type: Literal["Feature"] = "Feature"
-    id: str
-    geometry: RodentReportPoint
-    properties: RodentReportProperties
-
-
-class RodentReportResponse(BaseModel):
-    type: Literal["FeatureCollection"] = "FeatureCollection"
-    features: list[RodentReportFeature]
-    data_state: Literal["empty", "available"]
-    data_class: RodentReportDataClass = "RODENT_REPORT"
-    classification: Literal["SIMULATED"] = "SIMULATED"
-    provenance: RodentReportProvenanceV1 | None = None
-    feature_count: int = Field(ge=0)
-    bbox: tuple[float, float, float, float] | None = None
-    reported_from: str | None = None
-    reported_to: str | None = None
-    truncated: bool = False
-
-
 # --- Aggregated public citizen reports ---------------------------------------
-# Counts of third-party citizen reports, coarsened to a 100 m grid and month
+# Counts of third-party citizen reports, coarsened to a 250 m grid and month
 # buckets with small-cell suppression. UNVERIFIED, never observation-grade.
 
 CitizenReportDataClass = Literal["CITIZEN_REPORT_AGGREGATE"]

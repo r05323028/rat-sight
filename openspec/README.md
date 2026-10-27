@@ -37,9 +37,13 @@ narrative reports. The gate does not parse report formatting or authenticate
 review, execution, approval, or scientific claims. See the workflow guide for
 checks and limitations.
 
-`make openspec-archive CHANGE=<change>` runs the gate before native archive.
-This target is a wrapper only; direct `openspec archive` does not consult the
-gate.
+`make change-review CHANGE=<change>` and `make change-status CHANGE=<change>`
+show the current review packet without modifying it. The project owner records
+an explicit decision with `make change-accept CHANGE=<change>`; decisions live in
+`verification/owner-decision.json`, separate from policy approval receipts.
+`make openspec-archive CHANGE=<change>` runs the gate and requires a current,
+matching `ACCEPTED` owner decision before native archive. Direct `openspec archive`
+remains an upstream bypass and does not consult project policy.
 
 ```sh
 uv run pytest scripts/tests

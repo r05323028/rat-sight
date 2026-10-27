@@ -5,26 +5,40 @@ from __future__ import annotations
 import hashlib
 import os
 from collections import Counter
+from functools import lru_cache
 from itertools import pairwise
 from pathlib import Path
 from xml.etree import ElementTree
 
 import networkx as nx
 
-DEFAULT_OSM_SOURCE = Path.home() / ".local/share/ratsight/network/taipei-songshan-20261023.osm"
-EXPECTED_SHA256 = "faae4ffd1bd42e57871bdedbfdcc6e82b3324a458db95034d4ec40f0a019e67e"
-OSM_SOURCE_URL = "https://api.openstreetmap.org/api/0.6/map?bbox=121.528,25.028,121.532,25.032"
+DEFAULT_OSM_SOURCE = (
+    Path.home() / ".local/share/ratsight/network/taipei-expanded-ratdar-20261027.osm"
+)
+EXPECTED_SHA256 = "9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868"
+OSM_SOURCE_URL = "https://overpass-api.de/api/interpreter"
 
 
 def load_osm_surface_graph(path: str | Path | None = None) -> nx.MultiDiGraph:
-    """Parse highway ways using shared OSM nodes as the only connectivity."""
+    """Parse highway ways using shared OSM nodes as the only connectivity.
+
+    The immutable graph is cached by path, verified digest, and file mtime so a
+    preview does not reparse the 25 MB pinned artifact on every request. Callers
+    must treat the returned graph as read-only.
+    """
     source = Path(path or os.environ.get("RATSIGHT_OSM_SOURCE", DEFAULT_OSM_SOURCE))
     if not source.is_file():
         raise FileNotFoundError(f"configured OSM source is absent: {source}")
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     if digest != EXPECTED_SHA256:
         raise ValueError(f"OSM source sha256 mismatch: expected {EXPECTED_SHA256}, got {digest}")
+    stat = source.stat()
+    return _parse_osm_surface_graph(str(source.resolve()), digest, stat.st_mtime_ns)
 
+
+@lru_cache(maxsize=4)
+def _parse_osm_surface_graph(source_name: str, digest: str, _modified_ns: int) -> nx.MultiDiGraph:
+    source = Path(source_name)
     root = ElementTree.parse(source).getroot()
     nodes = {
         element.attrib["id"]: (float(element.attrib["lon"]), float(element.attrib["lat"]))
@@ -45,10 +59,13 @@ def load_osm_surface_graph(path: str | Path | None = None) -> nx.MultiDiGraph:
         source_sha256=digest,
         source_crs="EPSG:4326",
         source_url=OSM_SOURCE_URL,
-        resource_version="2026-10-23T10:08:00Z",
+        resource_version="2026-10-27T13:20:28Z",
         license="ODbL 1.0",
         attribution="© OpenStreetMap contributors",
-        coverage="EPSG:4326 bbox 121.528,25.028,121.532,25.032",
+        coverage=(
+            "EPSG:4326 bbox 121.2786025,24.9821164,121.6725037,25.1249122; "
+            "91 published-cell neighborhoods with a 500 m buffer"
+        ),
     )
     for way_id, refs, tags in ways:
         split = (

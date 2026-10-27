@@ -31,6 +31,7 @@
 
 ## Not done in this change
 
+- [ ] Report-derived simulation origins — BLOCKED by orchestration verdict 2026-10-26 (design.md "Decision: no report-derived origins"). No cell-to-network mapping, no origin-candidates endpoint, no aggregate-derived eligibility, no aggregate as simulation input. Requires owner/source terms, independent privacy review, scientific approval of any report-to-presence inference, and a spec change.
 - [ ] Raise the reuse status above `UNVERIFIED` — needs grantor identity, licence/terms, attribution wording, retention/deletion obligations, and approved precision.
 - [ ] Publish months other than 2026-05 — suppression leaves nothing else, and the May spike reflects portal promotion/backfill rather than measured rodent activity.
 - [ ] Obtain independent privacy/legal review of the override; this change records it as an owner decision, not a cleared compliance position.

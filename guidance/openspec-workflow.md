@@ -16,8 +16,9 @@ Use judgment; do not add a risk score or workflow state.
 
 Research and record evidence → proposal → specifications and design →
 adversarial review → resolve blocking findings → tasks → implementation →
-code review → QA and applicable scientific validation →
-traceability → quality gate → Ready for Human Review → project-owner acceptance → archive (policy-required human approval is a separate trigger within this flow).
+code review → QA and applicable scientific validation → traceability → quality gate
+→ Ready for Human Review → local project-owner acceptance → explicit archive
+(policy-required human approval is a separate trigger within this flow).
 
 Adversarial review happens before tasks. Code review happens after
 implementation and must inspect the actual diff and relevant surrounding code.
@@ -105,19 +106,34 @@ the installed OpenSpec CLI and custom schema. CI does not run the quality gate
 against every active change and does not authenticate review or approval
 records.
 
-`make openspec-archive CHANGE=<change>` runs the gate and then native archive.
-It is a project wrapper, not an interception hook: direct `openspec archive`
-bypasses the gate. The wrapper does not authenticate project-owner acceptance;
-the Lead must not run it merely because the gate passes. Stop at Ready for
-Human Review and obtain explicit owner authorization first. Exit codes are
-`0` pass, `1` blocked, `2` usage error.
-A pass validates recorded state and CLI results only; it is not proof of review,
-command execution, human approval, or scientific validity.
+Use `make change-review CHANGE=<change>` for a read-only packet and
+`make change-status CHANGE=<change> --` (or the script's `status --json`) for
+machine-readable state. The project owner uses `make change-accept
+CHANGE=<change>` in a local interactive terminal; the CLI records decisions in
+`verification/owner-decision.json`. TTY confirmation is a practical safeguard,
+not authentication. Agents must never write owner decisions.
+
+`make openspec-archive CHANGE=<change>` runs the gate, requires current
+`ACCEPTED` owner state matching its evidence fingerprint, then invokes native
+archive. Missing, deferred, changes-requested, stale, or gate-invalid states
+block. Uncommitted state is recorded explicitly; the evidence fingerprint is
+still required to match. Direct `openspec archive` bypasses this project wrapper and that
+limitation is documented. A pass validates recorded state and CLI results only;
+it is not proof of review, command execution, human identity, or scientific
+validity.
+
+When a fresh Lead execution starts, read `verification/owner-decision.json`.
+`CHANGES_REQUESTED` feedback is durable implementation input; resume the active
+change, refresh evidence, and return to Ready for Human Review. Do not wait for
+or depend on the original Pi session.
 
 ```sh
 openspec schema validate evidence-driven
 openspec validate <change>
 make openspec-gate CHANGE=<change>
+make change-review CHANGE=<change>
+make change-status CHANGE=<change>
+make change-accept CHANGE=<change>
 make openspec-archive CHANGE=<change>
 uv run pytest scripts/tests
 ```

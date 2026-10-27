@@ -80,12 +80,25 @@ def run_weighted_random_walk(
     steps: int = 12,
     seed: int = 42,
     start_node: str = "n0",
+    start_nodes: Sequence[str] | None = None,
     constraints: Sequence[EdgeConstraint] = (),
 ) -> VisitStatistics:
-    """Run Monte Carlo walks; equal graph, parameters and seed yield equal counts."""
+    """Run Monte Carlo walks; equal graph, parameters and seed yield equal counts.
+
+    `start_nodes` selects one start per walker uniformly with the seeded RNG. It
+    overrides `start_node`; a single explicit start keeps its original behavior.
+    """
     if walkers < 1 or steps < 1 or seed < 0:
         raise ValueError("walkers and steps must be positive and seed must be non-negative")
-    if start_node not in graph:
+    starts: list[str] | None = None
+    if start_nodes is not None:
+        starts = [str(node) for node in start_nodes]
+        if not starts:
+            raise ValueError("start_nodes must contain at least one node")
+        for node in starts:
+            if node not in graph:
+                raise ValueError(f"start node {node!r} is not in graph")
+    elif start_node not in graph:
         raise ValueError(f"start node {start_node!r} is not in graph")
     random = np.random.default_rng(seed)
     node_visits = {str(node): 0 for node in graph.nodes}
@@ -97,7 +110,7 @@ def run_weighted_random_walk(
         edge_key = (str(source), str(target), str(attributes.get("edge_id", key)))
         edge_visits[edge_key] = 0
     for _ in range(walkers):
-        current = start_node
+        current = str(random.choice(starts)) if starts is not None else start_node
         node_visits[current] += 1
         trajectory: list[tuple[str, str, str]] = []
         trajectories.append(trajectory)

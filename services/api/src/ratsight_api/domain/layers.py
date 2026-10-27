@@ -12,9 +12,6 @@ class LayerDefinition:
 
 
 LAYER_CATALOG = (
-    LayerDefinition(
-        "rodent_observations", "Rodent observations", None, "No observation dataset loaded."
-    ),
     LayerDefinition("sewer_networks", "Sewer networks", None, "No sewer dataset loaded."),
     LayerDefinition(
         "stormwater_networks", "Stormwater networks", None, "No stormwater dataset loaded."

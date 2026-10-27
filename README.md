@@ -16,7 +16,7 @@ RatSight 是面向臺北市的證據導向都市鼠類活動模擬與市政決�
 - `openspec/`：以本機 `evidence-driven` schema 建立 OpenSpec 變更流程。
 - `rig.yaml`、`.openrig/`、`guidance/`：OpenRig rat-team 與角色規範。
 
-詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md)、[資料來源政策](docs/infrastructure/data-sources.md)、[行政區界匯入指令](docs/infrastructure/administrative-boundaries-import.md) 與 [雨水下水道管線匯入指令](docs/infrastructure/stormwater-pipelines-import.md) 與 [鼠類通報匯入指令](docs/infrastructure/rodent-reports-import.md)。系統提供本機檔案匯入的官方臺北行政區界與雨水管線基礎設施參考層；官方雨水管線 XML 已在一次性隔離驗證中匯入並通過 API 與 MapLibre 驗證。這些資料均不是鼠類觀測，且管線連通性仍為 `UNVERIFIED`。
+詳見 [架構概覽](docs/architecture/overview.md)、[研究路線圖](docs/research/research-roadmap.md)、[模型路線圖](docs/modeling/model-roadmap.md)、[資料來源政策](docs/infrastructure/data-sources.md)、[行政區界匯入指令](docs/infrastructure/administrative-boundaries-import.md)、[雨水下水道管線匯入指令](docs/infrastructure/stormwater-pipelines-import.md) 與 [full-local 資料匯入](docs/infrastructure/full-local-data-bootstrap.md)。系統提供本機檔案匯入的官方臺北行政區界、雨水管線基礎設施參考層，以及受抑制的 250 公尺公民通報彙整；合成鼠類通報圖層已移除。這些資料均不是鼠類觀測，且管線連通性仍為 `UNVERIFIED`。
 
 ## 本機開發
 
@@ -37,14 +37,11 @@ Web：<http://localhost:3000>。API：<http://127.0.0.1:8000>；OpenAPI：`/docs
 
 ### 隔離瀏覽器驗證（不碰共享服務）
 
-使用既有 smoke harness 執行可重現的 populated workflow；每個 harness 會先檢查 Docker、端口是否空閒，再建立以專案名稱隔離的 disposable PostGIS volume、migration、fixture、API/Web、health check 與 Playwright browser checks，結束時只清理由自身啟動的程序與 volume：
+使用既有 smoke harness 執行可重現的 populated workflow；它會先檢查 Docker、端口是否空閒，再建立以專案名稱隔離的 disposable PostGIS volume、migration、fixture、API/Web、health check 與 Playwright browser checks，結束時只清理由自身啟動的程序與 volume：
 
 ```sh
 # 行政區界 + 雨水管線：isolated PostGIS → API → Next.js → browser checks
 make geospatial-smoke
-
-# 合成鼠類通報：isolated PostGIS → API → Next.js → browser checks
-make rodent-report-smoke
 ```
 
 需要手動檢查時，先確認 `127.0.0.1:8010` 與 `127.0.0.1:3010` 未被佔用並確認程序所有者；不可停止或重啟其他專案程序，也不可使用共享 PostGIS volume。API 必須以 `--host 127.0.0.1 --port <free-api-port>` 啟動，Web 必須以 `NEXT_PUBLIC_API_URL=http://127.0.0.1:<api-port> pnpm dev --hostname 127.0.0.1 --port <free-web-port>` 啟動；確認 `/health` 回傳 200，再以瀏覽器點擊圖層或日期控制並確認 API 請求。若端口或所有者檢查失敗，停止並記錄為未驗證。

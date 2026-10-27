@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   AdministrativeDistricts,
   CitizenReportAggregates,
-  RodentReports,
   SimulationPreview,
   StormwaterNetwork,
 } from "@/lib/api";
@@ -191,42 +190,6 @@ const stormwater: StormwaterNetwork = {
   ],
 };
 
-const rodentReports: RodentReports = {
-  type: "FeatureCollection",
-  data_state: "available",
-  data_class: "RODENT_REPORT",
-  classification: "SIMULATED",
-  feature_count: 1,
-  bbox: [121.5, 24.98, 121.63, 25.09],
-  reported_from: null,
-  reported_to: null,
-  truncated: false,
-  provenance: null,
-  features: [
-    {
-      type: "Feature",
-      id: "report-1",
-      geometry: { type: "Point", coordinates: [121.55, 25.02] },
-      properties: {
-        report_id: "report-1",
-        source: "synthetic_fixture",
-        report_type: "sighting_report",
-        reported_at: "2026-10-01T00:00:00Z",
-        location_precision: "synthetic_point",
-        review_status: "unreviewed",
-        municipal_status: "not_assessed",
-        action_status: "none_reported",
-        data_class: "RODENT_REPORT",
-        classification: "SIMULATED",
-        provenance_schema_version: "1",
-        dataset_id: "00000000-0000-4000-8000-000000000002",
-        resource_version: "2026-10-17T00:00:00Z",
-        content_sha256: "c".repeat(64),
-      },
-    },
-  ],
-};
-
 const citizenAggregates: CitizenReportAggregates = {
   type: "FeatureCollection",
   data_state: "available",
@@ -304,12 +267,10 @@ type MapViewProps = {
   showStormwater?: boolean;
   selectedSegmentId?: string | null;
   onSelectSegment?: (properties: unknown) => void;
-  rodentReports?: RodentReports | null;
-  showRodentReports?: boolean;
-  selectedReportId?: string | null;
-  onSelectReport?: (properties: unknown) => void;
   citizenAggregates?: CitizenReportAggregates | null;
   showCitizenAggregates?: boolean;
+  selectedCitizenCellKey?: string | null;
+  onSelectCitizenCell?: (properties: unknown) => void;
   onSelectTrajectory?: (trajectoryId: number) => void;
   outputMode?: "aggregate" | "trajectory";
   onBoundsChange?: (bbox: [number, number, number, number]) => void;
@@ -317,7 +278,7 @@ type MapViewProps = {
 
 function mapElement({
   preview: previewValue = null,
-  showSimulatedPaths = false,
+  showSimulatedPaths,
   boundaries: boundariesValue = null,
   showBoundaries = false,
   selectedDistrictId = null,
@@ -326,12 +287,10 @@ function mapElement({
   showStormwater = false,
   selectedSegmentId = null,
   onSelectSegment = vi.fn(),
-  rodentReports: rodentReportsValue = null,
-  showRodentReports = false,
-  selectedReportId = null,
-  onSelectReport = vi.fn(),
   citizenAggregates: citizenAggregatesValue = null,
-  showCitizenAggregates = false,
+  showCitizenAggregates,
+  selectedCitizenCellKey = null,
+  onSelectCitizenCell = vi.fn(),
   onSelectTrajectory = vi.fn(),
   outputMode = "aggregate",
   onBoundsChange = vi.fn(),
@@ -348,12 +307,10 @@ function mapElement({
       showStormwater={showStormwater}
       selectedSegmentId={selectedSegmentId}
       onSelectSegment={onSelectSegment}
-      rodentReports={rodentReportsValue}
-      showRodentReports={showRodentReports}
-      selectedReportId={selectedReportId}
-      onSelectReport={onSelectReport}
       citizenAggregates={citizenAggregatesValue}
       showCitizenAggregates={showCitizenAggregates}
+      selectedCitizenCellKey={selectedCitizenCellKey}
+      onSelectCitizenCell={onSelectCitizenCell}
       onSelectTrajectory={onSelectTrajectory}
       outputMode={outputMode}
       onBoundsChange={onBoundsChange}
@@ -796,62 +753,6 @@ describe("MapView", () => {
     expect(map.addSource).not.toHaveBeenCalled();
   });
 
-  it("adds the rodent report source and point/highlight layers", () => {
-    render(mapElement({ rodentReports, showRodentReports: true }));
-    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
-      "data-rodent-points",
-      "visible",
-    );
-    const map = h.latest.current as {
-      addSource: ReturnType<typeof vi.fn>;
-      addLayer: ReturnType<typeof vi.fn>;
-    };
-    expect(map.addSource).toHaveBeenCalledWith(
-      "ratsight-rodent-reports",
-      expect.objectContaining({
-        type: "geojson",
-        data: { type: "FeatureCollection", features: rodentReports.features },
-      }),
-    );
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "ratsight-rodent-reports-point",
-        type: "circle",
-        layout: expect.objectContaining({ visibility: "visible" }),
-        paint: expect.objectContaining({ "circle-color": "#be123c" }),
-      }),
-      undefined,
-    );
-    expect(map.addLayer).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "ratsight-rodent-reports-highlight",
-        type: "circle",
-        filter: ["==", ["get", "report_id"], ""],
-      }),
-      undefined,
-    );
-  });
-
-  it("calls onSelectReport when a rodent report point is clicked", () => {
-    const onSelectReport = vi.fn();
-    render(mapElement({ rodentReports, showRodentReports: true, onSelectReport }));
-    const map = h.latest.current as { handlers: Record<string, HandlerEntry[]> };
-    const click = map.handlers.click.find(
-      (entry) => entry.layerId === "ratsight-rodent-reports-point",
-    );
-    expect(click).toBeDefined();
-    click!.handler({ features: [{ properties: rodentReports.features[0].properties }] });
-    expect(onSelectReport).toHaveBeenCalledWith(rodentReports.features[0].properties);
-  });
-
-  it("marks rodent points hidden when the layer is disabled", () => {
-    render(mapElement({ rodentReports, showRodentReports: false }));
-    expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
-      "data-rodent-points",
-      "hidden",
-    );
-  });
-
   it("draws citizen-report aggregates as a suppressed cell layer", () => {
     render(mapElement({ citizenAggregates, showCitizenAggregates: true }));
     expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
@@ -866,29 +767,75 @@ describe("MapView", () => {
       "ratsight-citizen-report-aggregates",
       expect.objectContaining({
         type: "geojson",
-        data: { type: "FeatureCollection", features: citizenAggregates.features },
+        data: expect.objectContaining({
+          type: "FeatureCollection",
+          features: [
+            expect.objectContaining({
+              geometry: expect.objectContaining({ type: "Point" }),
+              properties: expect.objectContaining({
+                ...citizenAggregates.features[0].properties,
+                feature_key: "g250m:1:2:2026-05:sighting",
+              }),
+            }),
+          ],
+        }),
       }),
     );
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: "ratsight-citizen-report-aggregates-fill",
-        type: "fill",
+        id: "ratsight-citizen-report-aggregates-point",
+        type: "circle",
         layout: expect.objectContaining({ visibility: "visible" }),
-        paint: expect.objectContaining({ "fill-color": "#a3243c" }),
+        paint: expect.objectContaining({ "circle-color": "#a3243c" }),
       }),
       undefined,
     );
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: "ratsight-citizen-report-aggregates-line",
-        type: "line",
-        paint: expect.objectContaining({ "line-color": "#a3243c" }),
+        id: "ratsight-citizen-report-aggregates-highlight",
+        type: "circle",
+        filter: ["==", ["get", "feature_key"], ""],
       }),
       undefined,
     );
   });
 
-  it("hides citizen-report aggregate cells until the layer is enabled", () => {
+  it("highlights the focused citizen-report marker", () => {
+    const { rerender } = render(
+      mapElement({
+        citizenAggregates,
+        showCitizenAggregates: true,
+        selectedCitizenCellKey: "g250m:1:2:2026-05:sighting",
+      }),
+    );
+    const map = h.latest.current as { setFilter: ReturnType<typeof vi.fn> };
+    rerender(
+      mapElement({
+        citizenAggregates,
+        showCitizenAggregates: true,
+        selectedCitizenCellKey: "g250m:9:9:2026-06:other",
+      }),
+    );
+    expect(map.setFilter).toHaveBeenCalledWith("ratsight-citizen-report-aggregates-highlight", [
+      "==",
+      ["get", "feature_key"],
+      "g250m:9:9:2026-06:other",
+    ]);
+  });
+
+  it("selects representative citizen-report markers", () => {
+    const onSelectCitizenCell = vi.fn();
+    render(mapElement({ citizenAggregates, showCitizenAggregates: true, onSelectCitizenCell }));
+    const map = h.latest.current as { handlers: Record<string, HandlerEntry[]> };
+    const click = map.handlers.click.find(
+      (entry) => entry.layerId === "ratsight-citizen-report-aggregates-point",
+    );
+    expect(click).toBeDefined();
+    click!.handler({ features: [{ properties: citizenAggregates.features[0].properties }] });
+    expect(onSelectCitizenCell).toHaveBeenCalledWith(citizenAggregates.features[0].properties);
+  });
+
+  it("honors an explicit caller opt-out for citizen-report cells", () => {
     render(mapElement({ citizenAggregates, showCitizenAggregates: false }));
     expect(screen.getByRole("region", { name: "互動式 GIS 地圖" })).toHaveAttribute(
       "data-citizen-aggregates",
@@ -896,4 +843,3 @@ describe("MapView", () => {
     );
   });
 });
-

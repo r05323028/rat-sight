@@ -31,6 +31,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 DATASET_ID = "121199"
 RESOURCE_VERSION = "20220915"
+TEST_DATASET_ID = "ratsight-test-administrative-districts"
+TEST_RESOURCE_VERSION = "test-20220915"
 SHAPEFILE_BASE = "G97_A_CADIST_P"
 
 
@@ -260,7 +262,12 @@ def test_persist_import_is_transactional_and_idempotent(tmp_path: Path) -> None:
     from ratsight_api.importers.administrative_districts import build_provenance, persist_import
 
     archive, sha256 = _make_archive(tmp_path)
-    batch = _load(archive, sha256)
+    batch = _load(
+        archive,
+        sha256,
+        dataset_id=TEST_DATASET_ID,
+        resource_version=TEST_RESOURCE_VERSION,
+    )
     provenance = build_provenance(
         batch,
         source_url="https://example.test/resource",
@@ -281,7 +288,7 @@ def test_persist_import_is_transactional_and_idempotent(tmp_path: Path) -> None:
                     "SELECT count(*) FROM administrative_districts "
                     "WHERE dataset_id = :d AND resource_version = :v"
                 ),
-                {"d": DATASET_ID, "v": RESOURCE_VERSION},
+                {"d": TEST_DATASET_ID, "v": TEST_RESOURCE_VERSION},
             ).scalar_one()
             assert count == 2
             stored = session.execute(
@@ -289,7 +296,7 @@ def test_persist_import_is_transactional_and_idempotent(tmp_path: Path) -> None:
                     "SELECT DISTINCT data_class, classification FROM administrative_districts "
                     "WHERE dataset_id = :d"
                 ),
-                {"d": DATASET_ID},
+                {"d": TEST_DATASET_ID},
             ).all()
             assert {tuple(row) for row in stored} == {
                 (ADMINISTRATIVE_DATA_CLASS, DISTRICT_CLASSIFICATION)

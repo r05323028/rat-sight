@@ -21,18 +21,6 @@ const GLYPH_PATHS: Record<string, ReactNode> = {
       <circle cx="6" cy="2.5" r="1.1" />
     </>
   ),
-  "rodent-reports": (
-    <>
-      <circle cx="6" cy="6" r="3.2" />
-      <circle cx="6" cy="6" r="1" fill="currentColor" stroke="none" />
-    </>
-  ),
-  rodent_observations: (
-    <>
-      <circle cx="6" cy="6" r="2.6" />
-      <path d="M6 1v2.2M6 8.8V11M1 6h2.2M8.8 6H11" />
-    </>
-  ),
   sewer_networks: (
     <>
       <path d="M1.5 9.5h9" />

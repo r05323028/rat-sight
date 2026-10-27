@@ -223,10 +223,143 @@ a {
   width: 36px;
   height: 36px;
 }
+.map-stage {
+  position: relative;
+}
 .map-frame {
   width: 100%;
   height: clamp(420px, calc(100vh - 232px), 820px);
   background: #e7e9e1;
+}
+.map-cell-popup {
+  z-index: 5;
+}
+.map-cell-popup .maplibregl-popup-content {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.map-cell-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--surface);
+}
+.map-cell-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--surface);
+}
+.map-cell-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--surface);
+}
+.map-cell-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--surface);
+}
+.map-cell-card {
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 48px), var(--map-cell-card-width, 340px));
+  max-height: min(420px, 60vh, var(--map-cell-card-max-height, 420px));
+  overflow: hidden;
+  padding: 14px;
+  border: 1px solid var(--ink);
+  background: var(--surface);
+  box-shadow: 4px 4px 0 rgb(23 24 26 / 12%);
+}
+.map-cell-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+.map-cell-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.map-cell-card-close {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.map-cell-card-close:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.map-cell-card-badge {
+  display: inline-block;
+  margin: 8px 0 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--seal);
+  color: var(--seal);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+}
+.map-cell-card h3 {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.map-cell-card-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 0 0 10px;
+}
+.map-cell-card-facts div {
+  display: grid;
+  gap: 2px;
+}
+.map-cell-card-facts dt {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.map-cell-card-facts dd {
+  margin: 0;
+  font-size: 11.5px;
+}
+.map-cell-card-caution {
+  margin: 0 0 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-soft);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.map-cell-card-attribution {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.map-cell-card-action {
+  flex: 0 0 auto;
+  width: 100%;
+  margin-top: 10px;
+}
+.map-cell-card-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.map-cell-card-note.is-error {
+  color: var(--seal);
+  font-weight: 500;
+}
+.map-cell-card-note.is-success {
+  color: var(--simulated);
+}
+@media (max-width: 760px) {
+  .map-cell-card {
+    max-height: min(52vh, var(--map-cell-card-max-height, 52vh));
+  }
 }
 .map-legend {
   display: flex;
@@ -261,9 +394,6 @@ a {
 }
 .legend-stormwater {
   background: var(--stormwater);
-}
-.legend-rodent-reports {
-  background: var(--rodent);
 }
 .legend-citizen-aggregate {
   background: rgba(163, 36, 60, 0.22);
@@ -401,9 +531,6 @@ a {
 .glyph-stormwater {
   color: var(--stormwater);
 }
-.glyph-rodent-reports {
-  color: var(--rodent);
-}
 .glyph-citizen-aggregates {
   color: var(--rodent);
 }
@@ -439,11 +566,13 @@ a {
 .is-unavailable {
   cursor: not-allowed;
 }
-.synthetic-layer-group,
 .unavailable-layer-group {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--rule);
+}
+.layer-flow-note {
+  margin: 10px 0 0;
 }
 
 /* Form controls */
@@ -700,20 +829,17 @@ a {
   background: var(--ink);
   color: var(--paper);
 }
-/* Progressive disclosure for settings and provenance */
-.advanced-settings,
+/* Progressive disclosure for provenance */
 .provenance-details {
   margin-top: 10px;
   border-top: 1px solid var(--rule-soft);
 }
-.advanced-settings > summary,
 .provenance-details > summary {
   padding: 10px 0;
   color: var(--muted);
   font-size: 11.5px;
   cursor: pointer;
 }
-.advanced-settings > summary:hover,
 .provenance-details > summary:hover {
   color: var(--ink);
 }
@@ -722,68 +848,6 @@ a {
 }
 
 /* Touch targets: inline links and form labels stay at least 24px tall. */
-/* Step playback: derived from a completed response, never elapsed time. */
-.playback-block {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--rule-soft);
-}
-.playback-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.playback-row label {
-  color: var(--muted);
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-}
-.playback-row select {
-  flex: 1 1 180px;
-  min-width: 0;
-  min-height: 44px;
-}
-.playback-step {
-  font-size: 12px;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-.playback-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 180px;
-  overflow-y: auto;
-  border-top: 1px solid var(--rule-soft);
-}
-.playback-steps li + li {
-  border-top: 1px solid var(--rule-soft);
-}
-.playback-step-button {
-  display: block;
-  width: 100%;
-  min-height: 28px;
-  padding: 4px 2px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.playback-step-button:hover,
-.playback-step-button:focus-visible {
-  color: var(--ink);
-}
-.playback-step-button.is-selected {
-  color: var(--ink);
-  font-weight: 600;
-}
-
 .panel a[href],
 .maplibregl-ctrl-attrib a,
 .panel label {
@@ -1119,9 +1183,7 @@ html {
   }
 }
 
-.provenance-details[open] > .provenance-block,
-.advanced-settings[open] > .form-field,
-.advanced-settings[open] > .field-pair {
+.provenance-details[open] > .provenance-block {
   animation: card-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes card-in {

@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Map as MapLibreMap,
   NavigationControl,
+  Popup,
   setWorkerUrl,
   type FilterSpecification,
   type MapLayerMouseEvent,
@@ -13,9 +15,8 @@ import type {
   AdministrativeDistrictGeometry,
   AdministrativeDistrictProperties,
   CitizenReportAggregates,
+  CitizenReportCellProperties,
   AdministrativeDistricts,
-  RodentReportProperties,
-  RodentReports,
   SimulationPreview,
   SimulationTrajectoryStep,
   StormwaterBbox,
@@ -51,12 +52,9 @@ const BOUNDARY_HIGHLIGHT_LAYER = "ratsight-administrative-districts-highlight";
 const STORMWATER_SOURCE = "ratsight-stormwater-pipelines";
 const STORMWATER_LINE_LAYER = "ratsight-stormwater-pipelines-line";
 const STORMWATER_HIGHLIGHT_LAYER = "ratsight-stormwater-pipelines-highlight";
-const RODENT_REPORT_SOURCE = "ratsight-rodent-reports";
-const RODENT_REPORT_POINT_LAYER = "ratsight-rodent-reports-point";
-const RODENT_REPORT_HIGHLIGHT_LAYER = "ratsight-rodent-reports-highlight";
 const CITIZEN_AGGREGATE_SOURCE = "ratsight-citizen-report-aggregates";
-const CITIZEN_AGGREGATE_FILL_LAYER = "ratsight-citizen-report-aggregates-fill";
-const CITIZEN_AGGREGATE_LINE_LAYER = "ratsight-citizen-report-aggregates-line";
+const CITIZEN_AGGREGATE_POINT_LAYER = "ratsight-citizen-report-aggregates-point";
+const CITIZEN_AGGREGATE_HIGHLIGHT_LAYER = "ratsight-citizen-report-aggregates-highlight";
 
 function geometryBounds(
   geometry: AdministrativeDistrictGeometry,
@@ -131,7 +129,8 @@ function panDuration(): number {
 
 type MapViewProps = {
   preview: SimulationPreview | null;
-  showSimulatedPaths: boolean;
+  // Defaults on; callers may opt out, but the dashboard treats paths as part of the result.
+  showSimulatedPaths?: boolean;
   showNetworkReference?: boolean;
   outputMode?: "aggregate" | "trajectory";
   boundaries: AdministrativeDistricts | null;
@@ -142,12 +141,13 @@ type MapViewProps = {
   showStormwater: boolean;
   selectedSegmentId: string | null;
   onSelectSegment: (properties: StormwaterProperties) => void;
-  rodentReports: RodentReports | null;
-  showRodentReports: boolean;
   citizenAggregates?: CitizenReportAggregates | null;
+  // Defaults on; report cells are workflow inputs, not an optional layer toggle.
   showCitizenAggregates?: boolean;
-  selectedReportId: string | null;
-  onSelectReport: (properties: RodentReportProperties) => void;
+  selectedCitizenCellKey?: string | null;
+  onSelectCitizenCell?: (properties: CitizenReportCellProperties) => void;
+  // Rendered into a MapLibre popup anchored at the selected 250 m cell center.
+  citizenCellCard?: ReactNode;
   onSelectTrajectory?: (trajectoryId: number) => void;
   // Number of returned trajectory edges to draw (0 = origin only); null/undefined draws all.
   activeStep?: number | null;
@@ -161,7 +161,7 @@ type MapViewProps = {
 
 export function MapView({
   preview,
-  showSimulatedPaths,
+  showSimulatedPaths = true,
   showNetworkReference = false,
   outputMode = "aggregate",
   boundaries,
@@ -172,12 +172,11 @@ export function MapView({
   showStormwater,
   selectedSegmentId,
   onSelectSegment,
-  rodentReports,
-  showRodentReports,
   citizenAggregates = null,
-  showCitizenAggregates = false,
-  selectedReportId,
-  onSelectReport,
+  showCitizenAggregates = true,
+  selectedCitizenCellKey = null,
+  onSelectCitizenCell,
+  citizenCellCard = null,
   onSelectTrajectory,
   activeStep = null,
   selectedTrajectoryId = null,
@@ -193,6 +192,10 @@ export function MapView({
   const fittedPreviewRef = useRef<SimulationPreview | null>(null);
   const styleReady = useRef(false);
   const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [citizenCellPopupHost, setCitizenCellPopupHost] = useState<HTMLDivElement | null>(null);
+  // A state flag, not only the ref, so data effects retry after the map style loads.
+  const [styleLoaded, setStyleLoaded] = useState(false);
+  const hasCitizenCellCard = Boolean(citizenCellCard);
 
   useEffect(() => {
     if (!container.current) return;
@@ -207,6 +210,7 @@ export function MapView({
     styleReady.current = map.isStyleLoaded() ?? false;
     map.once("load", () => {
       styleReady.current = true;
+      setStyleLoaded(true);
       container.current?.setAttribute("data-map-ready", "true");
     });
     map.addControl(new NavigationControl(), "top-right");
@@ -730,8 +734,10 @@ export function MapView({
     if (!map) return;
 
     const removeCitizenAggregateLayers = () => {
-      if (map.getLayer(CITIZEN_AGGREGATE_LINE_LAYER)) map.removeLayer(CITIZEN_AGGREGATE_LINE_LAYER);
-      if (map.getLayer(CITIZEN_AGGREGATE_FILL_LAYER)) map.removeLayer(CITIZEN_AGGREGATE_FILL_LAYER);
+      if (map.getLayer(CITIZEN_AGGREGATE_HIGHLIGHT_LAYER))
+        map.removeLayer(CITIZEN_AGGREGATE_HIGHLIGHT_LAYER);
+      if (map.getLayer(CITIZEN_AGGREGATE_POINT_LAYER))
+        map.removeLayer(CITIZEN_AGGREGATE_POINT_LAYER);
       if (map.getSource(CITIZEN_AGGREGATE_SOURCE)) map.removeSource(CITIZEN_AGGREGATE_SOURCE);
     };
 
@@ -744,103 +750,63 @@ export function MapView({
       if (!styleReady.current) return;
       removeCitizenAggregateLayers();
       if (!citizenAggregates || citizenAggregates.features.length === 0) return;
+      const markerFeatures = citizenAggregates.features.map((feature) => {
+        const ring = feature.geometry.coordinates[0] ?? [];
+        const points = ring.slice(0, -1);
+        const center = points.reduce(
+          ([longitude, latitude], [pointLongitude, pointLatitude]) => [
+            longitude + pointLongitude,
+            latitude + pointLatitude,
+          ],
+          [0, 0],
+        );
+        const count = points.length || 1;
+        return {
+          type: "Feature" as const,
+          id: feature.id,
+          geometry: {
+            type: "Point" as const,
+            coordinates: [center[0] / count, center[1] / count],
+          },
+          properties: {
+            ...feature.properties,
+            feature_key: `${feature.properties.cell_id}:${feature.properties.month}:${feature.properties.report_type}`,
+          },
+        };
+      });
       map.addSource(CITIZEN_AGGREGATE_SOURCE, {
         type: "geojson",
-        data: { type: "FeatureCollection", features: citizenAggregates.features },
+        data: { type: "FeatureCollection", features: markerFeatures },
       });
       const beforeId = map.getLayer(SIMULATION_LAYER) ? SIMULATION_LAYER : undefined;
       const visibility = showCitizenAggregates ? "visible" : "none";
       map.addLayer(
         {
-          id: CITIZEN_AGGREGATE_FILL_LAYER,
-          type: "fill",
+          id: CITIZEN_AGGREGATE_POINT_LAYER,
+          type: "circle",
           source: CITIZEN_AGGREGATE_SOURCE,
           layout: { visibility },
           paint: {
-            "fill-color": "#a3243c",
-            "fill-opacity": 0.18,
-          },
-        },
-        beforeId,
-      );
-      // Cell outlines stay thin and low-contrast: the layer shows counts, not reports.
-      map.addLayer(
-        {
-          id: CITIZEN_AGGREGATE_LINE_LAYER,
-          type: "line",
-          source: CITIZEN_AGGREGATE_SOURCE,
-          layout: { visibility },
-          paint: {
-            "line-color": "#a3243c",
-            "line-width": 1,
-            "line-opacity": 0.55,
-          },
-        },
-        beforeId,
-      );
-    };
-
-    const unsubscribe = onStyled(map, () => styleReady.current, update);
-    return () => {
-      unsubscribe();
-    };
-  }, [citizenAggregates, showCitizenAggregates]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-
-    const removeRodentLayer = () => {
-      if (map.getLayer(RODENT_REPORT_HIGHLIGHT_LAYER)) {
-        map.removeLayer(RODENT_REPORT_HIGHLIGHT_LAYER);
-      }
-      if (map.getLayer(RODENT_REPORT_POINT_LAYER)) map.removeLayer(RODENT_REPORT_POINT_LAYER);
-      if (map.getSource(RODENT_REPORT_SOURCE)) map.removeSource(RODENT_REPORT_SOURCE);
-    };
-
-    const update = () => {
-      const hasPoints = Boolean(rodentReports && rodentReports.features.length > 0);
-      container.current?.setAttribute(
-        "data-rodent-points",
-        hasPoints && showRodentReports ? "visible" : "hidden",
-      );
-      if (!styleReady.current) return;
-      removeRodentLayer();
-      if (!rodentReports || rodentReports.features.length === 0) return;
-      map.addSource(RODENT_REPORT_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: rodentReports.features },
-      });
-      // Keep report points beneath simulated movement so simulation stays distinct.
-      const beforeId = map.getLayer(SIMULATION_LAYER) ? SIMULATION_LAYER : undefined;
-      const visibility = showRodentReports ? "visible" : "none";
-      map.addLayer(
-        {
-          id: RODENT_REPORT_POINT_LAYER,
-          type: "circle",
-          source: RODENT_REPORT_SOURCE,
-          layout: { visibility },
-          paint: {
-            "circle-radius": 4,
-            "circle-color": "#be123c",
-            "circle-stroke-color": "#7f1d3a",
-            "circle-stroke-width": 1,
-            "circle-opacity": 0.9,
-          },
-        },
-        beforeId,
-      );
-      map.addLayer(
-        {
-          id: RODENT_REPORT_HIGHLIGHT_LAYER,
-          type: "circle",
-          source: RODENT_REPORT_SOURCE,
-          layout: { visibility },
-          filter: ["==", ["get", "report_id"], ""],
-          paint: {
+            "circle-color": "#a3243c",
             "circle-radius": 7,
-            "circle-color": "rgba(190,18,60,0.25)",
-            "circle-stroke-color": "#7f1d3a",
+            "circle-stroke-color": "#fff",
+            "circle-stroke-width": 2,
+          },
+        },
+        beforeId,
+      );
+      map.addLayer(
+        {
+          id: CITIZEN_AGGREGATE_HIGHLIGHT_LAYER,
+          type: "circle",
+          source: CITIZEN_AGGREGATE_SOURCE,
+          layout: { visibility },
+          filter: ["==", ["get", "feature_key"], ""],
+          paint: {
+            "circle-color": "#a3243c",
+            "circle-opacity": 0.18,
+            "circle-radius": 12,
+            "circle-stroke-color": "#a3243c",
             "circle-stroke-width": 2,
           },
         },
@@ -848,47 +814,59 @@ export function MapView({
       );
     };
 
-    const handleClick = (event: MapLayerMouseEvent) => {
-      const feature = event.features?.[0];
-      if (feature?.properties) {
-        onSelectReport(feature.properties as RodentReportProperties);
-      }
-    };
-    const handleMouseEnter = () => {
-      map.getCanvas().style.cursor = "pointer";
-    };
-    const handleMouseLeave = () => {
-      map.getCanvas().style.cursor = "";
-    };
-
     const unsubscribe = onStyled(map, () => styleReady.current, update);
-    map.on("click", RODENT_REPORT_POINT_LAYER, handleClick);
-    map.on("mouseenter", RODENT_REPORT_POINT_LAYER, handleMouseEnter);
-    map.on("mouseleave", RODENT_REPORT_POINT_LAYER, handleMouseLeave);
     return () => {
       unsubscribe();
-      map.off("click", RODENT_REPORT_POINT_LAYER, handleClick);
-      map.off("mouseenter", RODENT_REPORT_POINT_LAYER, handleMouseEnter);
-      map.off("mouseleave", RODENT_REPORT_POINT_LAYER, handleMouseLeave);
     };
-  }, [rodentReports, showRodentReports, onSelectReport]);
+  }, [citizenAggregates, showCitizenAggregates, styleLoaded]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
-      if (!map.getLayer(RODENT_REPORT_HIGHLIGHT_LAYER)) return;
-      map.setFilter(RODENT_REPORT_HIGHLIGHT_LAYER, [
+      if (!map.getLayer(CITIZEN_AGGREGATE_HIGHLIGHT_LAYER)) return;
+      map.setFilter(CITIZEN_AGGREGATE_HIGHLIGHT_LAYER, [
         "==",
-        ["get", "report_id"],
-        selectedReportId ?? "",
+        ["get", "feature_key"],
+        selectedCitizenCellKey ?? "",
       ]);
     };
     const unsubscribe = onStyled(map, () => styleReady.current, apply);
     return () => {
       unsubscribe();
     };
-  }, [selectedReportId, rodentReports, showRodentReports]);
+  }, [citizenAggregates, selectedCitizenCellKey, showCitizenAggregates]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !onSelectCitizenCell) return;
+    const handleClick = (event: MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (!feature?.properties) return;
+      const cell = citizenAggregates?.features.find(
+        (item) =>
+          item.properties.cell_id === String(feature.properties.cell_id) &&
+          item.properties.month === String(feature.properties.month) &&
+          item.properties.report_type === String(feature.properties.report_type),
+      );
+      if (cell) onSelectCitizenCell(cell.properties);
+    };
+    const showPointer = () => {
+      if (container.current) container.current.style.cursor = "pointer";
+    };
+    const hidePointer = () => {
+      if (container.current) container.current.style.cursor = "";
+    };
+    map.on("click", CITIZEN_AGGREGATE_POINT_LAYER, handleClick);
+    map.on("mouseenter", CITIZEN_AGGREGATE_POINT_LAYER, showPointer);
+    map.on("mouseleave", CITIZEN_AGGREGATE_POINT_LAYER, hidePointer);
+    return () => {
+      map.off("click", CITIZEN_AGGREGATE_POINT_LAYER, handleClick);
+      map.off("mouseenter", CITIZEN_AGGREGATE_POINT_LAYER, showPointer);
+      map.off("mouseleave", CITIZEN_AGGREGATE_POINT_LAYER, hidePointer);
+      hidePointer();
+    };
+  }, [citizenAggregates, onSelectCitizenCell]);
 
   // Request the current viewport on load and after debounced map movement so the
   // dashboard can issue bounded stormwater bbox queries instead of fetching all.
@@ -923,5 +901,86 @@ export function MapView({
     };
   }, [onBoundsChange]);
 
-  return <div className="map-frame" role="region" aria-label="互動式 GIS 地圖" ref={container} />;
+  // The details card follows the selected marker instead of sitting in a fixed map corner.
+  // MapLibre owns positioning and keeps the popup over the same cell through pans and zooms.
+  useEffect(() => {
+    const map = mapRef.current;
+    const feature = citizenAggregates?.features.find((item) => {
+      const key = `${item.properties.cell_id}:${item.properties.month}:${item.properties.report_type}`;
+      return key === selectedCitizenCellKey;
+    });
+    if (!map || !feature || !hasCitizenCellCard) {
+      setCitizenCellPopupHost(null);
+      return;
+    }
+    const ring = feature.geometry.coordinates[0] ?? [];
+    const points = ring.slice(0, -1);
+    const center = points.reduce(
+      ([longitude, latitude], [pointLongitude, pointLatitude]) => [
+        longitude + pointLongitude,
+        latitude + pointLatitude,
+      ],
+      [0, 0],
+    );
+    const count = points.length || 1;
+    const lngLat: [number, number] = [center[0] / count, center[1] / count];
+    const host = document.createElement("div");
+    host.className = "map-cell-popup-host";
+    // Keep the card inside the map: open it below the marker when there is not enough
+    // room above, and cap its height to the side with more space.
+    const mapContainer = map.getContainer();
+    const mapRect = mapContainer.getBoundingClientRect();
+    const projected = map.project(lngLat);
+    // The card is narrower than the viewport but can still be wider than the map.
+    // Use the map's own width so the card can stay inside it at every breakpoint.
+    const cardWidth = Math.max(120, Math.min(340, window.innerWidth - 48, mapRect.width - 16));
+    host.style.setProperty("--map-cell-card-width", `${cardWidth}px`);
+    // Keep the card inside the visible part of the map, even when the map itself
+    // extends below the viewport.
+    const visibleBottom = Math.min(mapContainer.clientHeight, window.innerHeight - mapRect.top);
+    // 14 px offset + 10 px tip + 8 px breathing room.
+    const spaceAbove = projected.y - 32;
+    const spaceBelow = visibleBottom - projected.y - 34;
+    const openBelow = spaceAbove < 280 && spaceBelow >= spaceAbove;
+    const availableHeight = Math.max(120, Math.floor(openBelow ? spaceBelow : spaceAbove));
+    host.style.setProperty("--map-cell-card-max-height", `${availableHeight}px`);
+    // Shift the popup horizontally when its fixed-width card would cross the map
+    // or viewport edge. The tip stays as close to the selected cell as the layout allows.
+    const mapRight = Math.min(mapRect.right, window.innerWidth);
+    const halfCardWidth = cardWidth / 2;
+    const minimumCenter = mapRect.left + 8 + halfCardWidth;
+    const maximumCenter = mapRight - 8 - halfCardWidth;
+    const anchorPageX = mapRect.left + projected.x;
+    const centerPageX =
+      minimumCenter > maximumCenter
+        ? (mapRect.left + mapRight) / 2
+        : Math.min(Math.max(anchorPageX, minimumCenter), maximumCenter);
+    const horizontalOffset = Math.round(centerPageX - anchorPageX);
+    const popup = new Popup({
+      closeButton: false,
+      closeOnClick: false,
+      focusAfterOpen: false,
+      maxWidth: `${cardWidth}px`,
+      offset: [horizontalOffset, 14],
+      anchor: openBelow ? "top" : "bottom",
+      className: "map-cell-popup",
+    })
+      .setLngLat(lngLat)
+      .setDOMContent(host)
+      .addTo(map);
+    setCitizenCellPopupHost(host);
+    return () => {
+      popup.remove();
+      setCitizenCellPopupHost(null);
+    };
+  }, [citizenAggregates, hasCitizenCellCard, selectedCitizenCellKey]);
+
+  return (
+    <>
+      <div className="map-frame" role="region" aria-label="互動式 GIS 地圖" ref={container} />
+      {citizenCellPopupHost && citizenCellCard
+        ? createPortal(citizenCellCard, citizenCellPopupHost)
+        : null}
+    </>
+  );
 }

@@ -1,0 +1,9 @@
+schema: evidence-driven
+created: 2026-10-26
+goal: >-
+  Make final project-owner acceptance local, durable, and separate from agent
+  runtime.
+affected_areas:
+  - scripts/change_acceptance.py
+  - Makefile
+  - guidance

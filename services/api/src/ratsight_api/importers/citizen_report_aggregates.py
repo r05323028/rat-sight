@@ -7,8 +7,10 @@ type counts for cells that reach the suppression minimum. Free text, place
 names, photo URLs, and exact report points are dropped before any write.
 
 Aggregates stay ``UNVERIFIED`` citizen reports. They are not observations,
-prevalence, population, movement, or disease-risk evidence, and they are never
-a simulation input.
+prevalence, population, movement, or disease-risk evidence. Counts are never
+simulation inputs or weights; the bounded origin contract may resolve one
+selected cell to all strictly in-cell graph nodes (strict for one, uniform for
+multiple), failing closed at zero.
 """
 
 from __future__ import annotations
@@ -27,8 +29,8 @@ from typing import Any, cast
 
 from geoalchemy2.shape import from_shape
 from shapely.geometry import box
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import CursorResult, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -280,7 +282,7 @@ def _stored_version(session: Session, batch: AggregateBatch) -> str | None:
         ) from exc
 
 
-def persist_batch(session: Session, batch: AggregateBatch) -> dict[str, int]:
+def persist_batch(session: Session, batch: AggregateBatch) -> dict[str, Any]:
     """Write suppressed rows idempotently; per-report input is never stored."""
     batch = _with_reused_version(batch, _stored_version(session, batch))
     provenance = build_provenance(batch).model_dump(mode="json")

@@ -33,6 +33,9 @@ from sqlalchemy import CheckConstraint, Table, UniqueConstraint, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 GML_NS = "http://www.opengis.net/gml"
+TEST_DATASET_ID = "00000000-0000-4000-8000-000000000801"
+TEST_RESOURCE_ID = "00000000-0000-4000-8000-000000000802"
+TEST_RESOURCE_VERSION = "2026-10-16T00:00:00Z"
 
 
 def _record_xml(
@@ -269,7 +272,13 @@ def test_persist_import_is_transactional_and_idempotent(tmp_path: Path) -> None:
     source, sha256 = _write_source(
         tmp_path, [_record_xml("P001"), _record_xml("P002", pipe_number="PN1")]
     )
-    batch = _load(source, sha256)
+    batch = _load(
+        source,
+        sha256,
+        dataset_id=TEST_DATASET_ID,
+        resource_id=TEST_RESOURCE_ID,
+        resource_version=TEST_RESOURCE_VERSION,
+    )
     provenance = build_provenance(
         batch,
         source_url="https://example.test/source",
@@ -289,7 +298,7 @@ def test_persist_import_is_transactional_and_idempotent(tmp_path: Path) -> None:
                     "SELECT DISTINCT data_class, classification FROM stormwater_pipelines "
                     "WHERE dataset_id = :d"
                 ),
-                {"d": OFFICIAL_DATASET_ID},
+                {"d": TEST_DATASET_ID},
             ).all()
             assert {tuple(item) for item in row} == {
                 (STORMWATER_DATA_CLASS, STORMWATER_CLASSIFICATION)
@@ -321,7 +330,13 @@ def test_bbox_filter_selects_only_matching_lines(tmp_path: Path) -> None:
             ),
         ],
     )
-    batch = _load(source, sha256)
+    batch = _load(
+        source,
+        sha256,
+        dataset_id=TEST_DATASET_ID,
+        resource_id=TEST_RESOURCE_ID,
+        resource_version=TEST_RESOURCE_VERSION,
+    )
     provenance = build_provenance(
         batch,
         source_url="https://example.test/source",
@@ -336,14 +351,14 @@ def test_bbox_filter_selects_only_matching_lines(tmp_path: Path) -> None:
             session.flush()
             min_x, min_y, max_x, max_y = batch.records[0].geometry.bounds
             bbox = (min_x - 0.001, min_y - 0.001, max_x + 0.001, max_y + 0.001)
-            response = list_stormwater_pipelines(session, bbox=bbox, dataset_id=OFFICIAL_DATASET_ID)
+            response = list_stormwater_pipelines(session, bbox=bbox, dataset_id=TEST_DATASET_ID)
             assert response.data_state == "available"
             assert response.feature_count == 1
             assert [feature.id for feature in response.features] == ["P001"]
             assert response.bbox == bbox
 
             miss = list_stormwater_pipelines(
-                session, bbox=(121.0, 24.0, 121.05, 24.05), dataset_id=OFFICIAL_DATASET_ID
+                session, bbox=(121.0, 24.0, 121.05, 24.05), dataset_id=TEST_DATASET_ID
             )
             assert miss.data_state == "available"
             assert miss.feature_count == 0

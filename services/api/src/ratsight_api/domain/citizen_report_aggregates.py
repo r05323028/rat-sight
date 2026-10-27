@@ -3,7 +3,10 @@
 Rows are counts of third-party citizen reports, coarsened to a 250 m grid and
 month buckets, with cells below a suppression minimum dropped. They are
 ``UNVERIFIED`` citizen reports: not observations, prevalence, population,
-movement, or disease-risk evidence, and never a simulation input.
+movement, or disease-risk evidence. Counts are never simulation inputs or
+weights; the bounded origin contract may resolve one selected cell to all
+strictly in-cell graph nodes (strict for one, uniform for multiple), failing closed
+at zero.
 """
 
 from __future__ import annotations

@@ -2,9 +2,10 @@
 
 ## Automated checks
 
-- `uv run pytest services/api packages/geo packages/simulation -q` → **171 passed**.
-- Public route regression sends `{}` to `/api/v1/simulations/preview`; response defaults to `taipei_osm_songshan` with `osm_surface_network` provenance (supersedes the earlier synthetic-default assertion, reversed 2026-10-26). The explicit `taipei_synthetic_demo` request still returns `synthetic_fixture`, and a missing extract returns 503 `SOURCE_NETWORK_UNAVAILABLE`.
-- `cd apps/web && npm test` → **87 passed**.
+- Full `uv run pytest services/api packages/geo packages/simulation -q` → **189 passed, 6 pre-existing shared-database importer conflicts**.
+- Targeted `uv run pytest services/api/tests/test_api.py services/api/tests/test_simulation_preview.py packages/simulation/tests -q` → **31 passed**.
+- Simulation requests now require explicit `study_area`; omitted requests return HTTP 422. Explicit `taipei_osm_songshan` returns OSM provenance, explicit `taipei_synthetic_demo` returns `synthetic_fixture`, and a missing extract returns 503 `SOURCE_NETWORK_UNAVAILABLE`.
+- `cd apps/web && npm test` → **91 passed**.
 - `cd apps/web && npm run typecheck`, `cd apps/web && npm run lint`, Ruff on affected Python packages, and targeted Prettier checks for Dashboard files → clean.
 - Workspace-wide `cd apps/web && npm run format:check` still reports 12 files outside this task (`.impeccable` artifacts, `DESIGN.md`, `tsconfig.json`).
 - `npx playwright test e2e/dashboard.spec.ts` with isolated mocked services → **10 passed** (desktop/mobile).
@@ -20,6 +21,7 @@ QA used disposable databases and API/web pairs, without touching shared database
 - Pointer and touch origin selection, pending-origin disclosure, play/pause, next, reset, trajectory selection, termination copy, and truncation disclosure passed.
 - Empty environment remained honest while simulation still ran; no infrastructure claim was shown.
 - Teardown left no QA listeners or databases.
+- Municipal Analyst PASS: QA-owned `127.0.0.1:3086` → API `8005`; origin pending state, step playback, `step_index`, reachability/unsampled disclosure, truncation, and non-biological safeguards passed with no UX finding.
 
 ## Source hash reconciliation
 

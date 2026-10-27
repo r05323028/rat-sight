@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from ratsight_geo.osm import EXPECTED_SHA256, load_osm_surface_graph
+from ratsight_geo.osm import DEFAULT_OSM_SOURCE, EXPECTED_SHA256, load_osm_surface_graph
 
-SOURCE = Path.home() / ".local/share/ratsight/network/taipei-songshan-20261023.osm"
+SOURCE = DEFAULT_OSM_SOURCE
 
 
 def test_pinned_osm_graph_preserves_bent_geometry_and_provenance() -> None:

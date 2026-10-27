@@ -1,4 +1,4 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke rodent-report-smoke lint typecheck format-check build validate openspec-gate openspec-archive import-districts import-stormwater import-rodent-reports data-bootstrap
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke lint typecheck format-check build validate openspec-gate openspec-archive change-review change-status change-accept import-districts import-stormwater data-bootstrap
 
 PNPM ?= corepack pnpm
 
@@ -29,9 +29,6 @@ import-districts:
 
 import-stormwater:
 	uv run --package ratsight-api python -m ratsight_api.importers.stormwater_pipelines $(ARGS)
-
-import-rodent-reports:
-	uv run --package ratsight-api python -m ratsight_api.importers.rodent_reports $(ARGS)
 
 # Suppressed 250 m counts only; never downloads citizen data. Reuse terms unverified.
 import-citizen-reports:
@@ -64,9 +61,6 @@ test-e2e:
 geospatial-smoke:
 	bash scripts/geospatial_smoke.sh
 
-rodent-report-smoke:
-	bash scripts/rodent_report_smoke.sh
-
 lint:
 	$(PNPM) --filter @ratsight/web lint
 	uv run ruff check .
@@ -95,7 +89,17 @@ validate:
 openspec-gate:
 	uv run python scripts/openspec_quality_gate.py $(CHANGE)
 
-# Wrapper only; direct `openspec archive` bypasses the project quality gate.
+change-review:
+	uv run python scripts/change_acceptance.py review $(CHANGE)
+
+change-status:
+	uv run python scripts/change_acceptance.py status $(CHANGE)
+
+change-accept:
+	uv run python scripts/change_acceptance.py decide $(CHANGE)
+
+# Wrapper only; direct `openspec archive` bypasses this project policy check.
 openspec-archive:
 	uv run python scripts/openspec_quality_gate.py $(CHANGE)
+	uv run python scripts/change_acceptance.py archive-check $(CHANGE)
 	openspec archive $(CHANGE)

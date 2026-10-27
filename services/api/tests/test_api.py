@@ -28,6 +28,7 @@ async def test_openapi_contains_required_routes(client: AsyncClient) -> None:
     assert "/api/v1/simulations/preview" in schema["paths"]
     assert "/api/v1/layers" in schema["paths"]
     assert "/api/v1/system/status" in schema["paths"]
+    assert "/api/v1/rodent-reports" not in schema["paths"]
 
 
 @pytest.mark.asyncio
@@ -35,7 +36,7 @@ async def test_layers_are_explicitly_empty_not_fake_data(client: AsyncClient) ->
     response = await client.get("/api/v1/layers")
     assert response.status_code == 200
     layers = response.json()
-    assert len(layers) == 7
+    assert len(layers) == 6
     assert all(layer["available"] is False for layer in layers)
     assert all(layer["classification"] is None for layer in layers[:-1])
 
@@ -73,8 +74,18 @@ async def test_preview_is_deterministic_and_carries_provenance(
 
 
 @pytest.mark.asyncio
-async def test_preview_defaults_to_the_pinned_osm_network(client: AsyncClient) -> None:
+async def test_preview_requires_explicit_study_area(client: AsyncClient) -> None:
     response = await client.post("/api/v1/simulations/preview", json={})
+
+    assert response.status_code == 422
+    assert any(error["loc"][-1] == "study_area" for error in response.json()["detail"])
+
+
+@pytest.mark.asyncio
+async def test_preview_uses_explicit_osm_study_area(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/simulations/preview", json={"study_area": "taipei_osm_songshan"}
+    )
 
     assert response.status_code == 200
     result = response.json()
@@ -89,14 +100,16 @@ async def test_preview_reports_a_missing_osm_source_instead_of_falling_back(
 ) -> None:
     def missing_source() -> None:
         raise FileNotFoundError(
-            "configured OSM source is absent: /nonexistent/taipei-songshan-20261023.osm"
+            "configured OSM source is absent: /nonexistent/taipei-expanded-ratdar-20261027.osm"
         )
 
     monkeypatch.setattr(
         "ratsight_api.application.simulation_preview.load_osm_surface_graph",
         missing_source,
     )
-    response = await client.post("/api/v1/simulations/preview", json={})
+    response = await client.post(
+        "/api/v1/simulations/preview", json={"study_area": "taipei_osm_songshan"}
+    )
 
     assert response.status_code == 503
     detail = response.json()["detail"]

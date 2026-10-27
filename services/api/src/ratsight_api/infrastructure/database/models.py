@@ -166,74 +166,15 @@ class StormwaterPipeline(Base):
     )
 
 
-class RodentReport(Base):
-    """Synthetic report-shaped rodent-report fixture point.
-
-    These records are SIMULATED report events, not observations, prevalence,
-    population, movement, disease risk, or intervention evidence.
-    """
-
-    __tablename__ = "rodent_reports"
-    __table_args__ = (
-        CheckConstraint(
-            "classification = 'SIMULATED'",
-            name="ck_rodent_reports_classification",
-        ),
-        CheckConstraint(
-            "data_class = 'RODENT_REPORT'",
-            name="ck_rodent_reports_data_class",
-        ),
-        CheckConstraint(
-            "GeometryType(geometry) = 'POINT' AND NOT ST_IsEmpty(geometry)",
-            name="ck_rodent_reports_geometry",
-        ),
-        UniqueConstraint(
-            "dataset_id",
-            "resource_version",
-            "source_record_id",
-            name="uq_rodent_reports_key",
-        ),
-        Index("idx_rodent_reports_geometry", "geometry", postgresql_using="gist"),
-        Index(
-            "idx_rodent_reports_version_time",
-            "dataset_id",
-            "resource_version",
-            "reported_at",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    source_record_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    dataset_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    resource_version: Mapped[str] = mapped_column(String(64), nullable=False)
-    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    data_class: Mapped[str] = mapped_column(String(32), nullable=False)
-    classification: Mapped[str] = mapped_column(String(16), nullable=False)
-    report_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    reported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    location_precision: Mapped[str] = mapped_column(String(32), nullable=False)
-    review_status: Mapped[str] = mapped_column(String(32), nullable=False)
-    municipal_status: Mapped[str] = mapped_column(String(32), nullable=False)
-    action_status: Mapped[str] = mapped_column(String(32), nullable=False)
-    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    geometry: Mapped[Any] = mapped_column(
-        Geometry(geometry_type="GEOMETRY", srid=4326, spatial_index=False), nullable=False
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-
 class CitizenReportCell(Base):
     """Suppressed 250 m aggregate of third-party citizen reports.
 
     One row counts citizen reports in a grid cell, wall-clock month, and coarse
     report type. These are UNVERIFIED citizen reports, not observations,
-    prevalence, population, movement, or disease-risk evidence, and they are
-    never a simulation input.
+    prevalence, population, movement, or disease-risk evidence. Counts are never
+    simulation inputs or weights; the bounded origin contract may resolve one
+    selected cell to all strictly in-cell graph nodes (strict for one, uniform for
+    multiple), failing closed at zero.
     """
 
     __tablename__ = "citizen_report_cells"

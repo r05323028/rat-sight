@@ -1,25 +1,207 @@
 {
   "reviews": {
-    "adversarial": {"decision":"PASS_WITH_WARNINGS","findings":[{"id":"AR-GEO-001","severity":"MAJOR","status":"RESOLVED","note":"Origin is restricted to returned graph nodes and invalid IDs return 422."},{"id":"AR-GEO-002","severity":"MAJOR","status":"RESOLVED","note":"Playback is client-side over returned geometry and labeled by step, not time."},{"id":"AR-GEO-003","severity":"MAJOR","status":"RESOLVED","note":"Synthetic, unverified, unitless and non-biological boundaries remain disclosed."}],"reference":"adversarial-review.md"},
-    "code": {"decision":"PASS_WITH_WARNINGS","findings":[{"id":"CR-008","severity":"MAJOR","status":"OPEN","note":"Backward-compatible default decision remains pending human approval; current schema still defaults to taipei_osm_songshan."}],"reference":"verification/code-review.md","note":"Follow-up self-review covered sink/empty-trajectory tests, current source hash, and CR-008 resolution; role-specific sign-offs remain pending."}
+    "adversarial": {
+      "decision": "PASS_WITH_WARNINGS",
+      "findings": [
+        {
+          "id": "AR-GEO-001",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "Origin is restricted to returned graph nodes and invalid IDs return 422."
+        },
+        {
+          "id": "AR-GEO-002",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "Playback is client-side over returned geometry and labeled by step, not time."
+        },
+        {
+          "id": "AR-GEO-003",
+          "severity": "MAJOR",
+          "status": "RESOLVED",
+          "note": "Synthetic, unverified, unitless and non-biological boundaries remain disclosed."
+        }
+      ],
+      "reference": "adversarial-review.md"
+    },
+    "code": {
+      "decision": "PASS_WITH_WARNINGS",
+      "findings": [
+        {
+          "id": "CR-008",
+          "severity": "MAJOR",
+          "status": "OPEN",
+          "note": "Explicit study_area behavior implemented per user message m00160; formal closure remains pending project-approved human identity/provenance. Omitted requests now return 422."
+        }
+      ],
+      "reference": "verification/code-review.md",
+      "note": "Follow-up self-review covered sink/empty-trajectory tests, current source hash, and CR-008 resolution; role-specific sign-offs remain pending."
+    }
   },
   "verification": [
-    {"id":"V-PYTEST","command":"uv run pytest services/api packages/geo packages/simulation -q","exit_code":0,"result":"171 passed","reference":"verification/qa.md"},
-    {"id":"V-WEB","command":"cd apps/web && npm test -- --run && npm run typecheck && npm run lint && npx prettier --check src/components/dashboard.test.tsx src/components/dashboard.tsx","exit_code":0,"result":"87 tests passed; typecheck, lint, and Prettier clean","reference":"verification/qa.md"},
-    {"id":"V-E2E","command":"PLAYWRIGHT_PORT=3000 PLAYWRIGHT_EXTERNAL_SERVERS=1 npx playwright test e2e/dashboard.spec.ts","exit_code":0,"result":"10 passed desktop/mobile","reference":"verification/qa.md"},
-    {"id":"V-REAL-API","command":"QA isolated real API/browser origin-playback matrix","exit_code":0,"result":"Populated and empty environments passed; pointer/touch/playback/422/truncation checked","reference":"verification/qa.md"},
-    {"id":"V-OPENSPEC","command":"openspec validate implement-geospatial-movement-simulation --strict","exit_code":0,"result":"Change is valid","reference":"verification/qa.md"},
-    {"id":"V-OSM-SOURCE","command":"shasum -a 256 /Users/seanchang/.local/share/ratsight/network/taipei-songshan-20261023.osm","exit_code":0,"result":"faae4ffd1bd42e57871bdedbfdcc6e82b3324a458db95034d4ec40f0a019e67e matches loader expectation and current source records; prior QA prefix 5831ea28d78c remains unverified for earlier bytes","reference":"verification/qa.md"}
+    {
+      "id": "V-PYTEST",
+      "command": "uv run pytest services/api/tests/test_api.py services/api/tests/test_simulation_preview.py packages/simulation/tests -q",
+      "exit_code": 0,
+      "result": "31 passed",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-WEB",
+      "command": "cd apps/web && npm test -- --run && npm run typecheck && npm run lint && npx prettier --check src/components/dashboard.test.tsx src/components/dashboard.tsx",
+      "exit_code": 0,
+      "result": "91 tests passed; typecheck, lint, and Prettier clean",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-E2E",
+      "command": "PLAYWRIGHT_PORT=3000 PLAYWRIGHT_EXTERNAL_SERVERS=1 npx playwright test e2e/dashboard.spec.ts",
+      "exit_code": 0,
+      "result": "10 passed desktop/mobile",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-REAL-API",
+      "command": "QA isolated real API/browser origin-playback matrix",
+      "exit_code": 0,
+      "result": "Populated and empty environments passed; pointer/touch/playback/422/truncation checked",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-OPENSPEC",
+      "command": "openspec validate implement-geospatial-movement-simulation --strict",
+      "exit_code": 0,
+      "result": "Change is valid",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-OSM-SOURCE",
+      "command": "shasum -a 256 /Users/seanchang/.local/share/ratsight/network/taipei-songshan-20261023.osm",
+      "exit_code": 0,
+      "result": "faae4ffd1bd42e57871bdedbfdcc6e82b3324a458db95034d4ec40f0a019e67e matches loader expectation and current source records; prior QA prefix 5831ea28d78c remains unverified for earlier bytes",
+      "reference": "verification/qa.md"
+    },
+    {
+      "id": "V-MUNI",
+      "command": "verification-municipal-analyst@rat-team browser session against QA-provisioned isolated runtime http://127.0.0.1:3086 (API 127.0.0.1:8005); reported 2026-10-26T14:37Z",
+      "exit_code": 0,
+      "result": "PASS: origin pending state, step playback and step_index, reachability/unsampled disclosure, truncation, and non-biological safeguards passed; no UX finding. Reported by the analyst, not executed by QA.",
+      "reference": "openspec/changes/implement-geospatial-movement-simulation/verification/qa.md"
+    }
   ],
   "engineering": [
-    {"requirement":"geospatial-movement#Explicit synthetic origin","status":"VERIFIED","implementation":["services/api/src/ratsight_api/api/schemas.py","services/api/src/ratsight_api/application/simulation_preview.py","apps/web/src/components/map-view.tsx","apps/web/src/components/dashboard.tsx"],"tests":["services/api/tests/test_simulation_preview.py","apps/web/src/components/dashboard.test.tsx"],"verification":["V-PYTEST","V-REAL-API"]},
-    {"requirement":"geospatial-movement#Deterministic step identity","status":"VERIFIED","implementation":["services/api/src/ratsight_api/application/simulation_preview.py","apps/web/src/components/map-view.tsx"],"tests":["services/api/tests/test_simulation_preview.py","apps/web/src/components/dashboard.test.tsx"],"verification":["V-PYTEST","V-WEB","V-REAL-API"]},
-    {"requirement":"geospatial-movement#Stepwise synthetic playback","status":"VERIFIED","implementation":["apps/web/src/components/dashboard.tsx","apps/web/src/components/map-view.tsx"],"tests":["apps/web/src/components/dashboard.test.tsx","apps/web/e2e/dashboard.spec.ts"],"verification":["V-WEB","V-E2E","V-REAL-API"]},
-    {"requirement":"geospatial-movement#Honest reachability and termination","status":"VERIFIED","implementation":["services/api/src/ratsight_api/application/simulation_preview.py","apps/web/src/components/dashboard.tsx"],"tests":["services/api/tests/test_simulation_preview.py","apps/web/src/components/dashboard.test.tsx"],"verification":["V-PYTEST","V-REAL-API"]},
-    {"requirement":"geospatial-movement#Preserve evidence boundaries","status":"VERIFIED","implementation":["services/api/src/ratsight_api/api/schemas.py","apps/web/src/components/dashboard.tsx"],"tests":["services/api/tests/test_simulation_preview.py","services/api/tests/test_api.py","apps/web/src/components/dashboard.test.tsx"],"verification":["V-PYTEST","V-REAL-API"]}
+    {
+      "requirement": "geospatial-movement#Explicit synthetic origin",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/api/schemas.py",
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "V-PYTEST",
+        "V-REAL-API"
+      ]
+    },
+    {
+      "requirement": "geospatial-movement#Deterministic step identity",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "apps/web/src/components/map-view.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "V-PYTEST",
+        "V-WEB",
+        "V-REAL-API"
+      ]
+    },
+    {
+      "requirement": "geospatial-movement#Stepwise synthetic playback",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/e2e/dashboard.spec.ts"
+      ],
+      "verification": [
+        "V-WEB",
+        "V-E2E",
+        "V-REAL-API"
+      ]
+    },
+    {
+      "requirement": "geospatial-movement#Honest reachability and termination",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/application/simulation_preview.py",
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "V-PYTEST",
+        "V-REAL-API"
+      ]
+    },
+    {
+      "requirement": "geospatial-movement#Preserve evidence boundaries",
+      "status": "VERIFIED",
+      "implementation": [
+        "services/api/src/ratsight_api/api/schemas.py",
+        "apps/web/src/components/dashboard.tsx"
+      ],
+      "tests": [
+        "services/api/tests/test_simulation_preview.py",
+        "services/api/tests/test_api.py",
+        "apps/web/src/components/dashboard.test.tsx"
+      ],
+      "verification": [
+        "V-PYTEST",
+        "V-REAL-API"
+      ]
+    }
   ],
-  "science": {"applicable":true,"claims":[{"evidence_id":"SCI-NAMS-001","source":"docs/evidence/network-aligned-movement-2026-10-23.md","assumption":"Returned network geometry and weights are modeling inputs, not biological observations.","parameter":"Seed, bounded steps, unitless weights and selected graph origin.","model":"Synthetic random walk over a bounded source network.","data_class":"SIMULATED","status":"PARTIALLY_VERIFIED","validation":["V-PYTEST","V-REAL-API"],"limitation":"Does not establish rodent movement, prevalence, risk, hotspots, or intervention effects."}]},
-  "readiness":"READY_FOR_HUMAN_REVIEW",
-  "human_acceptance_required":true,
-  "notes":["Current pinned OSM file matches SHA-256 faae4ffd; historical QA prefix 5831ea28 is unverified for earlier bytes and not current-source evidence.","CR-008 resolved by owner decision; role-specific reviews and Municipal Analyst reevaluation remain pending.","Pre-existing stormwater accessible-name mismatch remains open.","Sink termination and isolated-origin empty-trajectory tests pass.","Do not archive, commit, push, or claim owner acceptance without approval."]
+  "science": {
+    "applicable": true,
+    "claims": [
+      {
+        "evidence_id": "SCI-NAMS-001",
+        "source": "docs/evidence/network-aligned-movement-2026-10-23.md",
+        "assumption": "Returned network geometry and weights are modeling inputs, not biological observations.",
+        "parameter": "Seed, bounded steps, unitless weights and selected graph origin.",
+        "model": "Synthetic random walk over a bounded source network.",
+        "data_class": "SIMULATED",
+        "status": "PARTIALLY_VERIFIED",
+        "validation": [
+          "V-PYTEST",
+          "V-REAL-API"
+        ],
+        "limitation": "Does not establish rodent movement, prevalence, risk, hotspots, or intervention effects."
+      }
+    ]
+  },
+  "readiness": "READY_FOR_HUMAN_REVIEW",
+  "human_acceptance_required": true,
+  "notes": [
+    "Current pinned OSM file matches SHA-256 faae4ffd; historical QA prefix 5831ea28 is unverified for earlier bytes and not current-source evidence.",
+    "CR-008 resolved by owner decision; role-specific reviews and Municipal Analyst reevaluation remain pending.",
+    "Pre-existing stormwater accessible-name mismatch remains open.",
+    "Sink termination and isolated-origin empty-trajectory tests pass.",
+    "Do not archive, commit, push, or claim owner acceptance without approval."
+  ]
 }

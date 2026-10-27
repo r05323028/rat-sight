@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-out="${RATSIGHT_OSM_SOURCE:-$HOME/.local/share/ratsight/network/taipei-songshan-20261023.osm}"
-expected='faae4ffd1bd42e57871bdedbfdcc6e82b3324a458db95034d4ec40f0a019e67e'
+out="${RATSIGHT_OSM_SOURCE:-$HOME/.local/share/ratsight/network/taipei-expanded-ratdar-20261027.osm}"
+expected='9db94dd723445fb45e73a77dca4ee4a74783af26e04794fc3fc9d5f63aa0f868'
 if [[ ! -f "$out" ]]; then
   echo "error: pinned OSM artifact missing: $out" >&2
   echo "Obtain the approved byte snapshot through the project artifact channel; this script never downloads mutable upstream data." >&2
