@@ -231,37 +231,24 @@ a {
   height: clamp(420px, calc(100vh - 232px), 820px);
   background: #e7e9e1;
 }
-.map-cell-popup {
-  z-index: 5;
-}
-.map-cell-popup .maplibregl-popup-content {
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.map-cell-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
-  border-top-color: var(--surface);
-}
-.map-cell-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip {
-  border-bottom-color: var(--surface);
-}
-.map-cell-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip {
-  border-right-color: var(--surface);
-}
-.map-cell-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip {
-  border-left-color: var(--surface);
+/* Selected-cell details live in the control rail, never over the map, so routes
+   and the selected origin stay visible while a report is inspected. */
+.citizen-inspector {
+  position: sticky;
+  top: 12px;
+  z-index: 6;
+  margin-bottom: 12px;
 }
 .map-cell-card {
   display: flex;
   flex-direction: column;
-  width: min(340px, calc(100vw - 48px), var(--map-cell-card-width, 340px));
-  max-height: min(420px, 60vh, var(--map-cell-card-max-height, 420px));
+  width: 100%;
+  max-height: min(420px, 56vh);
   overflow: hidden;
   padding: 14px;
   border: 1px solid var(--ink);
   background: var(--surface);
-  box-shadow: 4px 4px 0 rgb(23 24 26 / 12%);
+  box-shadow: 3px 3px 0 rgb(23 24 26 / 12%);
 }
 .map-cell-card-body {
   flex: 1 1 auto;
@@ -455,6 +442,34 @@ a {
 }
 .simulation-playback-note {
   color: var(--muted);
+}
+.simulation-playback-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule-soft);
+}
+.simulation-playback-settings label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.simulation-playback-settings select {
+  padding: 3px 6px;
+  font-size: 11.5px;
+}
+.simulation-playback-settings input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--simulated);
+}
+.simulation-playback-settings .simulation-playback-speed-note {
+  flex-basis: 100%;
+  font-size: 10.5px;
 }
 .simulation-playback-empty {
   color: var(--seal);
@@ -1003,6 +1018,24 @@ a {
   }
   .panel:first-child {
     padding-top: 16px;
+  }
+  /* Mobile inspector becomes a compact bottom sheet so the map keeps most of
+     the viewport and the sheet clears iOS home-indicator safe areas. */
+  .citizen-inspector {
+    position: fixed;
+    inset: auto 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
+    z-index: 40;
+    margin: 0;
+  }
+  .citizen-inspector .map-cell-card {
+    max-height: min(52vh, 380px);
+    box-shadow: 0 -10px 30px rgb(23 24 26 / 22%);
+  }
+  /* Once a run exists the sheet shrinks to its status line so playback and the
+     map stay reachable; the full report reopens with a new selection. */
+  .citizen-inspector[data-compact="true"] .map-cell-card-body,
+  .citizen-inspector[data-compact="true"] .map-cell-card-action {
+    display: none;
   }
 }
 @media (max-width: 640px) {

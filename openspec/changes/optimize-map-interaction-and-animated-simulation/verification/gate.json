@@ -1,0 +1,181 @@
+{
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS_WITH_WARNINGS",
+      "findings": [
+        { "id": "FCO-MAP-001", "severity": "MAJOR", "status": "RESOLVED" },
+        { "id": "FCO-MAP-002", "severity": "MAJOR", "status": "RESOLVED" },
+        { "id": "FCO-MAP-003", "severity": "MAJOR", "status": "RESOLVED" },
+        { "id": "FCO-MAP-004", "severity": "MAJOR", "status": "RESOLVED" },
+        { "id": "FCO-MAP-005", "severity": "MAJOR", "status": "OPEN" },
+        { "id": "FCO-MAP-006", "severity": "MINOR", "status": "OPEN" },
+        { "id": "FCO-MAP-007", "severity": "MINOR", "status": "OPEN" }
+      ]
+    },
+    "code": {
+      "decision": "PASS_WITH_WARNINGS",
+      "findings": [
+        { "id": "CR-MAP-001", "severity": "MINOR", "status": "OPEN" },
+        { "id": "CR-MAP-002", "severity": "MINOR", "status": "OPEN" },
+        { "id": "CR-MAP-003", "severity": "MINOR", "status": "OPEN" },
+        { "id": "CR-MAP-004", "severity": "INFO", "status": "RESOLVED" }
+      ]
+    }
+  },
+  "engineering": [
+    {
+      "requirement": "simulation-map-visualization#Non-obstructive citizen-report inspection",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/app/globals.css"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/e2e/real-citizen-origin.spec.ts"
+      ],
+      "verification": ["web-tests", "browser-smoke"]
+    },
+    {
+      "requirement": "simulation-map-visualization#Stable map source and layer lifecycle",
+      "status": "VERIFIED",
+      "implementation": ["apps/web/src/components/map-view.tsx"],
+      "tests": ["apps/web/src/components/map-view.test.tsx"],
+      "verification": ["web-tests", "browser-smoke", "performance"]
+    },
+    {
+      "requirement": "simulation-map-visualization#Progressive simulated-route reveal",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/lib/simulation-geometry.ts"
+      ],
+      "tests": [
+        "apps/web/src/lib/simulation-geometry.test.ts",
+        "apps/web/e2e/real-citizen-origin.spec.ts"
+      ],
+      "verification": ["web-tests", "browser-smoke", "performance"]
+    },
+    {
+      "requirement": "simulation-map-visualization#Bounded route-flow indication",
+      "status": "PARTIALLY_VERIFIED",
+      "gap": "Flow is bounded to 24 aggregate edges with two markers each and cleared on drag, hidden tab, disabled animation, or reduced motion. No automated assertion directly counts the markers; the browser telemetry confirms animation frames and manual inspection covers the visual behaviour.",
+      "implementation": ["apps/web/src/components/map-view.tsx"],
+      "tests": ["apps/web/src/components/map-view.test.tsx"],
+      "verification": ["browser-smoke"]
+    },
+    {
+      "requirement": "simulation-map-visualization#Walker position playback",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/lib/simulation-geometry.ts"
+      ],
+      "tests": [
+        "apps/web/src/components/map-view.test.tsx",
+        "apps/web/src/lib/simulation-geometry.test.ts",
+        "apps/web/e2e/real-citizen-origin.spec.ts"
+      ],
+      "verification": ["web-tests", "browser-smoke"]
+    },
+    {
+      "requirement": "simulation-map-visualization#Animation control and reduced motion",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/dashboard.tsx",
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/src/lib/use-prefers-reduced-motion.ts",
+        "apps/web/src/app/globals.css"
+      ],
+      "tests": [
+        "apps/web/src/components/dashboard.test.tsx",
+        "apps/web/e2e/real-citizen-origin.spec.ts"
+      ],
+      "verification": ["web-tests", "browser-smoke"]
+    },
+    {
+      "requirement": "simulation-map-visualization#Measured rendering performance",
+      "status": "VERIFIED",
+      "implementation": [
+        "apps/web/src/components/map-view.tsx",
+        "apps/web/e2e/measure-map-performance.mjs"
+      ],
+      "tests": ["apps/web/e2e/real-citizen-origin.spec.ts"],
+      "verification": ["performance", "browser-smoke"]
+    }
+  ],
+  "verification": [
+    {
+      "id": "web-tests",
+      "command": "corepack pnpm --filter @ratsight/web exec vitest run",
+      "exit_code": 0,
+      "result": "4 files, 81 tests passed",
+      "reference": "apps/web/src/components"
+    },
+    {
+      "id": "python-tests",
+      "command": "make test-py",
+      "exit_code": 0,
+      "result": "230 passed in 81.29 s",
+      "reference": "services packages scripts"
+    },
+    {
+      "id": "typecheck",
+      "command": "make typecheck",
+      "exit_code": 0,
+      "result": "tsc 0 errors; basedpyright 0 errors, 0 warnings, 0 notes",
+      "reference": "apps/web/src"
+    },
+    {
+      "id": "lint",
+      "command": "make lint",
+      "exit_code": 0,
+      "result": "eslint clean; ruff All checks passed",
+      "reference": "apps/web/src"
+    },
+    {
+      "id": "format",
+      "command": "make format-check",
+      "exit_code": 0,
+      "result": "Prettier clean; 421 Python files already formatted",
+      "reference": "apps/web/src"
+    },
+    {
+      "id": "build",
+      "command": "make build",
+      "exit_code": 0,
+      "result": "Next.js 16.4.2 compiled successfully, 3 static pages",
+      "reference": "apps/web"
+    },
+    {
+      "id": "browser-smoke",
+      "command": "bash scripts/geospatial_smoke.sh",
+      "exit_code": 0,
+      "result": "30 passed: 20 citizen-origin desktop/mobile plus 10 cross-suite",
+      "reference": "apps/web/e2e"
+    },
+    {
+      "id": "performance",
+      "command": "MEASURE_BASE=http://127.0.0.1:3012 corepack pnpm --filter @ratsight/web exec node e2e/measure-map-performance.mjs",
+      "exit_code": 0,
+      "result": "before/after recorded; preview playback rebuilds 37->0, source rebuilds 21->0",
+      "reference": "docs/benchmarks/map-interaction-performance.json"
+    },
+    {
+      "id": "openspec-validate",
+      "command": "openspec validate optimize-map-interaction-and-animated-simulation --strict",
+      "exit_code": 0,
+      "result": "Change is valid",
+      "reference": "openspec/changes/optimize-map-interaction-and-animated-simulation"
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "reason": "This change restructures frontend rendering and interaction only. It does not alter movement assumptions, model parameters, origin eligibility, data classification, or provenance.",
+    "claims": []
+  },
+  "approval": {
+    "required": false
+  }
+}

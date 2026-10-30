@@ -1,28 +1,28 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import {
   Map as MapLibreMap,
   NavigationControl,
-  Popup,
   setWorkerUrl,
+  type ExpressionSpecification,
   type FilterSpecification,
   type MapLayerMouseEvent,
 } from "maplibre-gl";
+import gsap from "gsap";
 
 import type {
   AdministrativeDistrictGeometry,
   AdministrativeDistrictProperties,
+  AdministrativeDistricts,
   CitizenReportAggregates,
   CitizenReportCellProperties,
-  AdministrativeDistricts,
   SimulationPreview,
-  SimulationTrajectoryStep,
   StormwaterBbox,
   StormwaterNetwork,
   StormwaterProperties,
 } from "@/lib/api";
+import { flowPoints, pointAtFraction, type LngLat } from "@/lib/simulation-geometry";
 
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
@@ -40,8 +40,15 @@ const SCHEMATIC_EXCLUDED: FilterSpecification = ["!=", ["get", "schematic"], tru
 const SCHEMATIC_ONLY: FilterSpecification = ["==", ["get", "schematic"], true];
 // Wide transparent line so a click near a path still selects it.
 const SIMULATION_HIT_LAYER = "ratsight-simulated-edges-hit";
+const TRAJECTORY_SOURCE = "ratsight-trajectory-path";
+const TRAJECTORY_FULL_LAYER = "ratsight-trajectory-path-upcoming";
+const TRAJECTORY_PROGRESS_LAYER = "ratsight-trajectory-path-traversed";
 const SIMULATION_STEP_SOURCE = "ratsight-simulated-current-step";
 const SIMULATION_STEP_LAYER = "ratsight-simulated-current-step-line";
+const WALKER_SOURCE = "ratsight-walker-position";
+const WALKER_LAYER = "ratsight-walker-position-point";
+const FLOW_SOURCE = "ratsight-route-flow";
+const FLOW_LAYER = "ratsight-route-flow-point";
 const ORIGIN_SOURCE = "ratsight-origin-nodes";
 const ORIGIN_LAYER = "ratsight-origin-nodes-point";
 const ORIGIN_SELECTED_LAYER = "ratsight-origin-nodes-selected";
@@ -55,6 +62,87 @@ const STORMWATER_HIGHLIGHT_LAYER = "ratsight-stormwater-pipelines-highlight";
 const CITIZEN_AGGREGATE_SOURCE = "ratsight-citizen-report-aggregates";
 const CITIZEN_AGGREGATE_POINT_LAYER = "ratsight-citizen-report-aggregates-point";
 const CITIZEN_AGGREGATE_HIGHLIGHT_LAYER = "ratsight-citizen-report-aggregates-highlight";
+const EMPTY_COLLECTION = { type: "FeatureCollection" as const, features: [] };
+
+// Width encodes how often an edge was traversed, never a report count or a
+// biological density. Values clamp so a long-tailed walk still stays readable.
+const SIMULATION_WIDTH: ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["get", "visits"],
+  1,
+  2.5,
+  5,
+  4,
+  25,
+  6,
+  100,
+  8,
+];
+const FULL_TEAL: ExpressionSpecification = [
+  "interpolate",
+  ["linear"],
+  ["line-progress"],
+  0,
+  "#0f766e",
+  1,
+  "#0f766e",
+];
+
+// Progressive reveal: each simulated edge paints from its own start toward its
+// end. line-progress is per feature, so every edge grows out of the origin side
+// without the map needing to rebuild geometry.
+function revealGradient(fraction: number): ExpressionSpecification {
+  const stop = Math.min(0.9999, Math.max(0.0001, fraction));
+  return [
+    "interpolate",
+    ["linear"],
+    ["line-progress"],
+    0,
+    "#0f766e",
+    stop,
+    "#0f766e",
+    Math.min(1, stop + 0.0001),
+    "rgba(15,118,110,0)",
+  ];
+}
+
+type LineFeature = {
+  type: "Feature";
+  properties: Record<string, unknown>;
+  geometry: { type: "LineString"; coordinates: LngLat[] };
+};
+type PointFeature = {
+  type: "Feature";
+  properties: Record<string, unknown>;
+  geometry: { type: "Point"; coordinates: LngLat };
+};
+type Collection<T> = { type: "FeatureCollection"; features: T[] };
+
+type TrajectoryGeometry = {
+  coordinates: LngLat[];
+  // Index of the last coordinate after each simulated step.
+  stepEnds: number[];
+};
+
+type PreviewCache = {
+  preview: SimulationPreview;
+  network: LineFeature[];
+  aggregate: LineFeature[];
+  trajectories: Map<number, TrajectoryGeometry>;
+  schematic: boolean;
+};
+
+// Rendering counters are published as a DOM attribute so performance checks can
+// read real numbers instead of trusting a visual impression.
+type MapTelemetry = {
+  renders: number;
+  layerBuilds: number;
+  sourceBuilds: number;
+  setDataCalls: number;
+  geojsonBuildMs: number;
+  animationFrames: number;
+};
 
 function geometryBounds(
   geometry: AdministrativeDistrictGeometry,
@@ -120,11 +208,105 @@ function onStyled(map: MapLibreMap, ready: () => boolean, draw: () => void): () 
   return () => map.off("load", attempt);
 }
 
-function panDuration(): number {
-  return typeof window.matchMedia === "function" &&
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ? 0
-    : 500;
+  );
+}
+
+function panDuration(): number {
+  return prefersReducedMotion() ? 0 : 500;
+}
+
+function lineFeature(coordinates: LngLat[], properties: Record<string, unknown>): LineFeature {
+  return { type: "Feature", properties, geometry: { type: "LineString", coordinates } };
+}
+
+function pointFeature(coordinates: LngLat, properties: Record<string, unknown>): PointFeature {
+  return { type: "Feature", properties, geometry: { type: "Point", coordinates } };
+}
+
+function setSourceData(map: MapLibreMap, sourceId: string, data: unknown): boolean {
+  const source = map.getSource(sourceId) as { setData?: (value: unknown) => void } | undefined;
+  if (!source || typeof source.setData !== "function") return false;
+  source.setData(data);
+  return true;
+}
+
+function setLayerVisibility(map: MapLibreMap, layerId: string, visible: boolean): void {
+  if (!map.getLayer(layerId)) return;
+  map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+}
+
+function buildPreviewCache(preview: SimulationPreview): PreviewCache {
+  const nodes = new Map(preview.nodes.map((node) => [node.id, node.coordinates]));
+  const network: LineFeature[] = [];
+  const aggregate: LineFeature[] = [];
+  for (const edge of preview.edges) {
+    if (edge.geometry) {
+      network.push(
+        lineFeature(edge.geometry.coordinates, {
+          edge_id: edge.edge_id,
+          source_id: edge.source_id ?? edge.edge_id,
+          classification: "REFERENCE",
+        }),
+      );
+    }
+    if (!edge.visits || edge.visits <= 0) continue;
+    // Endpoint fallback exists only for geometry-less legacy synthetic fixtures.
+    const coordinates =
+      edge.geometry?.coordinates ??
+      (nodes.has(edge.source) && nodes.has(edge.target)
+        ? [nodes.get(edge.source)!, nodes.get(edge.target)!]
+        : null);
+    if (!coordinates || coordinates.length < 2) continue;
+    aggregate.push(
+      lineFeature(coordinates, {
+        edge_id: edge.edge_id,
+        // Keep the OSM way id on the simulated overlay so a rendered segment can
+        // be traced back to its source geometry rather than only to the walk.
+        source_id: edge.source_id ?? edge.edge_id,
+        classification: "SIMULATED",
+        visits: edge.visits,
+        ...(edge.geometry ? {} : { schematic: true }),
+      }),
+    );
+  }
+  const trajectories = new Map<number, TrajectoryGeometry>();
+  for (const trajectory of preview.trajectories ?? []) {
+    const coordinates: LngLat[] = [];
+    const stepEnds: number[] = [];
+    for (const step of trajectory.edges) {
+      const geometry = step.geometry ?? [];
+      if (geometry.length < 2) continue;
+      if (coordinates.length === 0) coordinates.push(...geometry);
+      else coordinates.push(...geometry.slice(1));
+      stepEnds.push(coordinates.length - 1);
+    }
+    if (coordinates.length >= 2) trajectories.set(trajectory.walker_id, { coordinates, stepEnds });
+  }
+  return {
+    preview,
+    network,
+    aggregate,
+    trajectories,
+    schematic: preview.edges.length > 0 && preview.edges.every((edge) => !edge.geometry),
+  };
+}
+
+// One cached geometry per preview. The dashboard keeps the preview object for the
+// lifetime of a result, so identity is a safe cache key; a new result always gets
+// a new object and therefore new geometry.
+type CacheBox = { preview: SimulationPreview | null; cache: PreviewCache | null };
+
+function cacheFor(box: CacheBox, preview: SimulationPreview | null): PreviewCache | null {
+  if (!preview) return null;
+  if (box.preview !== preview) {
+    box.preview = preview;
+    box.cache = buildPreviewCache(preview);
+  }
+  return box.cache;
 }
 
 type MapViewProps = {
@@ -133,6 +315,9 @@ type MapViewProps = {
   showSimulatedPaths?: boolean;
   showNetworkReference?: boolean;
   outputMode?: "aggregate" | "trajectory";
+  // Presentation only: never interpreted as rodent speed.
+  playbackSpeed?: number;
+  animationEnabled?: boolean;
   boundaries: AdministrativeDistricts | null;
   showBoundaries: boolean;
   selectedDistrictId: string | null;
@@ -146,8 +331,6 @@ type MapViewProps = {
   showCitizenAggregates?: boolean;
   selectedCitizenCellKey?: string | null;
   onSelectCitizenCell?: (properties: CitizenReportCellProperties) => void;
-  // Rendered into a MapLibre popup anchored at the selected 250 m cell center.
-  citizenCellCard?: ReactNode;
   onSelectTrajectory?: (trajectoryId: number) => void;
   // Number of returned trajectory edges to draw (0 = origin only); null/undefined draws all.
   activeStep?: number | null;
@@ -164,6 +347,8 @@ export function MapView({
   showSimulatedPaths = true,
   showNetworkReference = false,
   outputMode = "aggregate",
+  playbackSpeed = 1,
+  animationEnabled = true,
   boundaries,
   showBoundaries,
   selectedDistrictId,
@@ -176,7 +361,6 @@ export function MapView({
   showCitizenAggregates = true,
   selectedCitizenCellKey = null,
   onSelectCitizenCell,
-  citizenCellCard = null,
   onSelectTrajectory,
   activeStep = null,
   selectedTrajectoryId = null,
@@ -192,10 +376,29 @@ export function MapView({
   const fittedPreviewRef = useRef<SimulationPreview | null>(null);
   const styleReady = useRef(false);
   const boundsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [citizenCellPopupHost, setCitizenCellPopupHost] = useState<HTMLDivElement | null>(null);
   // A state flag, not only the ref, so data effects retry after the map style loads.
   const [styleLoaded, setStyleLoaded] = useState(false);
-  const hasCitizenCellCard = Boolean(citizenCellCard);
+  const cacheBox = useRef<CacheBox>({ preview: null, cache: null });
+  const telemetry = useRef<MapTelemetry>({
+    renders: 0,
+    layerBuilds: 0,
+    sourceBuilds: 0,
+    setDataCalls: 0,
+    geojsonBuildMs: 0,
+    animationFrames: 0,
+  });
+  // MapLibre event handlers are registered once per style load and read the
+  // newest callbacks from this ref, so a parent re-render cannot re-register them.
+  const callbacks = useRef({ onSelectTrajectory, onSelectOriginNode });
+  const motion = useRef({ playbackSpeed, animationEnabled });
+
+  // Handlers and motion settings are synchronized after commit, never during
+  // render. The effect has no dependency list so it runs on every commit, before
+  // the map effects that read these refs.
+  useEffect(() => {
+    callbacks.current = { onSelectTrajectory, onSelectOriginNode };
+    motion.current = { playbackSpeed, animationEnabled };
+  });
 
   useEffect(() => {
     if (!container.current) return;
@@ -208,11 +411,12 @@ export function MapView({
     });
     mapRef.current = map;
     styleReady.current = map.isStyleLoaded() ?? false;
-    map.once("load", () => {
+    const handleLoad = () => {
       styleReady.current = true;
       setStyleLoaded(true);
       container.current?.setAttribute("data-map-ready", "true");
-    });
+    };
+    map.once("load", handleLoad);
     map.addControl(new NavigationControl(), "top-right");
     const navigationLabels = [
       [".maplibregl-ctrl-zoom-in", "放大地圖"],
@@ -225,253 +429,219 @@ export function MapView({
       control?.setAttribute("title", label);
     }
     return () => {
+      map.off("load", handleLoad);
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
+  // Publish render/rebuild counters after every render. This is a plain attribute
+  // write, not state, so it cannot feed back into the render loop.
+  useEffect(() => {
+    const current = telemetry.current;
+    current.renders += 1;
+    container.current?.setAttribute("data-map-perf", JSON.stringify(current));
+  });
+
+  // Stable layer identities: created once per style load, then only mutated with
+  // setData / setFilter / setLayoutProperty. Playback, selection and React
+  // re-renders never remove or recreate these sources or layers.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const update = () => {
+    const create = () => {
       if (!styleReady.current) return;
-      if (map.getLayer(SIMULATION_STEP_LAYER)) map.removeLayer(SIMULATION_STEP_LAYER);
-      if (map.getSource(SIMULATION_STEP_SOURCE)) map.removeSource(SIMULATION_STEP_SOURCE);
-      if (map.getLayer(ORIGIN_SELECTED_LAYER)) map.removeLayer(ORIGIN_SELECTED_LAYER);
-      if (map.getLayer(ORIGIN_LAYER)) map.removeLayer(ORIGIN_LAYER);
-      if (map.getSource(ORIGIN_SOURCE)) map.removeSource(ORIGIN_SOURCE);
-      if (map.getLayer(SIMULATION_HIT_LAYER)) map.removeLayer(SIMULATION_HIT_LAYER);
-      if (map.getLayer(SIMULATION_SCHEMATIC_LAYER)) map.removeLayer(SIMULATION_SCHEMATIC_LAYER);
-      if (map.getLayer(SIMULATION_LAYER)) map.removeLayer(SIMULATION_LAYER);
-      if (map.getLayer(NETWORK_REFERENCE_LAYER)) map.removeLayer(NETWORK_REFERENCE_LAYER);
-      if (map.getSource(SIMULATION_SOURCE)) map.removeSource(SIMULATION_SOURCE);
-      if (map.getSource(NETWORK_REFERENCE_SOURCE)) map.removeSource(NETWORK_REFERENCE_SOURCE);
-      if (!preview) return;
-      // Source-network LineStrings come from API; endpoint fallback remains only for legacy synthetic fixtures.
-      const nodes = new Map(preview.nodes.map((node) => [node.id, node.coordinates]));
-      const networkFeatures = preview.edges.flatMap((edge) =>
-        edge.geometry
-          ? [
-              {
-                type: "Feature" as const,
-                properties: {
-                  edge_id: edge.edge_id,
-                  source_id: edge.source_id ?? edge.edge_id,
-                  classification: "REFERENCE",
-                },
-                geometry: edge.geometry,
-              },
-            ]
-          : [],
-      );
-      const simulationFeatures = preview.edges.flatMap((edge) => {
-        if (edge.geometry) return [];
-        const start = nodes.get(edge.source);
-        const end = nodes.get(edge.target);
-        return start && end
-          ? [
-              {
-                type: "Feature" as const,
-                properties: { edge_id: edge.edge_id, classification: "SIMULATED", schematic: true },
-                geometry: { type: "LineString" as const, coordinates: [start, end] },
-              },
-            ]
-          : [];
-      });
-      const trajectories = preview.trajectories ?? [];
-      const selectedTrajectoryStepCount = trajectories.find(
-        (trajectory) => trajectory.walker_id === selectedTrajectoryId,
-      )?.edges.length;
-      const shortestTrajectoryStepCount =
-        trajectories.length > 0
-          ? Math.min(...trajectories.map((trajectory) => trajectory.edges.length))
-          : 0;
-      const clampedStep =
-        typeof activeStep === "number"
-          ? Math.max(
-              0,
-              Math.min(activeStep, selectedTrajectoryStepCount ?? shortestTrajectoryStepCount),
-            )
-          : null;
-      const edgesThroughStep = (trajectoryEdges: SimulationTrajectoryStep[]) =>
-        clampedStep === null ? trajectoryEdges : trajectoryEdges.slice(0, clampedStep);
-      // Edges without any geometry mean the schematic graph: its trajectory segments are
-      // straight node-to-node shortcuts, so they get the same dashed treatment.
-      const networkIsSchematic =
-        preview.edges.length > 0 && preview.edges.every((edge) => !edge.geometry);
-      const simulatedFeatures =
-        outputMode === "trajectory" && preview.trajectories
-          ? preview.trajectories
-              .filter(
-                (trajectory) =>
-                  selectedTrajectoryId === null || trajectory.walker_id === selectedTrajectoryId,
-              )
-              .map((trajectory) => ({ trajectory, edges: edgesThroughStep(trajectory.edges) }))
-              .filter(({ edges }) => edges.length > 0)
-              .map(({ trajectory, edges }) => ({
-                type: "Feature" as const,
-                properties: {
-                  trajectory_id: trajectory.walker_id,
-                  classification: "SIMULATED",
-                  step: edges.length,
-                  ...(networkIsSchematic ? { schematic: true } : {}),
-                },
-                geometry: {
-                  type: "LineString" as const,
-                  coordinates: edges.flatMap((edge, index) =>
-                    index === 0 ? edge.geometry : edge.geometry.slice(1),
-                  ),
-                },
-              }))
-          : [...networkFeatures, ...simulationFeatures]
-              .filter((feature) => {
-                const edge = preview.edges.find(
-                  (candidate) => candidate.edge_id === feature.properties.edge_id,
-                );
-                return edge?.visits ? edge.visits > 0 : false;
-              })
-              .map((feature) => ({
-                ...feature,
-                properties: {
-                  ...feature.properties,
-                  classification: "SIMULATED",
-                  visits:
-                    preview.edges.find((edge) => edge.edge_id === feature.properties.edge_id)
-                      ?.visits ?? 0,
-                },
-              }));
-      map.addSource(NETWORK_REFERENCE_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: networkFeatures },
-      });
-      map.addLayer({
-        id: NETWORK_REFERENCE_LAYER,
-        type: "line",
-        source: NETWORK_REFERENCE_SOURCE,
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-          visibility: showNetworkReference ? "visible" : "none",
-        },
-        paint: { "line-color": "#64748b", "line-width": 2, "line-opacity": 0.55 },
-      });
-      map.addSource(SIMULATION_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: simulatedFeatures },
-      });
-      map.addLayer({
-        id: SIMULATION_LAYER,
-        type: "line",
-        source: SIMULATION_SOURCE,
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-          visibility: showSimulatedPaths ? "visible" : "none",
-        },
-        filter: SCHEMATIC_EXCLUDED,
-        paint: { "line-color": "#0f766e", "line-width": 3, "line-opacity": 0.8 },
-      });
-      map.addLayer({
-        id: SIMULATION_SCHEMATIC_LAYER,
-        type: "line",
-        source: SIMULATION_SOURCE,
-        filter: SCHEMATIC_ONLY,
-        layout: {
-          "line-cap": "butt",
-          "line-join": "round",
-          visibility: showSimulatedPaths ? "visible" : "none",
-        },
-        paint: {
-          "line-color": "#0f766e",
-          "line-width": 2,
-          "line-opacity": 0.75,
-          "line-dasharray": [1.5, 1.5],
-        },
-      });
-      map.addLayer({
-        id: SIMULATION_HIT_LAYER,
-        type: "line",
-        source: SIMULATION_SOURCE,
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-          visibility: showSimulatedPaths ? "visible" : "none",
-        },
-        paint: { "line-color": "#0f766e", "line-opacity": 0, "line-width": 16 },
-      });
-      const currentStepFeatures =
-        outputMode === "trajectory" && clampedStep && clampedStep > 0
-          ? (preview.trajectories ?? [])
-              .filter((trajectory) => trajectory.walker_id === selectedTrajectoryId)
-              .flatMap((trajectory) => {
-                const edge = trajectory.edges[clampedStep - 1];
-                return edge
-                  ? [
-                      {
-                        type: "Feature" as const,
-                        properties: {
-                          trajectory_id: trajectory.walker_id,
-                          step_index: edge.step_index ?? clampedStep - 1,
-                          classification: "SIMULATED",
-                        },
-                        geometry: { type: "LineString" as const, coordinates: edge.geometry },
-                      },
-                    ]
-                  : [];
-              })
-          : [];
-      map.addSource(SIMULATION_STEP_SOURCE, {
-        type: "geojson",
-        data: { type: "FeatureCollection", features: currentStepFeatures },
-      });
-      map.addLayer({
-        id: SIMULATION_STEP_LAYER,
-        type: "line",
-        source: SIMULATION_STEP_SOURCE,
-        layout: { "line-cap": "round", "line-join": "round", visibility: "visible" },
-        paint: { "line-color": "#b91c1c", "line-width": 5, "line-opacity": 0.95 },
-      });
-      map.addSource(ORIGIN_SOURCE, {
-        type: "geojson",
-        data: {
-          type: "FeatureCollection",
-          features: originNodes.map((node) => ({
-            type: "Feature" as const,
-            properties: { node_id: node.id, classification: "SIMULATED" },
-            geometry: { type: "Point" as const, coordinates: node.coordinates },
-          })),
-        },
-      });
-      map.addLayer({
-        id: ORIGIN_LAYER,
-        type: "circle",
-        source: ORIGIN_SOURCE,
-        paint: {
-          "circle-radius": 5,
-          "circle-color": "#0f766e",
-          "circle-opacity": 0.75,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 1,
-        },
-      });
-      map.addLayer({
-        id: ORIGIN_SELECTED_LAYER,
-        type: "circle",
-        source: ORIGIN_SOURCE,
-        filter: ["==", ["get", "node_id"], selectedOriginNodeId ?? ""],
-        paint: {
-          "circle-radius": 9,
-          "circle-color": "#b91c1c",
-          "circle-opacity": 0.9,
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2,
-        },
-      });
+      const current = telemetry.current;
+      if (!map.getSource(NETWORK_REFERENCE_SOURCE)) {
+        map.addSource(NETWORK_REFERENCE_SOURCE, { type: "geojson", data: EMPTY_COLLECTION });
+        current.sourceBuilds += 1;
+      }
+      if (!map.getLayer(NETWORK_REFERENCE_LAYER)) {
+        map.addLayer({
+          id: NETWORK_REFERENCE_LAYER,
+          type: "line",
+          source: NETWORK_REFERENCE_SOURCE,
+          layout: {
+            "line-cap": "round",
+            "line-join": "round",
+            visibility: showNetworkReference ? "visible" : "none",
+          },
+          paint: { "line-color": "#64748b", "line-width": 1.75, "line-opacity": 0.45 },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getSource(SIMULATION_SOURCE)) {
+        // lineMetrics is required by line-gradient, which drives the route reveal.
+        map.addSource(SIMULATION_SOURCE, {
+          type: "geojson",
+          data: EMPTY_COLLECTION,
+          lineMetrics: true,
+        });
+        current.sourceBuilds += 1;
+      }
+      if (!map.getLayer(SIMULATION_LAYER)) {
+        map.addLayer({
+          id: SIMULATION_LAYER,
+          type: "line",
+          source: SIMULATION_SOURCE,
+          filter: SCHEMATIC_EXCLUDED,
+          layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+          paint: {
+            "line-color": "#0f766e",
+            "line-width": SIMULATION_WIDTH,
+            "line-opacity": 0.82,
+            "line-gradient": FULL_TEAL,
+          },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getLayer(SIMULATION_SCHEMATIC_LAYER)) {
+        map.addLayer({
+          id: SIMULATION_SCHEMATIC_LAYER,
+          type: "line",
+          source: SIMULATION_SOURCE,
+          filter: SCHEMATIC_ONLY,
+          layout: { "line-cap": "butt", "line-join": "round", visibility: "none" },
+          paint: {
+            "line-color": "#0f766e",
+            "line-width": 2,
+            "line-opacity": 0.75,
+            "line-dasharray": [1.5, 1.5],
+          },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getLayer(SIMULATION_HIT_LAYER)) {
+        map.addLayer({
+          id: SIMULATION_HIT_LAYER,
+          type: "line",
+          source: SIMULATION_SOURCE,
+          layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+          paint: { "line-color": "#0f766e", "line-opacity": 0, "line-width": 16 },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getSource(TRAJECTORY_SOURCE)) {
+        map.addSource(TRAJECTORY_SOURCE, { type: "geojson", data: EMPTY_COLLECTION });
+        current.sourceBuilds += 1;
+      }
+      if (!map.getLayer(TRAJECTORY_FULL_LAYER)) {
+        map.addLayer({
+          id: TRAJECTORY_FULL_LAYER,
+          type: "line",
+          source: TRAJECTORY_SOURCE,
+          layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+          paint: { "line-color": "#94a3b8", "line-width": 2, "line-opacity": 0.6 },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getLayer(TRAJECTORY_PROGRESS_LAYER)) {
+        map.addLayer({
+          id: TRAJECTORY_PROGRESS_LAYER,
+          type: "line",
+          source: TRAJECTORY_SOURCE,
+          layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+          paint: { "line-color": "#0f766e", "line-width": 4.5, "line-opacity": 0.95 },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getSource(SIMULATION_STEP_SOURCE)) {
+        map.addSource(SIMULATION_STEP_SOURCE, { type: "geojson", data: EMPTY_COLLECTION });
+        current.sourceBuilds += 1;
+      }
+      if (!map.getLayer(SIMULATION_STEP_LAYER)) {
+        map.addLayer({
+          id: SIMULATION_STEP_LAYER,
+          type: "line",
+          source: SIMULATION_STEP_SOURCE,
+          layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
+          paint: { "line-color": "#b91c1c", "line-width": 5, "line-opacity": 0.95 },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getSource(WALKER_SOURCE)) {
+        map.addSource(WALKER_SOURCE, { type: "geojson", data: EMPTY_COLLECTION });
+        current.sourceBuilds += 1;
+      }
+      if (!map.getLayer(WALKER_LAYER)) {
+        map.addLayer({
+          id: WALKER_LAYER,
+          type: "circle",
+          source: WALKER_SOURCE,
+          layout: { visibility: "none" },
+          paint: {
+            "circle-radius": 6,
+            "circle-color": "#ffffff",
+            "circle-stroke-color": "#b91c1c",
+            "circle-stroke-width": 3,
+          },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getSource(FLOW_SOURCE)) {
+        map.addSource(FLOW_SOURCE, { type: "geojson", data: EMPTY_COLLECTION });
+        current.sourceBuilds += 1;
+      }
+      if (!map.getLayer(FLOW_LAYER)) {
+        map.addLayer({
+          id: FLOW_LAYER,
+          type: "circle",
+          source: FLOW_SOURCE,
+          layout: { visibility: "none" },
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 12, 1.8, 16, 3.2],
+            "circle-color": "#0f766e",
+            "circle-opacity": 0.85,
+          },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getSource(ORIGIN_SOURCE)) {
+        map.addSource(ORIGIN_SOURCE, { type: "geojson", data: EMPTY_COLLECTION });
+        current.sourceBuilds += 1;
+      }
+      if (!map.getLayer(ORIGIN_LAYER)) {
+        map.addLayer({
+          id: ORIGIN_LAYER,
+          type: "circle",
+          source: ORIGIN_SOURCE,
+          paint: {
+            "circle-radius": 5,
+            "circle-color": "#0f766e",
+            "circle-opacity": 0.75,
+            "circle-stroke-color": "#ffffff",
+            "circle-stroke-width": 1,
+          },
+        });
+        current.layerBuilds += 1;
+      }
+      if (!map.getLayer(ORIGIN_SELECTED_LAYER)) {
+        map.addLayer({
+          id: ORIGIN_SELECTED_LAYER,
+          type: "circle",
+          source: ORIGIN_SOURCE,
+          filter: ["==", ["get", "node_id"], ""],
+          paint: {
+            "circle-radius": 9,
+            "circle-color": "#b91c1c",
+            "circle-opacity": 0.9,
+            "circle-stroke-color": "#ffffff",
+            "circle-stroke-width": 2,
+          },
+        });
+        current.layerBuilds += 1;
+      }
+      container.current?.setAttribute("data-map-perf", JSON.stringify(current));
     };
-    const unsubscribe = onStyled(map, () => styleReady.current, update);
+
     const handleTrajectoryClick = (event: MapLayerMouseEvent) => {
       const trajectoryId = event.features?.[0]?.properties?.trajectory_id;
-      if (typeof trajectoryId === "number") onSelectTrajectory?.(trajectoryId);
+      if (typeof trajectoryId === "number") callbacks.current.onSelectTrajectory?.(trajectoryId);
+    };
+    // Origin picks are limited to nodes the API returned, so no coordinate snapping happens here.
+    const handleOriginClick = (event: MapLayerMouseEvent) => {
+      const nodeId = event.features?.[0]?.properties?.node_id;
+      if (typeof nodeId === "string") callbacks.current.onSelectOriginNode?.(nodeId);
     };
     const handleMouseEnter = () => {
       map.getCanvas().style.cursor = "pointer";
@@ -479,14 +649,11 @@ export function MapView({
     const handleMouseLeave = () => {
       map.getCanvas().style.cursor = "";
     };
+
+    const unsubscribe = onStyled(map, () => styleReady.current, create);
     map.on("click", SIMULATION_HIT_LAYER, handleTrajectoryClick);
     map.on("mouseenter", SIMULATION_HIT_LAYER, handleMouseEnter);
     map.on("mouseleave", SIMULATION_HIT_LAYER, handleMouseLeave);
-    // Origin picks are limited to nodes the API returned, so no coordinate snapping happens here.
-    const handleOriginClick = (event: MapLayerMouseEvent) => {
-      const nodeId = event.features?.[0]?.properties?.node_id;
-      if (typeof nodeId === "string") onSelectOriginNode?.(nodeId);
-    };
     map.on("click", ORIGIN_LAYER, handleOriginClick);
     map.on("mouseenter", ORIGIN_LAYER, handleMouseEnter);
     map.on("mouseleave", ORIGIN_LAYER, handleMouseLeave);
@@ -499,22 +666,34 @@ export function MapView({
       map.off("mouseenter", ORIGIN_LAYER, handleMouseEnter);
       map.off("mouseleave", ORIGIN_LAYER, handleMouseLeave);
     };
-  }, [
-    preview,
-    outputMode,
-    showSimulatedPaths,
-    showNetworkReference,
-    onSelectTrajectory,
-    activeStep,
-    selectedTrajectoryId,
-    originNodes,
-    selectedOriginNodeId,
-    onSelectOriginNode,
-  ]);
+  }, [styleLoaded, showNetworkReference]);
 
-  // The study network is sub-kilometre while the default Taipei view is not, so
-  // without fitting it the trajectory geometry is a few pixels and clicks land on
-  // the basemap instead of the path.
+  // New simulation data replaces source content. It never removes a layer, and it
+  // runs once per result rather than once per playback tick.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const cache = cacheFor(cacheBox.current, preview);
+    const apply = () => {
+      if (!styleReady.current) return;
+      const started = performance.now();
+      setSourceData(map, NETWORK_REFERENCE_SOURCE, {
+        type: "FeatureCollection",
+        features: cache?.network ?? [],
+      } satisfies Collection<LineFeature>);
+      setSourceData(map, SIMULATION_SOURCE, {
+        type: "FeatureCollection",
+        features: cache?.aggregate ?? [],
+      } satisfies Collection<LineFeature>);
+      telemetry.current.setDataCalls += 2;
+      telemetry.current.geojsonBuildMs += performance.now() - started;
+    };
+    const unsubscribe = onStyled(map, () => styleReady.current, apply);
+    return unsubscribe;
+  }, [preview]);
+
+  // Camera fit is keyed on the preview identity only, so panning does not re-fit
+  // and playback does not move the camera.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !preview || fittedPreviewRef.current === preview) return;
@@ -523,11 +702,334 @@ export function MapView({
       preview.edges.map((edge) => edge.geometry?.coordinates ?? null),
     ]);
     if (!bounds) return;
-    // fitBounds only needs the camera transform: waiting for the style would mean
-    // the fit lands only after a source finishes loading.
     fittedPreviewRef.current = preview;
     map.fitBounds(bounds, { padding: 56, duration: panDuration() });
   }, [preview]);
+
+  // Aggregate route reveal. GSAP drives a plain object; only MapLibre paint state
+  // changes per frame, never React state.
+  useEffect(() => {
+    const map = mapRef.current;
+    const cache = cacheFor(cacheBox.current, preview);
+    if (!map || !cache) return;
+    let tween: gsap.core.Tween | null = null;
+    const apply = () => {
+      if (!map.getLayer(SIMULATION_LAYER)) return;
+      const animate = motion.current.animationEnabled && !prefersReducedMotion();
+      if (!animate) {
+        map.setPaintProperty(SIMULATION_LAYER, "line-gradient", FULL_TEAL);
+        map.setPaintProperty(SIMULATION_SCHEMATIC_LAYER, "line-opacity", 0.75);
+        return;
+      }
+      const state = { progress: 0 };
+      map.setPaintProperty(SIMULATION_LAYER, "line-gradient", revealGradient(0));
+      map.setPaintProperty(SIMULATION_SCHEMATIC_LAYER, "line-opacity", 0.15);
+      tween = gsap.to(state, {
+        progress: 1,
+        duration: 1.1 / Math.max(0.5, motion.current.playbackSpeed),
+        ease: "power1.inOut",
+        onUpdate: () => {
+          telemetry.current.animationFrames += 1;
+          map.setPaintProperty(SIMULATION_LAYER, "line-gradient", revealGradient(state.progress));
+          map.setPaintProperty(
+            SIMULATION_SCHEMATIC_LAYER,
+            "line-opacity",
+            0.15 + 0.6 * state.progress,
+          );
+        },
+        onComplete: () => {
+          map.setPaintProperty(SIMULATION_LAYER, "line-gradient", FULL_TEAL);
+        },
+      });
+    };
+    const unsubscribe = onStyled(map, () => styleReady.current, apply);
+    return () => {
+      unsubscribe();
+      tween?.kill();
+    };
+  }, [preview]);
+
+  // Selection, mode and playback: data + visibility only. The only tween here is
+  // the walker's movement across the newly traversed segment.
+  useEffect(() => {
+    const map = mapRef.current;
+    const cache = cacheFor(cacheBox.current, preview);
+    if (!map) return;
+    let walkerTween: gsap.core.Tween | null = null;
+    let walkerAnimating = false;
+    const apply = () => {
+      walkerAnimating = false;
+      if (!styleReady.current) return;
+      const aggregateVisible = outputMode === "aggregate" && showSimulatedPaths;
+      const trajectoryVisible = outputMode === "trajectory" && showSimulatedPaths;
+      setLayerVisibility(map, SIMULATION_LAYER, aggregateVisible && !cache?.schematic);
+      setLayerVisibility(
+        map,
+        SIMULATION_SCHEMATIC_LAYER,
+        aggregateVisible && Boolean(cache?.schematic),
+      );
+      setLayerVisibility(map, SIMULATION_HIT_LAYER, aggregateVisible);
+      setLayerVisibility(map, FLOW_LAYER, aggregateVisible && motion.current.animationEnabled);
+      setLayerVisibility(map, TRAJECTORY_FULL_LAYER, trajectoryVisible);
+      setLayerVisibility(map, TRAJECTORY_PROGRESS_LAYER, trajectoryVisible);
+      setLayerVisibility(map, SIMULATION_STEP_LAYER, trajectoryVisible);
+      setLayerVisibility(map, WALKER_LAYER, trajectoryVisible);
+
+      if (!cache) {
+        setSourceData(map, TRAJECTORY_SOURCE, EMPTY_COLLECTION);
+        setSourceData(map, SIMULATION_STEP_SOURCE, EMPTY_COLLECTION);
+        setSourceData(map, WALKER_SOURCE, EMPTY_COLLECTION);
+        setSourceData(map, FLOW_SOURCE, EMPTY_COLLECTION);
+        return;
+      }
+      // Flow markers ride on the returned directed edges, so a two-way street is
+      // shown in both directions instead of a false one-way current.
+      const flowFeatures = motion.current.animationEnabled
+        ? cache.aggregate.slice(0, 24).flatMap((feature) =>
+            flowPoints(feature.geometry.coordinates, 2, 0).map((coordinates) =>
+              pointFeature(coordinates, {
+                classification: "SIMULATED",
+                edge_id: feature.properties.edge_id,
+              }),
+            ),
+          )
+        : [];
+      if (!aggregateVisible || flowFeatures.length === 0) {
+        setSourceData(map, FLOW_SOURCE, EMPTY_COLLECTION);
+      }
+
+      const selected =
+        selectedTrajectoryId === null
+          ? [...cache.trajectories.entries()]
+          : [...cache.trajectories.entries()].filter(([id]) => id === selectedTrajectoryId);
+      const fullFeatures = selected.map(([id, geometry]) =>
+        lineFeature(geometry.coordinates, { trajectory_id: id, classification: "SIMULATED" }),
+      );
+      const clampedStep =
+        activeStep === null
+          ? null
+          : Math.max(
+              0,
+              Math.min(
+                activeStep,
+                Math.max(...selected.map(([, geometry]) => geometry.stepEnds.length), 0),
+              ),
+            );
+      const progressFeatures = trajectoryVisible
+        ? selected.flatMap(([id, geometry]) => {
+            if (clampedStep === null) return [];
+            if (clampedStep === 0) return [];
+            const end = geometry.stepEnds[clampedStep - 1];
+            if (end === undefined) return [];
+            return [
+              lineFeature(geometry.coordinates.slice(0, end + 1), {
+                trajectory_id: id,
+                classification: "SIMULATED",
+                step: clampedStep,
+              }),
+            ];
+          })
+        : [];
+      const stepFeatures =
+        trajectoryVisible && clampedStep !== null && clampedStep > 0
+          ? selected.flatMap(([id, geometry]) => {
+              const start = clampedStep >= 2 ? geometry.stepEnds[clampedStep - 2] : 0;
+              const end = geometry.stepEnds[clampedStep - 1];
+              if (end === undefined) return [];
+              return [
+                lineFeature(geometry.coordinates.slice(start, end + 1), {
+                  trajectory_id: id,
+                  classification: "SIMULATED",
+                }),
+              ];
+            })
+          : [];
+      setSourceData(map, TRAJECTORY_SOURCE, {
+        type: "FeatureCollection",
+        features: [...fullFeatures, ...progressFeatures],
+      } satisfies Collection<LineFeature>);
+      setSourceData(map, SIMULATION_STEP_SOURCE, {
+        type: "FeatureCollection",
+        features: stepFeatures,
+      } satisfies Collection<LineFeature>);
+      telemetry.current.setDataCalls += 2;
+
+      const walker = selected[0];
+      let walkerCoordinates: LngLat | null = null;
+      if (walker && clampedStep !== null) {
+        const [, geometry] = walker;
+        const end = clampedStep > 0 ? geometry.stepEnds[clampedStep - 1] : 0;
+        walkerCoordinates = geometry.coordinates[end] ?? geometry.coordinates[0] ?? null;
+        // Animate only one forward step; seeking or changing walker jumps directly
+        // so the marker never appears to travel backwards through time.
+        const previous = clampedStep >= 2 ? geometry.stepEnds[clampedStep - 2] : 0;
+        const segment = geometry.coordinates.slice(previous, end + 1);
+        const start = segment.length >= 2 ? pointAtFraction(segment, 0) : null;
+        if (
+          start &&
+          motion.current.animationEnabled &&
+          !prefersReducedMotion() &&
+          clampedStep > 1 &&
+          end > previous
+        ) {
+          walkerAnimating = true;
+          // Sit on the segment start before the first tween frame, then follow the
+          // returned polyline instead of a straight chord between endpoints.
+          setSourceData(map, WALKER_SOURCE, {
+            type: "FeatureCollection",
+            features: [pointFeature(start, { classification: "SIMULATED" })],
+          } satisfies Collection<PointFeature>);
+          const state = { fraction: 0 };
+          walkerTween = gsap.to(state, {
+            fraction: 1,
+            duration: 0.32 / Math.max(0.5, motion.current.playbackSpeed),
+            ease: "none",
+            onUpdate: () => {
+              const point = pointAtFraction(segment, state.fraction);
+              if (point) {
+                setSourceData(map, WALKER_SOURCE, {
+                  type: "FeatureCollection",
+                  features: [pointFeature(point, { classification: "SIMULATED" })],
+                } satisfies Collection<PointFeature>);
+              }
+            },
+          });
+        }
+      }
+      setLayerVisibility(map, WALKER_LAYER, trajectoryVisible && Boolean(walkerCoordinates));
+      // A running tween owns the marker position; writing the destination here
+      // would make the first animated frame snap to the end of the segment.
+      if (!walkerAnimating) {
+        setSourceData(map, WALKER_SOURCE, {
+          type: "FeatureCollection",
+          features: walkerCoordinates
+            ? [pointFeature(walkerCoordinates, { classification: "SIMULATED" })]
+            : [],
+        } satisfies Collection<PointFeature>);
+      }
+      if (flowFeatures.length > 0) {
+        setSourceData(map, FLOW_SOURCE, {
+          type: "FeatureCollection",
+          features: flowFeatures,
+        } satisfies Collection<PointFeature>);
+      }
+    };
+    const unsubscribe = onStyled(map, () => styleReady.current, apply);
+    return () => {
+      unsubscribe();
+      walkerTween?.kill();
+    };
+  }, [preview, outputMode, showSimulatedPaths, activeStep, selectedTrajectoryId]);
+
+  // Lightweight layer toggles never rebuild sources or layers.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Simulation layers are owned by the mode/playback effect below; this effect
+    // only handles the independent reference toggle.
+    onStyled(
+      map,
+      () => styleReady.current,
+      () => {
+        setLayerVisibility(map, NETWORK_REFERENCE_LAYER, showNetworkReference);
+      },
+    );
+  }, [showNetworkReference, mapRef]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      if (!styleReady.current) return;
+      setSourceData(map, ORIGIN_SOURCE, {
+        type: "FeatureCollection",
+        features: originNodes.map((node) =>
+          pointFeature(node.coordinates, { node_id: node.id, classification: "SIMULATED" }),
+        ),
+      });
+      if (map.getLayer(ORIGIN_SELECTED_LAYER)) {
+        map.setFilter(ORIGIN_SELECTED_LAYER, [
+          "==",
+          ["get", "node_id"],
+          selectedOriginNodeId ?? "",
+        ]);
+      }
+    };
+    const unsubscribe = onStyled(map, () => styleReady.current, apply);
+    return unsubscribe;
+  }, [originNodes, selectedOriginNodeId]);
+
+  // Continuous flow markers. Paused while the user drags the map, in a hidden tab
+  // and under reduced-motion, so decoration never competes with navigation.
+  useEffect(() => {
+    const map = mapRef.current;
+    const cache = cacheFor(cacheBox.current, preview);
+    if (!map) return;
+    const clearFlow = () =>
+      onStyled(
+        map,
+        () => styleReady.current,
+        () => {
+          setLayerVisibility(map, FLOW_LAYER, false);
+          setSourceData(map, FLOW_SOURCE, EMPTY_COLLECTION);
+        },
+      );
+    // Turning the effect off (or leaving aggregate mode) must remove the last
+    // painted markers instead of freezing them on the map.
+    if (!cache) return clearFlow();
+    if (
+      !animationEnabled ||
+      prefersReducedMotion() ||
+      outputMode !== "aggregate" ||
+      !showSimulatedPaths
+    ) {
+      return clearFlow();
+    }
+    const edges = cache.aggregate.slice(0, 24);
+    if (edges.length === 0) return;
+    const showFlow = onStyled(
+      map,
+      () => styleReady.current,
+      () => {
+        setLayerVisibility(map, FLOW_LAYER, true);
+      },
+    );
+    const state = { phase: 0 };
+    const tween = gsap.to(state, {
+      phase: 1,
+      duration: 7,
+      ease: "none",
+      repeat: -1,
+      onUpdate: () => {
+        telemetry.current.animationFrames += 1;
+        const features = edges.flatMap((feature) =>
+          flowPoints(feature.geometry.coordinates, 2, state.phase).map((coordinates) =>
+            pointFeature(coordinates, {
+              classification: "SIMULATED",
+              edge_id: feature.properties.edge_id,
+            }),
+          ),
+        );
+        setSourceData(map, FLOW_SOURCE, { type: "FeatureCollection", features });
+      },
+    });
+    const pause = () => tween.pause();
+    const resume = () => tween.resume();
+    const handleVisibility = () => {
+      if (document.hidden) tween.pause();
+      else tween.resume();
+    };
+    map.on("dragstart", pause);
+    map.on("dragend", resume);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      showFlow();
+      tween.kill();
+      map.off("dragstart", pause);
+      map.off("dragend", resume);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [preview, outputMode, showSimulatedPaths, animationEnabled]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -934,86 +1436,5 @@ export function MapView({
     };
   }, [onBoundsChange]);
 
-  // The details card follows the selected marker instead of sitting in a fixed map corner.
-  // MapLibre owns positioning and keeps the popup over the same cell through pans and zooms.
-  useEffect(() => {
-    const map = mapRef.current;
-    const feature = citizenAggregates?.features.find((item) => {
-      const key = `${item.properties.cell_id}:${item.properties.month}:${item.properties.report_type}`;
-      return key === selectedCitizenCellKey;
-    });
-    if (!map || !feature || !hasCitizenCellCard) {
-      setCitizenCellPopupHost(null);
-      return;
-    }
-    const ring = feature.geometry.coordinates[0] ?? [];
-    const points = ring.slice(0, -1);
-    const center = points.reduce(
-      ([longitude, latitude], [pointLongitude, pointLatitude]) => [
-        longitude + pointLongitude,
-        latitude + pointLatitude,
-      ],
-      [0, 0],
-    );
-    const count = points.length || 1;
-    const lngLat: [number, number] = [center[0] / count, center[1] / count];
-    const host = document.createElement("div");
-    host.className = "map-cell-popup-host";
-    // Keep the card inside the map: open it below the marker when there is not enough
-    // room above, and cap its height to the side with more space.
-    const mapContainer = map.getContainer();
-    const mapRect = mapContainer.getBoundingClientRect();
-    const projected = map.project(lngLat);
-    // The card is narrower than the viewport but can still be wider than the map.
-    // Use the map's own width so the card can stay inside it at every breakpoint.
-    const cardWidth = Math.max(120, Math.min(340, window.innerWidth - 48, mapRect.width - 16));
-    host.style.setProperty("--map-cell-card-width", `${cardWidth}px`);
-    // Keep the card inside the visible part of the map, even when the map itself
-    // extends below the viewport.
-    const visibleBottom = Math.min(mapContainer.clientHeight, window.innerHeight - mapRect.top);
-    // 14 px offset + 10 px tip + 8 px breathing room.
-    const spaceAbove = projected.y - 32;
-    const spaceBelow = visibleBottom - projected.y - 34;
-    const openBelow = spaceAbove < 280 && spaceBelow >= spaceAbove;
-    const availableHeight = Math.max(120, Math.floor(openBelow ? spaceBelow : spaceAbove));
-    host.style.setProperty("--map-cell-card-max-height", `${availableHeight}px`);
-    // Shift the popup horizontally when its fixed-width card would cross the map
-    // or viewport edge. The tip stays as close to the selected cell as the layout allows.
-    const mapRight = Math.min(mapRect.right, window.innerWidth);
-    const halfCardWidth = cardWidth / 2;
-    const minimumCenter = mapRect.left + 8 + halfCardWidth;
-    const maximumCenter = mapRight - 8 - halfCardWidth;
-    const anchorPageX = mapRect.left + projected.x;
-    const centerPageX =
-      minimumCenter > maximumCenter
-        ? (mapRect.left + mapRight) / 2
-        : Math.min(Math.max(anchorPageX, minimumCenter), maximumCenter);
-    const horizontalOffset = Math.round(centerPageX - anchorPageX);
-    const popup = new Popup({
-      closeButton: false,
-      closeOnClick: false,
-      focusAfterOpen: false,
-      maxWidth: `${cardWidth}px`,
-      offset: [horizontalOffset, 14],
-      anchor: openBelow ? "top" : "bottom",
-      className: "map-cell-popup",
-    })
-      .setLngLat(lngLat)
-      .setDOMContent(host)
-      .addTo(map);
-    setCitizenCellPopupHost(host);
-    return () => {
-      popup.remove();
-      setCitizenCellPopupHost(null);
-    };
-  }, [citizenAggregates, hasCitizenCellCard, selectedCitizenCellKey]);
-
-  return (
-    <>
-      <div className="map-frame" role="region" aria-label="互動式 GIS 地圖" ref={container} />
-      {citizenCellPopupHost && citizenCellCard
-        ? createPortal(citizenCellCard, citizenCellPopupHost)
-        : null}
-    </>
-  );
+  return <div className="map-frame" role="region" aria-label="互動式 GIS 地圖" ref={container} />;
 }

@@ -97,7 +97,7 @@ test("runs, plays back, and switches an isolated citizen-origin fixture", async 
   await expect(panel.getByText(/不含公民通報/).first()).toBeVisible();
 
   await clickCitizenCell(page, mapFrame, fixture);
-  const card = page.getByRole("complementary", { name: CARD_NAME });
+  const card = page.getByRole("region", { name: CARD_NAME });
   await expect(card).toBeVisible();
   await expect(card.getByText("smoke-cell-1")).toBeVisible();
   await expect(card.getByText("SIMULATED · 本機測試")).toBeVisible();
@@ -162,7 +162,7 @@ test("runs, plays back, and switches an isolated citizen-origin fixture", async 
   // as the newly selected cell.
   await page.getByLabel("選擇本機合成測試格").selectOption(OTHER_FIXTURE_CELL);
   await expect(playback).toHaveCount(0);
-  const otherCard = page.getByRole("complementary", { name: CARD_NAME });
+  const otherCard = page.getByRole("region", { name: CARD_NAME });
   await expect(otherCard.getByText("smoke-cell-2")).toBeVisible();
   await expect(otherCard.getByText("smoke-cell-1")).toHaveCount(0);
   await expect(page.getByText(`起點 ${FIXTURE_CELL}`)).toHaveCount(0);
@@ -189,7 +189,7 @@ test("ignores an out-of-order response from a previous origin", async ({ page })
   await openCitizenFixture(page);
   const picker = page.getByLabel("選擇本機合成測試格");
   await picker.selectOption(FIXTURE_CELL);
-  const card = page.getByRole("complementary", { name: CARD_NAME });
+  const card = page.getByRole("region", { name: CARD_NAME });
   await expect(card.getByText("smoke-cell-1")).toBeVisible();
   await card.getByRole("button", { name: "以此格網起點執行模擬" }).click();
   await expect.poll(() => Boolean(heldRoute)).toBe(true);
@@ -249,7 +249,7 @@ test("reports a generic simulation failure without retaining a success view", as
   );
   await openCitizenFixture(page);
   await page.getByLabel("選擇本機合成測試格").selectOption(FIXTURE_CELL);
-  const card = page.getByRole("complementary", { name: CARD_NAME });
+  const card = page.getByRole("region", { name: CARD_NAME });
   await expect(card.getByText("smoke-cell-1")).toBeVisible();
   await card.getByRole("button", { name: "以此格網起點執行模擬" }).click();
   await expect(card.getByRole("alert")).toHaveText("Simulation preview failed (503)");
@@ -274,7 +274,7 @@ test("reports unavailable OSM source without substituting the schematic network"
   );
   await openCitizenFixture(page);
   await page.getByLabel("選擇本機合成測試格").selectOption(FIXTURE_CELL);
-  const card = page.getByRole("complementary", { name: CARD_NAME });
+  const card = page.getByRole("region", { name: CARD_NAME });
   await card.getByRole("button", { name: "以此格網起點執行模擬" }).click();
   const alert = card.getByRole("alert");
   await expect(alert).toContainText("來源網路無法使用：pinned OSM missing");
@@ -297,7 +297,7 @@ test("reports an unresolvable citizen cell without a default graph origin", asyn
   );
   await openCitizenFixture(page);
   await page.getByLabel("選擇本機合成測試格").selectOption(FIXTURE_CELL);
-  const card = page.getByRole("complementary", { name: CARD_NAME });
+  const card = page.getByRole("region", { name: CARD_NAME });
   await card.getByRole("button", { name: "以此格網起點執行模擬" }).click();
   await expect(card.getByRole("alert")).toContainText(
     "公民通報格網起點無法解析：no eligible node inside cell",
@@ -312,7 +312,7 @@ test("clears selected output when the refreshed source no longer publishes the c
   test.setTimeout(120_000);
   await openCitizenFixture(page);
   await page.getByLabel("選擇本機合成測試格").selectOption(FIXTURE_CELL);
-  const card = page.getByRole("complementary", { name: CARD_NAME });
+  const card = page.getByRole("region", { name: CARD_NAME });
   const previewResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/api/v1/simulations/preview") && response.status() === 200,
@@ -343,6 +343,127 @@ test("clears selected output when the refreshed source no longer publishes the c
 
   const panel = page.getByRole("region", { name: "本機合成測試格檢視" });
   await expect(panel.getByText(/尚無本機合成測試格/)).toBeVisible();
-  await expect(page.getByRole("complementary", { name: CARD_NAME })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: CARD_NAME })).toHaveCount(0);
   await expect(playback).toHaveCount(0);
+});
+
+test("inspects reports beside the map and animates without rebuilding layers", async ({
+  page,
+}, testInfo) => {
+  test.skip(!process.env.PLAYWRIGHT_EXTERNAL_SERVERS, "run via make geospatial-smoke");
+  test.setTimeout(120_000);
+  const { mapFrame, body } = await openCitizenFixture(page);
+  const fixture = body.features.find(
+    (feature: { properties: { cell_id: string } }) => feature.properties.cell_id === "smoke-cell-1",
+  );
+  await clickCitizenCell(page, mapFrame, fixture);
+  const card = page.getByRole("region", { name: CARD_NAME });
+  await expect(card).toBeVisible();
+
+  const mapBox = await mapFrame.boundingBox();
+  const cardBox = await card.boundingBox();
+  expect(mapBox).not.toBeNull();
+  expect(cardBox).not.toBeNull();
+  if (testInfo.project.name === "desktop") {
+    // Desktop details sit in the control rail, never on top of the routes.
+    const overlaps =
+      cardBox!.x < mapBox!.x + mapBox!.width &&
+      cardBox!.x + cardBox!.width > mapBox!.x &&
+      cardBox!.y < mapBox!.y + mapBox!.height &&
+      cardBox!.y + cardBox!.height > mapBox!.y;
+    expect(overlaps).toBe(false);
+  }
+
+  const readPerf = async () =>
+    JSON.parse((await mapFrame.getAttribute("data-map-perf")) ?? "{}") as {
+      layerBuilds: number;
+      sourceBuilds: number;
+    };
+  expect((await readPerf()).layerBuilds).toBeGreaterThan(0);
+
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/simulations/preview") && response.status() === 200,
+  );
+  await card.getByRole("button", { name: "以此格網起點執行模擬" }).click();
+  await (await responsePromise).json();
+  const playback = page.getByRole("region", { name: "模擬軌跡播放控制" });
+  await expect(playback).toBeVisible();
+  const afterPreview = await readPerf();
+
+  await expect(playback.getByText("模擬播放速度，非實際鼠類移動速度")).toBeVisible();
+  await playback.getByRole("combobox", { name: "播放速度" }).selectOption("2");
+  const toggle = playback.getByRole("checkbox", { name: "動畫效果" });
+  await expect(toggle).toBeChecked();
+  await toggle.uncheck();
+  await expect(toggle).not.toBeChecked();
+
+  if (testInfo.project.name !== "desktop") {
+    // The mobile sheet collapses once a run exists so playback stays reachable.
+    const compact = await card.boundingBox();
+    expect(compact).not.toBeNull();
+    expect(compact!.height).toBeLessThan((page.viewportSize()?.height ?? 844) * 0.4);
+  }
+
+  await playback.getByRole("button", { name: "個別路徑" }).click();
+  await playback.getByRole("button", { name: "下一步" }).click();
+  await expect(playback.getByText(/步驟 1 \/ \d+ · 非實際時間/)).toBeVisible();
+  await playback.getByRole("button", { name: "下一步" }).click();
+  const afterSteps = await readPerf();
+  expect(afterSteps.layerBuilds).toBe(afterPreview.layerBuilds);
+  expect(afterSteps.sourceBuilds).toBe(afterPreview.sourceBuilds);
+
+  await page.getByLabel("選擇本機合成測試格").selectOption(OTHER_FIXTURE_CELL);
+  await expect(playback).toHaveCount(0);
+  await expect(card.getByText("smoke-cell-2")).toBeVisible();
+  await expect(card.getByText("smoke-cell-1")).toHaveCount(0);
+});
+
+test("runs the origin simulation from the keyboard", async ({ page }) => {
+  test.skip(!process.env.PLAYWRIGHT_EXTERNAL_SERVERS, "run via make geospatial-smoke");
+  test.setTimeout(120_000);
+  await openCitizenFixture(page);
+  await page.getByLabel("選擇本機合成測試格").selectOption(FIXTURE_CELL);
+  const card = page.getByRole("region", { name: CARD_NAME });
+  const run = card.getByRole("button", { name: "以此格網起點執行模擬" });
+  await run.focus();
+  await expect(run).toBeFocused();
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/simulations/preview") && response.status() === 200,
+  );
+  await page.keyboard.press("Enter");
+  await responsePromise;
+  await expect(page.getByRole("region", { name: "模擬軌跡播放控制" })).toBeVisible();
+});
+
+test("honours reduced motion with a static route presentation", async ({ page }) => {
+  test.skip(!process.env.PLAYWRIGHT_EXTERNAL_SERVERS, "run via make geospatial-smoke");
+  test.setTimeout(120_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const { mapFrame } = await openCitizenFixture(page);
+  await page.getByLabel("選擇本機合成測試格").selectOption(FIXTURE_CELL);
+  const card = page.getByRole("region", { name: CARD_NAME });
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/v1/simulations/preview") && response.status() === 200,
+  );
+  await card.getByRole("button", { name: "以此格網起點執行模擬" }).click();
+  await responsePromise;
+
+  const playback = page.getByRole("region", { name: "模擬軌跡播放控制" });
+  await expect(playback).toBeVisible();
+  await expect(playback.getByRole("checkbox", { name: "動畫效果" })).not.toBeChecked();
+
+  // Static routes must not be replaced by an endless decorative animation loop.
+  await page.waitForTimeout(1500);
+  const perf = JSON.parse((await mapFrame.getAttribute("data-map-perf")) ?? "{}") as {
+    animationFrames?: number;
+  };
+  expect(perf.animationFrames ?? 0).toBe(0);
+
+  // Step-by-step inspection still works without motion.
+  await playback.getByRole("button", { name: "個別路徑" }).click();
+  await playback.getByRole("button", { name: "下一步" }).click();
+  await expect(playback.getByText(/步驟 1 \/ \d+ · 非實際時間/)).toBeVisible();
 });

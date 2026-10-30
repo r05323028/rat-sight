@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Dashboard } from "@/components/dashboard";
@@ -95,18 +94,20 @@ const mockState = vi.hoisted(() => ({
 vi.mock("@/components/map-view", () => ({
   MapView: ({
     onSelectCitizenCell,
-    citizenCellCard,
     outputMode = "aggregate",
     activeStep,
     selectedTrajectoryId,
     onSelectTrajectory,
+    playbackSpeed = 1,
+    animationEnabled = true,
   }: {
     onSelectCitizenCell?: (properties: CitizenReportCellProperties) => void;
-    citizenCellCard?: ReactNode;
     outputMode?: "aggregate" | "trajectory";
     activeStep?: number | null;
     selectedTrajectoryId?: number | null;
     onSelectTrajectory?: (walkerId: number) => void;
+    playbackSpeed?: number;
+    animationEnabled?: boolean;
   }) => (
     <div role="region" aria-label="互動式 GIS 地圖">
       <div
@@ -114,6 +115,8 @@ vi.mock("@/components/map-view", () => ({
         data-mode={outputMode}
         data-active-step={activeStep ?? ""}
         data-selected-trajectory={selectedTrajectoryId ?? ""}
+        data-playback-speed={playbackSpeed}
+        data-animation-enabled={animationEnabled}
       />
       {onSelectCitizenCell && (
         <>
@@ -146,7 +149,6 @@ vi.mock("@/components/map-view", () => ({
             Map walker {walkerId}
           </button>
         ))}
-      {citizenCellCard}
     </div>
   ),
 }));
@@ -1419,5 +1421,85 @@ describe("RatSight dashboard", () => {
       await within(panel).findByText(/尚未匯入公民通報彙整：資料庫尚未匯入/),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText("公民通報彙整")).not.toBeInTheDocument();
+  });
+
+  it("keeps selected-cell details in the control rail instead of over the map", async () => {
+    renderDashboard();
+    fireEvent.click(await screen.findByRole("button", { name: "Select citizen report cell" }));
+
+    const rail = screen.getByRole("complementary", { name: "分析控制項" });
+    const card = await within(rail).findByRole("region", { name: "公民通報彙整格詳細資料" });
+    const map = screen.getByRole("region", { name: "互動式 GIS 地圖" });
+    // The inspector must never be mounted inside the map region again.
+    expect(
+      within(map).queryByRole("region", { name: "公民通報彙整格詳細資料" }),
+    ).not.toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "以此格網起點執行模擬" })).toBeEnabled();
+
+    fireEvent.click(within(card).getByRole("button", { name: "關閉公民通報彙整格詳細資料" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "公民通報彙整格詳細資料" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("lets context-only reports be inspected but never simulated", async () => {
+    mockState.citizenBait = true;
+    renderDashboard();
+    fireEvent.click(await screen.findByRole("button", { name: "Select bait station cell" }));
+
+    const card = await screen.findByRole("region", { name: "公民通報彙整格詳細資料" });
+    expect(within(card).getAllByText("毒餌相關通報").length).toBeGreaterThan(0);
+    expect(
+      within(card).getByText(/此類通報不直接代表鼠類出現位置，目前僅供資料參考/),
+    ).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "此類通報無法作為模擬起點" })).toBeDisabled();
+    expect(
+      vi.mocked(fetch).mock.calls.some(([input]) => String(input).includes("/simulations/preview")),
+    ).toBe(false);
+  });
+
+  it("applies playback speed and the animation toggle to the map", async () => {
+    renderDashboard();
+    await runSelectedCitizenCell();
+    const playback = await screen.findByRole("region", { name: "模擬軌跡播放控制" });
+    const speed = within(playback).getByRole("combobox", { name: "播放速度" });
+    expect(speed).toHaveValue("1");
+    expect(within(playback).getByText("模擬播放速度，非實際鼠類移動速度")).toBeInTheDocument();
+
+    const toggle = within(playback).getByRole("checkbox", { name: "動畫效果" });
+    expect(toggle).toBeChecked();
+    fireEvent.change(speed, { target: { value: "2" } });
+    fireEvent.click(toggle);
+
+    const state = screen.getByTestId("map-playback-state");
+    expect(state).toHaveAttribute("data-playback-speed", "2");
+    expect(state).toHaveAttribute("data-animation-enabled", "false");
+  });
+
+  it("starts with animation disabled when reduced motion is requested", async () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      renderDashboard();
+      await runSelectedCitizenCell();
+      expect(await screen.findByRole("checkbox", { name: "動畫效果" })).not.toBeChecked();
+      expect(screen.getByTestId("map-playback-state")).toHaveAttribute(
+        "data-animation-enabled",
+        "false",
+      );
+    } finally {
+      window.matchMedia = original;
+    }
   });
 });

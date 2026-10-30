@@ -40,6 +40,10 @@ __pycache__/
 apps/web/.impeccable/
 .codex/hooks.json
 
+# Local harness state (Claude/OpenRig tool output, not project source)
+.claude/
+.jev-fabric-native/
+
 # Raw licensed/sensitive source exports stay outside version control
 data/raw/*
 !data/raw/README.md

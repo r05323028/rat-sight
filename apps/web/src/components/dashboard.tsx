@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LayerGlyph } from "@/components/layer-glyph";
 import { MapView } from "@/components/map-view";
+import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
 import { Button } from "@/components/ui/button";
 import {
   BBOX_MAX_SPAN_DEGREES,
@@ -396,15 +397,23 @@ export function Dashboard() {
       (trajectory) => trajectory.walker_id === selectedTrajectoryId,
     ) ?? null;
   const playbackStepCount = selectedTrajectory?.edges.length ?? 0;
+  const reduceMotion = usePrefersReducedMotion();
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  // null means "follow the system preference"; a real toggle pins the choice.
+  const [animationOverride, setAnimationOverride] = useState<boolean | null>(null);
+  const animationEnabled = animationOverride ?? !reduceMotion;
   useEffect(() => {
     if (!isPlaying || playbackStepCount === 0 || activeStep >= playbackStepCount) return;
-    const timer = window.setTimeout(() => {
-      const nextStep = Math.min(activeStep + 1, playbackStepCount);
-      setActiveStep(nextStep);
-      if (nextStep >= playbackStepCount) setIsPlaying(false);
-    }, 650);
+    const timer = window.setTimeout(
+      () => {
+        const nextStep = Math.min(activeStep + 1, playbackStepCount);
+        setActiveStep(nextStep);
+        if (nextStep >= playbackStepCount) setIsPlaying(false);
+      },
+      Math.round(650 / playbackSpeed),
+    );
     return () => window.clearTimeout(timer);
-  }, [activeStep, isPlaying, playbackStepCount]);
+  }, [activeStep, isPlaying, playbackSpeed, playbackStepCount]);
   const selectedCitizenCellIsFixture =
     selectedCitizenCell?.data_class === "SYNTHETIC_AGGREGATE_FIXTURE";
   const selectionSummary = selectedVisibleSegment
@@ -509,7 +518,7 @@ export function Dashboard() {
   };
 
   const citizenCellCard = selectedCitizenCell ? (
-    <aside
+    <section
       className="map-cell-card"
       aria-label={
         selectedCitizenCellIsFixture ? "本機合成測試格詳細資料" : "公民通報彙整格詳細資料"
@@ -645,7 +654,7 @@ export function Dashboard() {
           {currentPreview.parameters.random_seed} · 模擬路徑已顯示
         </p>
       )}
-    </aside>
+    </section>
   ) : null;
 
   return (
@@ -747,7 +756,8 @@ export function Dashboard() {
               citizenAggregates={citizenAggregates}
               selectedCitizenCellKey={selectedCitizenCellKey}
               onSelectCitizenCell={handleSelectCitizenCell}
-              citizenCellCard={citizenCellCard}
+              playbackSpeed={playbackSpeed}
+              animationEnabled={animationEnabled}
               onBoundsChange={setViewportBbox}
             />
           </div>
@@ -772,6 +782,33 @@ export function Dashboard() {
                     個別路徑
                   </button>
                 </div>
+              </div>
+              <div className="simulation-playback-settings">
+                <label className="simulation-playback-speed">
+                  播放速度
+                  <select
+                    aria-label="播放速度"
+                    value={playbackSpeed}
+                    onChange={(event) => setPlaybackSpeed(Number(event.target.value))}
+                  >
+                    <option value={0.5}>0.5×</option>
+                    <option value={1}>1×</option>
+                    <option value={2}>2×</option>
+                  </select>
+                </label>
+                <label className="simulation-playback-toggle">
+                  <input
+                    type="checkbox"
+                    checked={animationEnabled}
+                    onChange={(event) => {
+                      setAnimationOverride(event.target.checked);
+                    }}
+                  />
+                  動畫效果
+                </label>
+                <p className="simulation-playback-note simulation-playback-speed-note">
+                  模擬播放速度，非實際鼠類移動速度
+                </p>
               </div>
               {outputMode === "trajectory" && (
                 <div className="simulation-playback-controls">
@@ -900,6 +937,11 @@ export function Dashboard() {
             <a href="#panel-stormwater">04 下水道</a>
             <a href="#panel-citizen-aggregates">05 公民通報</a>
           </nav>
+          {citizenCellCard && (
+            <div className="citizen-inspector" data-compact={currentPreview ? "true" : undefined}>
+              {citizenCellCard}
+            </div>
+          )}
           <section className="panel orientation-panel" id="panel-status" aria-label="工作區狀態">
             <div className="panel-heading">
               <div>

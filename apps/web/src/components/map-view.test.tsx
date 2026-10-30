@@ -15,11 +15,17 @@ const h = vi.hoisted(() => ({
 
 type HandlerEntry = { layerId?: string; handler: (...args: unknown[]) => void };
 
+vi.mock("gsap", () => ({
+  default: {
+    to: vi.fn(() => ({ kill: vi.fn(), pause: vi.fn(), resume: vi.fn() })),
+  },
+}));
+
 vi.mock("maplibre-gl", () => ({
   setWorkerUrl: vi.fn(),
   Map: class {
     handlers: Record<string, HandlerEntry[]> = {};
-    sources = new Set<string>();
+    sources = new Map<string, { id: string; setData: ReturnType<typeof vi.fn> }>();
     layers = new Set<string>();
     addControl = vi.fn();
     once = vi.fn();
@@ -36,14 +42,16 @@ vi.mock("maplibre-gl", () => ({
     off = vi.fn();
     isStyleLoaded = () => true;
     addSource = vi.fn((id: string) => {
-      this.sources.add(id);
+      this.sources.set(id, { id, setData: vi.fn() });
       return this;
     });
-    getSource = vi.fn((id: string) => (this.sources.has(id) ? { id } : undefined));
+    getSource = vi.fn((id: string) => this.sources.get(id));
     removeSource = vi.fn((id: string) => {
       this.sources.delete(id);
       return this;
     });
+    setLayoutProperty = vi.fn();
+    setPaintProperty = vi.fn();
     addLayer = vi.fn((layer: { id: string }) => {
       this.layers.add(layer.id);
       return this;
@@ -74,6 +82,23 @@ vi.mock("maplibre-gl", () => ({
 }));
 
 import { MapView } from "@/components/map-view";
+
+// Static layers are created once and receive data through setData; tests read
+// the most recent payload rather than the initial empty source creation.
+function latestSourceData(sourceId: string): {
+  features: { properties: Record<string, unknown>; geometry: unknown }[];
+} {
+  const map = h.latest.current as {
+    getSource: (id: string) => { setData: ReturnType<typeof vi.fn> } | undefined;
+  };
+  const source = map.getSource(sourceId);
+  if (!source) throw new Error("source was not created: " + sourceId);
+  const calls = source.setData.mock.calls;
+  if (calls.length === 0) throw new Error("source received no data: " + sourceId);
+  return calls.at(-1)![0] as {
+    features: { properties: Record<string, unknown>; geometry: unknown }[];
+  };
+}
 
 const boundaries: AdministrativeDistricts = {
   type: "FeatureCollection",
@@ -370,26 +395,11 @@ describe("MapView", () => {
       ],
     };
     render(mapElement({ preview: networkPreview, showSimulatedPaths: true }));
-    const map = h.latest.current as { addSource: ReturnType<typeof vi.fn> };
-    expect(map.addSource).toHaveBeenCalledWith(
-      "ratsight-simulated-edges",
-      expect.objectContaining({
-        data: expect.objectContaining({
-          features: [
-            expect.objectContaining({
-              properties: expect.objectContaining({ source_id: "osm-way-1" }),
-              geometry: networkPreview.edges[0].geometry,
-            }),
-          ],
-        }),
-      }),
-    );
-    expect(map.addSource).toHaveBeenCalledWith(
-      "ratsight-network-reference",
-      expect.objectContaining({
-        data: expect.objectContaining({ features: expect.any(Array) }),
-      }),
-    );
+    const simulation = latestSourceData("ratsight-simulated-edges");
+    expect(simulation.features).toHaveLength(1);
+    expect(simulation.features[0].properties).toMatchObject({ source_id: "osm-way-1" });
+    expect(simulation.features[0].geometry).toEqual(networkPreview.edges[0].geometry);
+    expect(latestSourceData("ratsight-network-reference").features.length).toBeGreaterThan(0);
   });
 
   it("does not render unvisited synthetic edges", () => {
@@ -414,18 +424,8 @@ describe("MapView", () => {
       addLayer: ReturnType<typeof vi.fn>;
     };
     // The fixture graph has no edge geometry, so its single visited edge is schematic.
-    expect(map.addSource).toHaveBeenCalledWith(
-      "ratsight-simulated-edges",
-      expect.objectContaining({
-        data: expect.objectContaining({
-          features: [
-            expect.objectContaining({
-              properties: expect.objectContaining({ schematic: true }),
-            }),
-          ],
-        }),
-      }),
-    );
+    const simulation = latestSourceData("ratsight-simulated-edges");
+    expect(simulation.features[0].properties).toMatchObject({ schematic: true });
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "ratsight-simulated-edges-schematic",
@@ -520,27 +520,31 @@ describe("MapView", () => {
         activeStep: 2,
       }),
     );
-    const map = h.latest.current as { addSource: ReturnType<typeof vi.fn> };
-    expect(map.addSource).toHaveBeenCalledWith(
-      "ratsight-simulated-edges",
-      expect.objectContaining({
-        data: {
-          type: "FeatureCollection",
-          features: [
-            expect.objectContaining({
-              properties: expect.objectContaining({ trajectory_id: 7, step: 2 }),
-              geometry: {
-                type: "LineString",
-                coordinates: [
-                  [121.55, 25.02],
-                  [121.56, 25.03],
-                  [121.57, 25.04],
-                ],
-              },
-            }),
-          ],
-        },
-      }),
+    const trajectory = latestSourceData("ratsight-trajectory-path");
+    // Full route plus the traversed prefix for the selected walker only.
+    expect(trajectory.features).toHaveLength(2);
+    const [full, traversed] = trajectory.features;
+    expect(full.properties.trajectory_id).toBe(7);
+    expect(full.geometry).toEqual({
+      type: "LineString",
+      coordinates: [
+        [121.55, 25.02],
+        [121.56, 25.03],
+        [121.57, 25.04],
+        [121.58, 25.05],
+      ],
+    });
+    expect(traversed.properties).toMatchObject({ trajectory_id: 7, step: 2 });
+    expect(traversed.geometry).toEqual({
+      type: "LineString",
+      coordinates: [
+        [121.55, 25.02],
+        [121.56, 25.03],
+        [121.57, 25.04],
+      ],
+    });
+    expect(trajectory.features.some((feature) => feature.properties.trajectory_id === 8)).toBe(
+      false,
     );
   });
 
@@ -604,7 +608,7 @@ describe("MapView", () => {
         layout: expect.objectContaining({ visibility: "visible" }),
         paint: expect.objectContaining({ "fill-color": "#b7791f" }),
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -613,7 +617,7 @@ describe("MapView", () => {
         layout: expect.objectContaining({ visibility: "visible" }),
         paint: expect.objectContaining({ "line-color": "#8a5a12" }),
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
   });
 
@@ -662,7 +666,7 @@ describe("MapView", () => {
         type: "line",
         filter: ["==", ["get", "district_id"], ""],
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
     expect(map.setFilter).toHaveBeenCalledWith("ratsight-administrative-districts-highlight", [
       "==",
@@ -818,7 +822,7 @@ describe("MapView", () => {
         layout: expect.objectContaining({ visibility: "visible" }),
         paint: expect.objectContaining({ "line-color": "#2563eb" }),
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -826,7 +830,7 @@ describe("MapView", () => {
         type: "line",
         filter: ["==", ["get", "segment_id"], ""],
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
   });
 
@@ -899,7 +903,7 @@ describe("MapView", () => {
           ],
         }),
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
     expect(map.addLayer).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -907,7 +911,7 @@ describe("MapView", () => {
         type: "circle",
         filter: ["==", ["get", "feature_key"], ""],
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
   });
 
@@ -995,7 +999,7 @@ describe("MapView", () => {
           ],
         }),
       }),
-      undefined,
+      "ratsight-simulated-edges-line",
     );
   });
 

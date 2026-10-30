@@ -1,0 +1,119 @@
+{
+  "schema_version": "1",
+  "classification": "ENGINEERING_MEASUREMENT",
+  "measured_on": "2026-10-27",
+  "change": "optimize-map-interaction-and-animated-simulation",
+  "harness": "apps/web/e2e/measure-map-performance.mjs",
+  "environment": {
+    "machine": "macOS-26.3.1-arm64",
+    "browser": "Playwright Chromium (@playwright/test 1.64.1), viewport 1440x900, deviceScaleFactor 1",
+    "frontend": "Next.js 16.4.2 dev server on 127.0.0.1:3012",
+    "api": "FastAPI on 127.0.0.1:8012, developer PostGIS container ratsight-full-local-postgres-1 at 127.0.0.1:54330",
+    "aggregate_snapshot": {
+      "dataset_id": "ratdar-taipei-public-export",
+      "resource_version": "2026-10-26T20:53:32Z",
+      "content_sha256": "eae7182b7f1cb57a73c1c074e732a8d5780da0cbdc7c481c3972ec7f3c23c24b",
+      "published_cells": 91
+    },
+    "network_source": "taipei-expanded-ratdar-20261027.osm (71,281 nodes, 208,244 directed edges)",
+    "basemap": "external positron style stubbed with an empty style document; application layers unaffected"
+  },
+  "scenario": {
+    "flow": "zoom to a bounded viewport, select the nearest published sighting cell, run the default simulation, switch to individual trajectories, advance four steps, then drag the map for 3.2 s",
+    "selected_cell": "g250m:11147:49043:2026-05:sighting",
+    "walkers": 24,
+    "duration_steps": 12,
+    "random_seed": 42,
+    "movement_model": "weighted_random_walk",
+    "preview_payload_bytes": 1879247
+  },
+  "before": {
+    "revision": "e90ae90",
+    "description": "HEAD MapView with the map-anchored popup and a full remove/re-add of simulation sources and layers on every preview and playback change",
+    "map_ready_ms": 583,
+    "preview_latency_ms": 3113,
+    "preview_payload_bytes": 1879247,
+    "preview_layer_builds": 23,
+    "preview_source_builds": 13,
+    "cumulative_layer_builds": 71,
+    "cumulative_source_builds": 39,
+    "playback_four_steps": {
+      "layer_builds": 37,
+      "source_builds": 21,
+      "set_data_calls": 0,
+      "map_view_commits": 5
+    },
+    "reveal_animation_frames_1200ms": 0,
+    "pan": {
+      "samples": 173,
+      "frame_ms_p50": 16.7,
+      "frame_ms_p95": 16.7,
+      "frame_ms_max": 16.8,
+      "long_task_count": 0,
+      "long_task_total_ms": 0,
+      "aggregate_requests": 0,
+      "map_view_commits": 0
+    },
+    "heap_post_gc_mb": { "idle": 22.0, "with_simulation": 26.5 },
+    "page_errors": []
+  },
+  "after": {
+    "description": "Current MapView with stable sources/layers, a single preview cache, and GSAP reveal/flow/walker animation",
+    "map_ready_ms": 585,
+    "preview_latency_ms": 3170,
+    "preview_payload_bytes": 1879247,
+    "preview_layer_builds": 0,
+    "preview_source_builds": 0,
+    "cumulative_layer_builds": 11,
+    "cumulative_source_builds": 7,
+    "playback_four_steps": {
+      "layer_builds": 0,
+      "source_builds": 0,
+      "set_data_calls": 8,
+      "map_view_commits": 5
+    },
+    "reveal_animation_frames_1200ms": 78,
+    "pan": {
+      "samples": 172,
+      "frame_ms_p50": 16.7,
+      "frame_ms_p95": 16.7,
+      "frame_ms_max": 16.8,
+      "long_task_count": 0,
+      "long_task_total_ms": 0,
+      "aggregate_requests": 0,
+      "map_view_commits": 0
+    },
+    "heap_post_gc_mb": { "idle": 22.4, "with_simulation": 28.1 },
+    "page_errors": []
+  },
+  "comparison": {
+    "preview_layer_builds": "-100%",
+    "preview_source_builds": "-100%",
+    "four_step_playback_layer_builds": "-100%",
+    "four_step_playback_source_builds": "-100%",
+    "cumulative_layer_builds": "-84.5%",
+    "cumulative_source_builds": "-82.1%",
+    "pan_frame_ms_p50": "unchanged (16.7 ms)",
+    "pan_frame_ms_p95": "unchanged (16.7 ms)",
+    "pan_long_tasks": "0 in both runs",
+    "pan_aggregate_requests": "0 in both runs",
+    "preview_latency_ms": "+1.8% (57 ms; backend-dominated, not a regression claim)",
+    "preview_payload_bytes": "unchanged",
+    "reveal_animation": "new: 78 frames in 1.2 s (about 65 fps)",
+    "heap_post_gc_with_simulation_mb": "+1.6 MB with animated sources (no memory-regression claim)"
+  },
+  "interpretation": [
+    "Map panning was already frame-locked before this change; the measured rendering win is the removal of source and layer reconstruction during preview and playback, not a higher pan frame rate.",
+    "Playback now updates existing sources through setData instead of rebuilding layers; four steps cost 8 setData calls and zero builds/source rebuilds.",
+    "The reveal animation is new behaviour and therefore has no before value; it ran at about 65 frames per second on this machine.",
+    "Preview latency and payload size are unchanged because they are dominated by the simulation response (about 1.9 MB of trajectories plus network geometry), which this frontend-only change does not alter."
+  ],
+  "limitations": [
+    "One machine, one headless Chromium build, one selected cell, and the default 24 walkers / 12 steps; not a capacity benchmark.",
+    "Development servers, not a production build or CDN.",
+    "No Safari, Firefox, or low-end hardware measurements.",
+    "The baseline had no GeoJSON-duration instrumentation, so geographic processing is evidenced by eliminated rebuilds rather than an isolated duration.",
+    "Geojson build duration and animation frame-time distribution are sampled from the data-map-perf telemetry, not a full Chrome trace.",
+    "The 3.2 s scripted drag covers pan with a simulation visible; zoom gestures and mobile drag performance were not measured."
+  ]
+}
