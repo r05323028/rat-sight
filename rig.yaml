@@ -21,7 +21,7 @@ pods:
         agent_ref: "local:.openrig/agents/vendor/orchestration/orchestrator"
         profile: default
         runtime: pi
-        model: openai-codex/gpt-5.6-luna
+        model: openai-codex/gpt-6-luna
         cwd: "."
         startup:
           files:
@@ -73,7 +73,7 @@ pods:
         agent_ref: "local:.openrig/agents/vendor/research/analyst"
         profile: default
         runtime: pi
-        model: openai-codex/gpt-5.6-luna
+        model: openai-codex/gpt-6-luna
         cwd: "."
         startup:
           files:
@@ -86,7 +86,7 @@ pods:
         agent_ref: "local:.openrig/agents/vendor/research/analyst"
         profile: default
         runtime: pi
-        model: openai-codex/gpt-5.6-luna
+        model: openai-codex/gpt-6-luna
         cwd: "."
         startup:
           files:
@@ -103,7 +103,7 @@ pods:
         agent_ref: "local:.openrig/agents/vendor/research/analyst"
         profile: default
         runtime: pi
-        model: openai-codex/gpt-5.6-luna
+        model: openai-codex/gpt-6-luna
         cwd: "."
         startup:
           files:
@@ -116,7 +116,7 @@ pods:
         agent_ref: "local:.openrig/agents/vendor/research/analyst"
         profile: default
         runtime: pi
-        model: openai-codex/gpt-5.6-luna
+        model: openai-codex/gpt-6-luna
         cwd: "."
         startup:
           files:
@@ -133,7 +133,7 @@ pods:
         agent_ref: "local:.openrig/agents/vendor/review/independent-reviewer"
         profile: default
         runtime: pi
-        model: openai-codex/gpt-5.6-luna
+        model: openai-codex/gpt-6-luna
         cwd: "."
         startup:
           files:
@@ -160,7 +160,7 @@ pods:
         agent_ref: "local:.openrig/agents/vendor/research/analyst"
         profile: default
         runtime: pi
-        model: openai-codex/gpt-5.6-luna
+        model: openai-codex/gpt-6-luna
         cwd: "."
         startup:
           files:

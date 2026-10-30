@@ -1,6 +1,24 @@
 {
   "version": 1,
   "skills": {
+    "moli-cdp-server": {
+      "source": "lexmount/moli",
+      "sourceType": "github",
+      "skillPath": "skills/moli-cdp-server/SKILL.md",
+      "computedHash": "ffff534e02d0b7b6f01472b372d31205d561fecebafbfeef6c7b582fa8b5ba50"
+    },
+    "moli-webfetch": {
+      "source": "lexmount/moli",
+      "sourceType": "github",
+      "skillPath": "skills/moli-webfetch/SKILL.md",
+      "computedHash": "78deeb7facd06f83298168397ed01fb78183af3733c6f1b17abba70d6db01501"
+    },
+    "moli-websearch": {
+      "source": "lexmount/moli",
+      "sourceType": "github",
+      "skillPath": "skills/moli-websearch/SKILL.md",
+      "computedHash": "3e59a0c653bb90223f014cb2647cfbccdf6ad9120b34d9e0051fe509426f11e4"
+    },
     "sem": {
       "source": "Ataraxy-Labs/sem",
       "sourceType": "github",
