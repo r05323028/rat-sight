@@ -5,9 +5,11 @@ OpenSpec owns schema, artifact dependencies, change validation, status, and delt
 requirements. This script checks the small machine-readable state in
 verification/gate.json plus the required narrative review records.
 
-The gate can check that claims are present and internally consistent. It cannot
-prove that reviews occurred independently, commands ran, approval was human, or
-scientific conclusions are valid. See guidance/openspec-workflow.md.
+The gate can check that claims are present and internally consistent: finding
+verification state, evidence strings, traceability status, and resolving evidence
+references. It cannot prove that a finding is correct, that a review was
+independent, that a recorded command ran, that approval was human, or that a
+scientific conclusion is valid. See guidance/openspec-workflow.md.
 """
 
 from __future__ import annotations
@@ -15,12 +17,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, TypeGuard
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.openspec_tasks import TaskCounts, task_counts  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 EXIT_PASS = 0
 EXIT_BLOCKED = 1
@@ -42,6 +48,33 @@ APPROVAL_TRIGGERS = {
     "SECURITY_OR_POLICY_CHANGE",
     "ACCEPTANCE_EXCEPTION",
 }
+# Finding verification is a separate axis from severity and from resolution status.
+FINDING_VERIFICATION_STATES = {"VERIFIED", "SUSPECTED", "UNVERIFIED", "JUDGMENT"}
+GATE_VERSION = 3
+# schema_version 2 exists only for the records written before the versioned
+# contract. Freezing the list keeps the lax checks from becoming a downgrade
+# path for new work while historical records keep passing unchanged.
+LEGACY_V2_RECORDS = frozenset(
+    {
+        "bootstrap-full-local-data",
+        "citizen-report-driven-simulation-origins",
+        "decouple-human-acceptance-from-agent-runtime",
+        "evaluate-real-rodent-data-sources",
+        "finalize-citizen-origin-data-integrity",
+        "implement-geospatial-movement-simulation",
+        "improve-first-run-map-experience",
+        "integrate-official-complaint-activity",
+        "integrate-public-trash-bin-layer",
+        "integrate-rodent-report-data",
+        "localize-web-traditional-chinese",
+        "network-aligned-movement-simulation",
+        "optimize-map-interaction-and-animated-simulation",
+        "redesign-map-exploration-experience",
+        "stabilize-local-analyst-workflow",
+        "stabilize-rodent-report-integration",
+    }
+)
+REFERENCE_SCHEMES = ("ci:", "http://", "https://")
 
 
 def issue(report: dict[str, Any], code: str, path: Path, message: str) -> None:
@@ -149,12 +182,12 @@ def cli_json(
     return payload
 
 
-def requirement_ids(report: dict[str, Any], payload: dict[str, Any]) -> set[str] | None:
+def requirement_ids(report: dict[str, Any], payload: dict[str, Any]) -> dict[str, str] | None:
     deltas = payload.get("deltas")
     if not isinstance(deltas, list):
         issue(report, "GATE-OPENSPEC-DELTA", CHANGES, "OpenSpec delta output has no deltas list")
         return None
-    found: set[str] = set()
+    found: dict[str, str] = {}
     for delta in deltas:
         if not isinstance(delta, dict) or not text(delta.get("spec")):
             issue(
@@ -185,20 +218,29 @@ def requirement_ids(report: dict[str, Any], payload: dict[str, Any]) -> set[str]
                     CHANGES,
                     "duplicate OpenSpec requirement: " + identifier,
                 )
-            found.add(identifier)
+            found[identifier] = str(delta.get("operation") or "")
     return found
 
 
 def check_openspec(
-    report: dict[str, Any], repo: Path, change: str, skipped: bool
-) -> set[str] | None:
+    report: dict[str, Any], repo: Path, change: str, skipped: bool, stage: str
+) -> dict[str, str] | None:
     if skipped:
-        warn(
-            report,
-            "GATE-OPENSPEC-SKIPPED",
-            repo / "openspec",
-            "--skip-openspec skips schema/change, artifact-status, and requirement-coverage checks",
+        message = (
+            "--skip-openspec skips schema/change, artifact-status, and requirement-coverage checks"
         )
+        if stage == "readiness":
+            issue(
+                report,
+                "GATE-OPENSPEC-SKIPPED",
+                repo / "openspec",
+                message
+                + "; readiness needs requirement coverage. Install the OpenSpec CLI, or use"
+                + " --stage planning for the pre-implementation checkpoint",
+            )
+            check(report, "OpenSpec CLI", False, "skipped at readiness; not a pass")
+            return None
+        warn(report, "GATE-OPENSPEC-SKIPPED", repo / "openspec", message)
         check(report, "OpenSpec CLI", True, "explicitly skipped; limitations recorded")
         return None
     binary = find_openspec()
@@ -264,33 +306,12 @@ def check_openspec(
     return expected
 
 
-def required_task_counts(change_dir: Path) -> tuple[int, int] | None:
+def required_task_counts(change_dir: Path) -> TaskCounts | None:
     path = change_dir / "tasks.md"
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        return task_counts(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError):
         return None
-    done = total = 0
-    in_non_required_section = False
-    for line in lines:
-        heading = re.match(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$", line)
-        if heading:
-            in_non_required_section = bool(
-                re.search(
-                    r"\b(?:non[- ]?goals?|future follow[- ]?ups?|out of scope|not required)\b",
-                    heading.group(1),
-                    re.IGNORECASE,
-                )
-            )
-            continue
-        if in_non_required_section:
-            continue
-        checkbox = re.match(r"^\s*- \[([ xX])\]", line)
-        if checkbox:
-            total += 1
-            if checkbox.group(1).lower() == "x":
-                done += 1
-    return done, total
 
 
 def check_required_tasks(report: dict[str, Any], change_dir: Path) -> None:
@@ -300,21 +321,39 @@ def check_required_tasks(report: dict[str, Any], change_dir: Path) -> None:
         issue(report, "GATE-TASKS-MISSING", path, "tasks.md is missing or unreadable")
         check(report, "required tasks", False, "missing")
         return
-    done, total = counts
-    if total == 0:
+    if counts.excluded_unfinished:
+        issue(
+            report,
+            "GATE-TASKS-EXCLUDED",
+            path,
+            str(counts.excluded_unfinished)
+            + " unchecked checkbox(es) under an excluded heading; unfinished work cannot be"
+            + " moved out of scope by relabeling it. Use plain bullets for follow-up notes.",
+        )
+    if counts.total == 0:
         issue(report, "GATE-TASKS-EMPTY", path, "tasks.md has no required checkbox tasks")
         check(report, "required tasks", False, "none declared")
         return
-    if done != total:
+    if counts.nonstandard:
+        warn(
+            report,
+            "GATE-TASKS-MARKER",
+            path,
+            str(counts.nonstandard)
+            + " checkbox(es) use a non-standard marker such as [~] or [-];"
+            + " only [x] or [X] marks a task complete",
+        )
+    if counts.done != counts.total:
         issue(
             report,
             "GATE-TASKS-INCOMPLETE",
             path,
-            f"{done}/{total} required tasks complete; incomplete tasks block readiness",
+            f"{counts.done}/{counts.total} required tasks complete;"
+            + " incomplete tasks block readiness",
         )
-        check(report, "required tasks", False, f"{done}/{total} complete")
+        check(report, "required tasks", False, f"{counts.done}/{counts.total} complete")
         return
-    check(report, "required tasks", True, f"{done}/{total} complete")
+    check(report, "required tasks", True, f"{counts.done}/{counts.total} complete")
 
 
 def load_gate_record(report: dict[str, Any], change_dir: Path) -> dict[str, Any] | None:
@@ -337,8 +376,93 @@ def load_gate_record(report: dict[str, Any], change_dir: Path) -> dict[str, Any]
     return record
 
 
+def record_version(report: dict[str, Any], change_dir: Path, record: dict[str, Any]) -> int:
+    """Return the record's declared strictness.
+
+    Declaring an older version cannot weaken the checks for a change that is not
+    one of the frozen pre-contract records. A legacy change that is edited again
+    may migrate to the current version; the strict checks then apply.
+    """
+    path = change_dir / GATE_RECORD
+    value = record.get("schema_version")
+    if value is None:
+        issue(
+            report,
+            "GATE-RECORD-VERSION",
+            path,
+            "schema_version is required; declare "
+            + str(GATE_VERSION)
+            + " (or 2 only for records that predate the versioned contract)",
+        )
+        return GATE_VERSION
+    if type(value) is not int or value < 2 or value > GATE_VERSION:
+        issue(
+            report,
+            "GATE-RECORD-VERSION",
+            path,
+            "schema_version must be an integer between 2 and " + str(GATE_VERSION),
+        )
+        return GATE_VERSION
+    if value < GATE_VERSION and change_dir.name not in LEGACY_V2_RECORDS:
+        issue(
+            report,
+            "GATE-RECORD-VERSION-LEGACY",
+            path,
+            "schema_version "
+            + str(value)
+            + " is reserved for records that predate the versioned contract; declare "
+            + str(GATE_VERSION),
+        )
+        return GATE_VERSION
+    if value < GATE_VERSION:
+        warn(
+            report,
+            "GATE-RECORD-LEGACY",
+            path,
+            "legacy record; declare "
+            + str(GATE_VERSION)
+            + " when this change is edited again so the current checks apply",
+        )
+    return value
+
+
+def reference_problem(repo: Path, change_dir: Path, value: str) -> str | None:
+    """Return why a verification reference is unusable, or None when it resolves.
+
+    Resolution is structural only: a reference that resolves says the evidence artifact
+    exists. It does not prove the recorded command ran or that the result is correct.
+    """
+    if value.startswith(REFERENCE_SCHEMES):
+        remainder = value.split(":", 1)[1] if value.startswith("ci:") else value
+        return None if text(remainder) else "CI or URL reference needs a value"
+    try:
+        candidate = Path(value)
+    except (OSError, ValueError):
+        return "reference is not a usable path"
+    if candidate.is_absolute():
+        return "absolute paths are not evidence; use a repository-relative path or ci:/https:"
+    try:
+        root = repo.resolve()
+        gate_path = (change_dir / GATE_RECORD).resolve()
+        for base in (repo, change_dir):
+            resolved = (base / candidate).resolve()
+            if not resolved.is_relative_to(root):
+                continue
+            if resolved == gate_path:
+                return "a verification entry cannot cite the gate record that contains it"
+            if resolved.is_file():
+                return None
+    except (OSError, RuntimeError, ValueError):
+        return "reference cannot be resolved"
+    return "reference does not resolve to a file in this repository"
+
+
 def check_verification(
-    report: dict[str, Any], change_dir: Path, record: dict[str, Any]
+    report: dict[str, Any],
+    repo: Path,
+    change_dir: Path,
+    record: dict[str, Any],
+    strict: bool,
 ) -> dict[str, dict[str, Any]]:
     errors_before = len(report["errors"])
     path = change_dir / GATE_RECORD
@@ -363,6 +487,15 @@ def check_verification(
         for key in ("command", "result", "reference"):
             if not text(entry.get(key)):
                 issue(report, "GATE-VERIFICATION-ENTRY", path, identifier + " has no " + key)
+        reference = entry.get("reference")
+        if text(reference):
+            problem = reference_problem(repo, change_dir, reference)
+            if problem is not None:
+                message = identifier + ": " + problem
+                if strict:
+                    issue(report, "GATE-VERIFICATION-REFERENCE", path, message)
+                else:
+                    warn(report, "GATE-VERIFICATION-REFERENCE", path, message)
         code = entry.get("exit_code")
         if type(code) is not int:
             issue(report, "GATE-VERIFICATION-EXIT", path, identifier + " has no integer exit_code")
@@ -389,6 +522,7 @@ def check_review(
     key: str,
     report_path: str,
     code: str,
+    strict: bool,
 ) -> tuple[set[str], list[str]]:
     errors_before = len(report["errors"])
     path = change_dir / report_path
@@ -454,6 +588,34 @@ def check_review(
                 identifier + " has an unknown status",
             )
             continue
+        verification_state = finding.get("verification")
+        if text(verification_state) and verification_state not in FINDING_VERIFICATION_STATES:
+            issue(
+                report,
+                code + "-FINDING-VERIFICATION",
+                change_dir / GATE_RECORD,
+                identifier
+                + " has an unknown verification state;"
+                + " use VERIFIED, SUSPECTED, UNVERIFIED, or JUDGMENT",
+            )
+        elif not text(verification_state) and strict:
+            issue(
+                report,
+                code + "-FINDING-VERIFICATION",
+                change_dir / GATE_RECORD,
+                identifier
+                + " must record verification: VERIFIED, SUSPECTED, UNVERIFIED, or JUDGMENT",
+            )
+        if severity == "BLOCKING" and not text(finding.get("evidence")):
+            message = (
+                identifier
+                + " is BLOCKING without recorded evidence; evidence is a claim, not proof,"
+                + " but an unevidenced blocker is not reviewable"
+            )
+            if strict:
+                issue(report, code + "-FINDING-EVIDENCE", change_dir / GATE_RECORD, message)
+            else:
+                warn(report, code + "-FINDING-EVIDENCE", change_dir / GATE_RECORD, message)
         if state != "RESOLVED":
             unresolved = True
         if severity == "BLOCKING" and state != "RESOLVED":
@@ -516,8 +678,9 @@ def check_engineering(
     repo: Path,
     change_dir: Path,
     record: dict[str, Any],
-    requirements: set[str] | None,
+    requirements: dict[str, str] | None,
     verification: dict[str, dict[str, Any]],
+    strict: bool,
 ) -> None:
     path = change_dir / GATE_RECORD
     rows = record.get("engineering")
@@ -551,7 +714,28 @@ def check_engineering(
             if not text(row.get("gap")):
                 issue(report, "GATE-TRACE-GAP", path, identifier + " needs a reason for " + status)
             if status == "PARTIALLY_VERIFIED":
-                warn(report, "GATE-TRACE-PARTIAL", path, identifier + " is only partially verified")
+                message = identifier + " is only partially verified"
+                if strict:
+                    issue(
+                        report,
+                        "GATE-TRACE-PARTIAL",
+                        path,
+                        message + "; incomplete verification is not readiness",
+                    )
+                else:
+                    warn(report, "GATE-TRACE-PARTIAL", path, message)
+            if status == "NOT_APPLICABLE":
+                operation = requirements.get(identifier) if requirements is not None else None
+                if requirements is not None and operation != "REMOVED":
+                    message = (
+                        identifier
+                        + " is NOT_APPLICABLE but the change does not remove that requirement;"
+                        + " changed requirements must be verified"
+                    )
+                    if strict:
+                        issue(report, "GATE-TRACE-EXCEPTION", path, message)
+                    else:
+                        warn(report, "GATE-TRACE-EXCEPTION", path, message)
         if status == "VERIFIED":
             check_paths(
                 report, repo, path, row.get("implementation"), identifier + " implementation"
@@ -575,8 +759,8 @@ def check_engineering(
                             identifier + " cites unknown verification id: " + str(reference),
                         )
     if requirements is not None:
-        missing = requirements - seen
-        extra = seen - requirements
+        missing = set(requirements) - seen
+        extra = seen - set(requirements)
         for identifier in sorted(missing):
             issue(report, "GATE-TRACE-COVERAGE", path, "missing requirement mapping: " + identifier)
         for identifier in sorted(extra):
@@ -829,6 +1013,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip OpenSpec CLI checks; records a limitation",
     )
+    parser.add_argument(
+        "--stage",
+        choices=("readiness", "planning"),
+        default="readiness",
+        help=(
+            "planning checks only the pre-implementation adversarial review state;"
+            " readiness checks the full archive contract"
+        ),
+    )
     return parser
 
 
@@ -836,6 +1029,7 @@ def emit(report: dict[str, Any], as_json: bool) -> None:
     payload = {
         "change": report["change"],
         "repo": str(report["repo"]),
+        "stage": report.get("stage", "readiness"),
         "passed": not report["errors"],
         "checks": report["checks"],
         "errors": report["errors"],
@@ -904,30 +1098,48 @@ def main(argv: list[str] | None = None) -> int:
         "errors": [],
         "warnings": [],
     }
-    requirements = check_openspec(report, repo, change, args.skip_openspec)
-    check_required_tasks(report, change_dir)
+    stage = args.stage
+    report["stage"] = stage
+    requirements = check_openspec(report, repo, change, args.skip_openspec, stage)
+    if stage == "readiness":
+        check_required_tasks(report, change_dir)
     record = load_gate_record(report, change_dir)
-    accepted: set[str] = set()
     if record is not None:
-        verification = check_verification(report, change_dir, record)
+        strict = record_version(report, change_dir, record) >= GATE_VERSION
+        verification: dict[str, dict[str, Any]] = {}
+        if stage == "readiness":
+            verification = check_verification(report, repo, change_dir, record, strict)
         reviews = record.get("reviews")
         ar_ids, ar_accepted = check_review(
-            report, change_dir, reviews, "adversarial", "adversarial-review.md", "GATE-AR"
+            report,
+            change_dir,
+            reviews,
+            "adversarial",
+            "adversarial-review.md",
+            "GATE-AR",
+            strict,
         )
-        cr_ids, cr_accepted = check_review(
-            report, change_dir, reviews, "code", "verification/code-review.md", "GATE-CR"
-        )
-        if ar_ids & cr_ids:
-            issue(
+        if stage == "readiness":
+            cr_ids, cr_accepted = check_review(
                 report,
-                "GATE-FINDING-ID",
-                change_dir / GATE_RECORD,
-                "finding ids must be unique across reviews",
+                change_dir,
+                reviews,
+                "code",
+                "verification/code-review.md",
+                "GATE-CR",
+                strict,
             )
-        accepted = set(ar_accepted + cr_accepted)
-        check_engineering(report, repo, change_dir, record, requirements, verification)
-        check_science(report, repo, change_dir, record, verification)
-        check_approval(report, change_dir, record, accepted)
+            if ar_ids & cr_ids:
+                issue(
+                    report,
+                    "GATE-FINDING-ID",
+                    change_dir / GATE_RECORD,
+                    "finding ids must be unique across reviews",
+                )
+            accepted = set(ar_accepted + cr_accepted)
+            check_engineering(report, repo, change_dir, record, requirements, verification, strict)
+            check_science(report, repo, change_dir, record, verification)
+            check_approval(report, change_dir, record, accepted)
 
     emit(report, args.json)
     return EXIT_PASS if not report["errors"] else EXIT_BLOCKED

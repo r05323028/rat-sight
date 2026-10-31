@@ -1,4 +1,4 @@
-.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke lint typecheck format-check build validate openspec-gate openspec-archive change-review change-status change-accept import-districts import-stormwater data-bootstrap
+.PHONY: install install-js install-py db-up db-down migrate api web test test-js test-py test-e2e geospatial-smoke lint typecheck format-check build validate openspec-gate openspec-archive openspec-preflight openspec-validate openspec-archive change-review change-status change-accept import-districts import-stormwater data-bootstrap
 
 PNPM ?= corepack pnpm
 
@@ -88,6 +88,15 @@ validate:
 # Deterministic check used by the archive wrapper; not an OpenSpec hook.
 openspec-gate:
 	uv run python scripts/openspec_quality_gate.py $(CHANGE)
+
+# Pre-implementation checkpoint: planning artifacts plus recorded adversarial review state.
+openspec-preflight:
+	uv run python scripts/openspec_quality_gate.py $(CHANGE) --stage planning
+
+# Deterministic structural validation of touched changes; no tests, no gate.
+# Pass --all to the script directly to validate every active change.
+openspec-validate:
+	uv run python scripts/openspec_validate_changed.py
 
 change-review:
 	uv run python scripts/change_acceptance.py review $(CHANGE)

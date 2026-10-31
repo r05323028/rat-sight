@@ -1,4 +1,5 @@
 {
+  "schema_version": 2,
   "reviews": {
     "adversarial": {"decision":"PASS_WITH_WARNINGS","findings":[{"id":"AR-NAMS-001","severity":"MAJOR","status":"RESOLVED","note":"Pinned bounded OSM source contract recorded."},{"id":"AR-NAMS-002","severity":"MAJOR","status":"RESOLVED","note":"Source geometry preserved and rendered."},{"id":"AR-NAMS-003","severity":"MAJOR","status":"RESOLVED","note":"Scientific limits are visible."},{"id":"AR-NAMS-004","severity":"MAJOR","status":"RESOLVED","note":"Surface-only; no underground inference."},{"id":"AR-NAMS-005","severity":"MAJOR","status":"RESOLVED","note":"Trajectory/API contract tested; synthetic graph retained."}],"reference":"adversarial-review.md"},
     "code": {"decision":"PASS_WITH_WARNINGS","findings":[],"reference":"verification/code-review.md","note":"Independent review PASS; pixel-level basemap alignment remains unverified."}

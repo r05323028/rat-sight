@@ -24,6 +24,39 @@ def run_cli(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def instructions(repo: Path, artifact: str) -> dict[str, object]:
+    result = run_cli(repo, "instructions", artifact, "--change", "gate-fixture", "--json")
+    assert result.returncode == 0, result.stdout + result.stderr
+    return json.loads(result.stdout)
+
+
+def test_schema_instructions_embed_upstream_guidance(tmp_path: Path) -> None:
+    repo = prepare_repo(tmp_path)
+    specs = str(instructions(repo, "specs")["instruction"])
+    for probe in (
+        "planningHome.root",
+        "500 characters",
+        "## Purpose",
+        "MODIFIED",
+        "#### Scenario",
+    ):
+        assert probe in specs, probe
+    tasks = str(instructions(repo, "tasks")["instruction"])
+    for probe in ("Workflow follow-up", "verify completion", "openspec-preflight"):
+        assert probe in tasks, probe
+    schema_text = (repo / "openspec/schemas/evidence-driven/schema.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert schema_text.count("openspec-preflight") >= 2
+    # The upstream apply instruction must stay verbatim: the schema appends to it rather
+    # than replacing it, so an agent keeps the native guidance.
+    for probe in (
+        "Read context files, work through pending tasks, mark complete as you go.",
+        "Pause if you hit blockers or need clarification.",
+    ):
+        assert probe in schema_text, probe
+
+
 def test_installed_cli_validates_custom_schema(tmp_path: Path) -> None:
     repo = prepare_repo(tmp_path)
     result = run_cli(repo, "schema", "validate", "evidence-driven")

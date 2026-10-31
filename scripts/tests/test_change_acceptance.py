@@ -35,7 +35,7 @@ def repo(tmp_path: Path) -> tuple[Path, Path]:
     (root / "tests/test_application.py").write_text("def test_value(): pass\n", encoding="utf-8")
     (change / "proposal.md").write_text("# Example\n\nSmall workflow change.\n", encoding="utf-8")
     (change / "tasks.md").write_text(
-        "- [x] required implementation\n\n## Future follow-up\n- [ ] later\n", encoding="utf-8"
+        "- [x] required implementation\n\n## Future follow-up\n- Archive later.\n", encoding="utf-8"
     )
     (change / "verification/gate.json").write_text(json.dumps({"approval": None}), encoding="utf-8")
     (change / "verification/qa.md").write_text("QA evidence\n", encoding="utf-8")
@@ -107,7 +107,7 @@ def test_missing_tasks_block_readiness(tmp_path: Path, monkeypatch) -> None:
     (change / "tasks.md").unlink()
     monkeypatch.setattr(module, "gate", lambda *_: {"passed": True, "errors": [], "warnings": []})
     data = module.summary(root, "example")
-    assert data["tasks"] == {"done": 0, "total": 0}
+    assert data["tasks"] == {"done": 0, "total": 0, "excluded_unfinished": 0}
     assert data["readiness"]["implementation_tasks_complete"] is False
     assert data["ready_for_human_review"] is False
 

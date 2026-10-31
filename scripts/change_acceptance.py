@@ -15,6 +15,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.openspec_tasks import TaskCounts  # noqa: E402
+from scripts.openspec_tasks import task_counts as count_tasks
+
 CHANGE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OWNER_FILE = Path("verification") / "owner-decision.json"
 STATUSES = {"ACCEPTED", "CHANGES_REQUESTED", "DEFERRED"}
@@ -197,35 +203,14 @@ def evidence_present(path: Path) -> bool:
         return False
 
 
-def task_counts(directory: Path) -> tuple[int, int]:
+def task_counts(directory: Path) -> TaskCounts:
     path = directory / "tasks.md"
     if not path.is_file():
-        return 0, 0
+        return TaskCounts()
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        return count_tasks(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError):
-        return 0, 0
-    done = total = 0
-    in_non_required_section = False
-    for line in lines:
-        heading = re.match(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$", line)
-        if heading:
-            in_non_required_section = bool(
-                re.search(
-                    r"\b(?:non[- ]?goals?|future follow[- ]?ups?|out of scope|not required)\b",
-                    heading.group(1),
-                    re.IGNORECASE,
-                )
-            )
-            continue
-        if in_non_required_section:
-            continue
-        checkbox = re.match(r"^\s*- \[([ xX])\]", line)
-        if checkbox:
-            total += 1
-            if checkbox.group(1).lower() == "x":
-                done += 1
-    return done, total
+        return TaskCounts()
 
 
 def summary(root: Path, change: str) -> dict[str, Any]:
@@ -246,7 +231,7 @@ def summary(root: Path, change: str) -> dict[str, Any]:
         )
     )
     gate_result = gate(root, change)
-    tasks_done, tasks_total = task_counts(directory)
+    counts = task_counts(directory)
     tasks_file = directory / "tasks.md"
     gate_file = directory / "verification" / "gate.json"
     gate_data: dict[str, Any] = {}
@@ -265,7 +250,7 @@ def summary(root: Path, change: str) -> dict[str, Any]:
         directory / "verification" / "code-review.md",
     )
     verification_complete = all(evidence_present(path) for path in required_evidence)
-    implementation_complete = tasks_file.is_file() and tasks_total > 0 and tasks_done == tasks_total
+    implementation_complete = tasks_file.is_file() and counts.complete
     approval_satisfied = not approval.get("required") or approval.get("decision") == "APPROVED"
     clean_snapshot = state["valid"] and not state["dirty"] and current_fingerprint is not None
     readiness = {
@@ -291,7 +276,11 @@ def summary(root: Path, change: str) -> dict[str, Any]:
     return {
         "change": change,
         "proposal": proposal_summary(directory),
-        "tasks": {"done": tasks_done, "total": tasks_total},
+        "tasks": {
+            "done": counts.done,
+            "total": counts.total,
+            "excluded_unfinished": counts.excluded_unfinished,
+        },
         "git": state,
         "gate": {
             "passed": gate_passed,

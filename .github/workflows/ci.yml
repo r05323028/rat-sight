@@ -29,7 +29,12 @@ jobs:
   python:
     runs-on: ubuntu-latest
     steps:
+      # Full history: the changed-only OpenSpec validation diffs against the
+      # pull-request base or the pre-push commit. A depth-1 checkout would make
+      # that range unresolvable; the script fails instead of validating zero.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -39,6 +44,13 @@ jobs:
           node-version: 26
       - run: npm install --global @fission-ai/openspec@1.14.1
       - run: uv sync --locked --all-packages --all-groups
+      # Structural OpenSpec validation for touched changes only. Heavyweight
+      # behavioral verification and the quality gate stay outside this step.
+      - run: uv run --locked python scripts/openspec_validate_changed.py
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
       - run: uv run --locked ruff check .
       - run: uv run --locked basedpyright
       - run: uv run --locked pytest scripts/tests

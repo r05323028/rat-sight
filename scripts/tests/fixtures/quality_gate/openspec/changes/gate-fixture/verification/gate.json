@@ -1,4 +1,5 @@
 {
+  "schema_version": 3,
   "reviews": {
     "adversarial": {
       "decision": "PASS",
@@ -13,9 +14,15 @@
     {
       "requirement": "gate-fixture#Fixture capability returns a constant",
       "status": "VERIFIED",
-      "implementation": ["services/api/src/fixture.py"],
-      "tests": ["services/api/tests/fixture_case.py"],
-      "verification": ["fixture-test-run"]
+      "implementation": [
+        "services/api/src/fixture.py"
+      ],
+      "tests": [
+        "services/api/tests/fixture_case.py"
+      ],
+      "verification": [
+        "fixture-test-run"
+      ]
     }
   ],
   "verification": [
@@ -24,7 +31,7 @@
       "command": "synthetic fixture command (not executed evidence)",
       "exit_code": 0,
       "result": "synthetic fixture result",
-      "reference": "fixture-only-reference"
+      "reference": "docs/evidence/EV-1.md"
     }
   ],
   "science": {
