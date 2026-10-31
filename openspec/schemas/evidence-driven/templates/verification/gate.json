@@ -1,4 +1,5 @@
 {
+  "schema_version": 3,
   "reviews": {
     "adversarial": {
       "decision": "BLOCKED",
@@ -15,7 +16,7 @@
       "command": "",
       "exit_code": null,
       "result": "",
-      "reference": ""
+      "reference": "ci:REPLACE-WITH-CI-RUN-OR-ARTIFACT-REFERENCE"
     }
   ],
   "engineering": [
