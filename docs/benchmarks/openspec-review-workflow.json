@@ -1,0 +1,71 @@
+{
+  "schema": "openspec-review-workflow-experiment/1",
+  "date": "2026-10-30",
+  "classification": "illustrative",
+  "classification_note": "Exploratory single-reviewer exercise on five constructed cases. It illustrates which artifacts one reviewer inspected; it is not a controlled study, not a reproducible benchmark, and not evidence that defect-detection rates improve in general.",
+  "question": "Does the Phase 2 review guidance change what a reviewer inspects and reports?",
+  "design": {
+    "environment": "isolated git sandbox at /tmp/sem-eval/app (disposable, never committed; the branches no longer exist in this repository)",
+    "cases": 5,
+    "cases_with_seeded_defects": 4,
+    "seeded_defects_total": 5,
+    "ground_truth": {
+      "s1 caller break after rename": 1,
+      "s2 vacuous test + unimplemented behavior": 2,
+      "s3 contradictory requirements": 1,
+      "s4 consumer contract break": 1,
+      "s5 clean change (bait for false positives)": 0
+    },
+    "pass_a": "diff-focused review under the pre-change templates (git HEAD)",
+    "pass_b": "repository-context review under the Phase 2 templates",
+    "scoring": "seeded defects matched against reported findings; behavioral coverage counts requirements with a behavioral mapping",
+    "reviewer": "single agent, both passes, ground truth known to the experiment author",
+    "preserved_artifacts": {
+      "prompts": false,
+      "reviewer_outputs": false,
+      "transcripts": false,
+      "sandbox_repository": false
+    },
+    "missing_evidence_note": "No prompt, transcript, reviewer output, or seed repository was preserved. Only the aggregate counts below survive, so the exercise cannot be rerun or audited case by case."
+  },
+  "results": {
+    "baseline_pass_a": {
+      "defects_found": 1,
+      "defects_seeded": 5,
+      "recall": 0.2,
+      "findings_reported": 4,
+      "false_positives_on_clean_case": 0,
+      "behavioral_coverage": 0,
+      "effort_proxy": {
+        "review_words": 69,
+        "note": "word count only; no timing, token, or reviewer-hour measurement"
+      },
+      "precision": null,
+      "precision_note": "not computed: per-finding true/false classification was never recorded"
+    },
+    "improved_pass_b": {
+      "defects_found": 5,
+      "defects_seeded": 5,
+      "recall": 1,
+      "findings_reported": 5,
+      "false_positives_on_clean_case": 0,
+      "behavioral_coverage": 4,
+      "effort_proxy": {
+        "review_words": 121,
+        "note": "word count only; no timing, token, or reviewer-hour measurement"
+      },
+      "precision": null,
+      "precision_note": "not computed: per-finding true/false classification was never recorded"
+    }
+  },
+  "limitations": [
+    "n=5 constructed cases with known ground truth; recall is not an estimate over real changes",
+    "single reviewer executed both passes, so order and familiarity can inflate the improvement",
+    "pass A is modelled as diff-focused, which understates a careful reviewer using the old template's 'relevant surrounding code' line",
+    "no independent second reviewer, no inter-rater reliability, no measure of defect escapes over time",
+    "the experiment measures inspection scope and reporting, not semantic correctness of the findings",
+    "no per-finding true/false table was kept, so precision cannot be derived from the recorded data",
+    "the sandbox and reviewer transcripts were not preserved, so the exercise is not reproducible"
+  ],
+  "interpretation": "The guidance changed which artifacts were inspected (callers, tests, specs) and therefore which defects were reported in this exercise. This is an illustration of the guidance's effect on one reviewer, not evidence that defect-detection rates improved in general."
+}
