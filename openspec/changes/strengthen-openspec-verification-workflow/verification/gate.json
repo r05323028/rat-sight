@@ -1,0 +1,297 @@
+{
+  "schema_version": 3,
+  "reviews": {
+    "adversarial": {
+      "decision": "PASS_WITH_WARNINGS",
+      "review": "adversarial-review.md",
+      "timing": "post-implementation (retrospective self-review)",
+      "findings": [
+        {
+          "id": "AR-1",
+          "severity": "BLOCKING",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "Schema-version downgrade bypass (B1).",
+          "evidence": "A new change declaring schema_version 2 now exits 1 with GATE-RECORD-VERSION-LEGACY; test_new_change_cannot_declare_legacy_version covers it."
+        },
+        {
+          "id": "AR-2",
+          "severity": "BLOCKING",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "Vacuous changed-only validation in CI (B2).",
+          "evidence": "A shallow clone and a missing base both exit 2; tests test_shallow_checkout_cannot_report_success and test_missing_base_fails_explicitly assert it."
+        },
+        {
+          "id": "AR-3",
+          "severity": "BLOCKING",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "Non-standard checkbox markers hid unfinished tasks (B3).",
+          "evidence": "test_openspec_tasks.py covers [ ], [x], [X], [~], [-], [] and a mixed file; the old parser reported 1/1 complete where the new one reports 1/4."
+        },
+        {
+          "id": "AR-4",
+          "severity": "MAJOR",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "Evidence default pointed at agent-authored prose and did not distinguish pointer from proof (B4).",
+          "evidence": "Template default is a placeholder; guidance states references resolve but do not prove execution or correctness."
+        },
+        {
+          "id": "AR-5",
+          "severity": "MAJOR",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "--skip-openspec at acceptance demoted requirement coverage to warnings (B5).",
+          "evidence": "Readiness returns GATE-OPENSPEC-SKIPPED; test_readiness_rejects_skipped_requirement_coverage asserts the error and the planning-stage exception."
+        },
+        {
+          "id": "AR-6",
+          "severity": "MAJOR",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "The project schema replaced the upstream apply instruction (P3).",
+          "evidence": "The upstream apply line is present verbatim in openspec/schemas/evidence-driven/schema.yaml; test_openspec_schema.py asserts the upstream text."
+        },
+        {
+          "id": "AR-7",
+          "severity": "MAJOR",
+          "verification": "JUDGMENT",
+          "status": "OPEN",
+          "summary": "No independent reviewer; the implementing agent wrote this review."
+        },
+        {
+          "id": "AR-8",
+          "severity": "MINOR",
+          "verification": "VERIFIED",
+          "status": "OPEN",
+          "summary": "The v2 allowance is keyed on the change directory name, so a re-created legacy directory would inherit it."
+        },
+        {
+          "id": "AR-9",
+          "severity": "MINOR",
+          "verification": "SUSPECTED",
+          "status": "OPEN",
+          "summary": "A force-push can name an unreachable before commit, which fails CI loudly instead of validating."
+        },
+        {
+          "id": "AR-10",
+          "severity": "MINOR",
+          "verification": "UNVERIFIED",
+          "status": "OPEN",
+          "summary": "Real GitHub Actions is not executed here; event paths are simulated in disposable repositories."
+        },
+        {
+          "id": "AR-11",
+          "severity": "MINOR",
+          "verification": "VERIFIED",
+          "status": "OPEN",
+          "summary": "Markers longer than three characters read as plain bullets and are absent from the task total."
+        },
+        {
+          "id": "AR-12",
+          "severity": "MINOR",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "The benchmark claimed precision it never recorded.",
+          "evidence": "precision is null and the file is classified illustrative; scripts/tests/test_openspec_benchmark_labels.py asserts it."
+        }
+      ]
+    },
+    "code": {
+      "decision": "PASS_WITH_WARNINGS",
+      "review": "verification/code-review.md",
+      "timing": "post-implementation",
+      "findings": [
+        {
+          "id": "CR-1",
+          "severity": "MINOR",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "Task counting is single-sourced in scripts/openspec_tasks.py; change_acceptance.py delegates to it."
+        },
+        {
+          "id": "CR-2",
+          "severity": "MINOR",
+          "verification": "VERIFIED",
+          "status": "OPEN",
+          "summary": "Deleting a change directory is not detected by changed-only validation (--diff-filter=d)."
+        },
+        {
+          "id": "CR-3",
+          "severity": "INFO",
+          "verification": "JUDGMENT",
+          "status": "OPEN",
+          "summary": "The gate records references and exit codes but cannot authenticate them."
+        },
+        {
+          "id": "CR-4",
+          "severity": "MINOR",
+          "verification": "VERIFIED",
+          "status": "OPEN",
+          "summary": "Every legacy record run emits a GATE-RECORD-LEGACY warning."
+        },
+        {
+          "id": "CR-5",
+          "severity": "MINOR",
+          "verification": "VERIFIED",
+          "status": "RESOLVED",
+          "summary": "A base resolving to HEAD is an error, so a shallow checkout cannot look like a clean change set."
+        }
+      ]
+    }
+  },
+  "verification": [
+    {
+      "id": "V1",
+      "command": "uv run -- python -m pytest scripts/tests -q",
+      "result": "101 passed in 636.31s",
+      "reference": "scripts/tests/test_openspec_quality_gate.py",
+      "exit_code": 0
+    },
+    {
+      "id": "V2",
+      "command": "openspec schema validate evidence-driven",
+      "result": "schema is valid",
+      "reference": "openspec/schemas/evidence-driven/schema.yaml",
+      "exit_code": 0
+    },
+    {
+      "id": "V3",
+      "command": "uv run pytest scripts/tests/test_openspec_benchmark_labels.py -q",
+      "result": "3 passed",
+      "reference": "scripts/tests/test_openspec_benchmark_labels.py",
+      "exit_code": 0
+    },
+    {
+      "id": "V4",
+      "command": "uv run python scripts/openspec_quality_gate.py bootstrap-full-local-data --json",
+      "result": "PASS with GATE-RECORD-LEGACY warning; legacy decision unchanged",
+      "reference": "openspec/changes/bootstrap-full-local-data/verification/gate.json",
+      "exit_code": 0
+    },
+    {
+      "id": "V5",
+      "command": "uv run ruff check .",
+      "result": "All checks passed",
+      "reference": "scripts/openspec_tasks.py",
+      "exit_code": 0
+    },
+    {
+      "id": "V6",
+      "command": "uv run basedpyright",
+      "result": "0 errors",
+      "reference": "scripts/openspec_validate_changed.py",
+      "exit_code": 0
+    }
+  ],
+  "engineering": [
+    {
+      "requirement": "openspec-verification-workflow#Frozen legacy record version",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/openspec_quality_gate.py"
+      ],
+      "tests": [
+        "scripts/tests/test_openspec_quality_gate.py"
+      ],
+      "verification": [
+        "V1"
+      ]
+    },
+    {
+      "requirement": "openspec-verification-workflow#Non-vacuous changed-only CI validation",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/openspec_validate_changed.py",
+        ".github/workflows/ci.yml"
+      ],
+      "tests": [
+        "scripts/tests/test_openspec_validate_changed.py"
+      ],
+      "verification": [
+        "V1"
+      ]
+    },
+    {
+      "requirement": "openspec-verification-workflow#Consistent task marker counting",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/openspec_tasks.py",
+        "scripts/openspec_quality_gate.py",
+        "scripts/change_acceptance.py"
+      ],
+      "tests": [
+        "scripts/tests/test_openspec_tasks.py",
+        "scripts/tests/test_openspec_quality_gate.py",
+        "scripts/tests/test_change_acceptance.py"
+      ],
+      "verification": [
+        "V1"
+      ]
+    },
+    {
+      "requirement": "openspec-verification-workflow#Evidence references are pointers",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/openspec_quality_gate.py",
+        "guidance/openspec-workflow.md",
+        "openspec/schemas/evidence-driven/templates/verification/gate.json"
+      ],
+      "tests": [
+        "scripts/tests/test_openspec_quality_gate.py"
+      ],
+      "verification": [
+        "V1"
+      ]
+    },
+    {
+      "requirement": "openspec-verification-workflow#Skip-openSpec is planning-only",
+      "status": "VERIFIED",
+      "implementation": [
+        "scripts/openspec_quality_gate.py",
+        "Makefile"
+      ],
+      "tests": [
+        "scripts/tests/test_openspec_quality_gate.py"
+      ],
+      "verification": [
+        "V1"
+      ]
+    },
+    {
+      "requirement": "openspec-verification-workflow#Upstream schema instructions are preserved",
+      "status": "VERIFIED",
+      "implementation": [
+        "openspec/schemas/evidence-driven/schema.yaml"
+      ],
+      "tests": [
+        "scripts/tests/test_openspec_schema.py"
+      ],
+      "verification": [
+        "V1",
+        "V2"
+      ]
+    },
+    {
+      "requirement": "openspec-verification-workflow#Illustrative benchmark labelling",
+      "status": "VERIFIED",
+      "implementation": [
+        "docs/benchmarks/openspec-review-workflow.json"
+      ],
+      "tests": [
+        "scripts/tests/test_openspec_benchmark_labels.py"
+      ],
+      "verification": [
+        "V3"
+      ]
+    }
+  ],
+  "science": {
+    "applicable": false,
+    "reason": "Tooling and process change: it makes no biological, spatial, or observational claim and introduces no data.",
+    "claims": []
+  },
+  "approval": null
+}
