@@ -43,4 +43,18 @@ resolution, the [ ], [x], [X], [~], [-], [] marker matrix, and the readiness ski
   are the checkable part.
 - A legacy record can still be edited under `schema_version: 2`; the gate warns
   `GATE-RECORD-LEGACY` but does not force migration (AR-8).
-- The evidence above was produced locally, not in CI.
+- The table above is local evidence; the CI run below is recorded separately and does not re-check this record's gate.
+
+## Real CI run
+
+Run [41213926740](https://github.com/r05323028/rat-sight/actions/runs/41213926740) ran for `44b603f` on the push event on 2026-10-31 (UTC), after this
+record was written. It is the first real Actions execution for this change set; everything above
+was local.
+
+- `scripts/openspec_validate_changed.py` resolved the base to `e90ae90`, the pre-push commit, and
+  validated the schema plus the 17 touched changes — including this one.
+- `pytest scripts/tests`, `ruff check .`, `basedpyright`, and the web job all passed.
+- The job then failed in `services/api/tests` with
+  `FileNotFoundError: configured OSM source is absent: /home/runner/.local/share/ratsight/network/taipei-expanded-ratdar-20261027.osm`.
+  The same missing data file failed the `packages/geo` step on 2026-10-27. That is a runner
+  data-dependency failure, not a regression from this change, and it predates this change set.
